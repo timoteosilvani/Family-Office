@@ -947,11 +947,6 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
 
 
         
-        <div class="tabs" style="margin-bottom:16px">
-          <button class="tab-btn active" onclick="switchTab('pat','resumen',this)">Resumen</button>
-          <button class="tab-btn" onclick="switchTab('pat','historial',this)">Historial Propiedades</button>
-        </div>
-        <div id="pat-resumen" class="tab-content">
         <div class="section-title">Evolución Patrimonial</div>
         <p style="color:var(--text3);font-size:13px;margin-bottom:20px">Consolidado anual en USD. Cada fila es un titular, cada columna un año.</p>
 
@@ -978,7 +973,6 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
             </table>
           </div>
         </div>
-        </div><!-- /pat-resumen -->
 
         
 
@@ -1004,6 +998,31 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
             <tbody id="tbody-historial-props"></tbody>
           </table></div></div>
         </div><!-- /pat-historial -->
+
+
+        <!-- Historial de valores -->
+        <div style="margin-top:24px">
+          <div class="section-title" style="margin-bottom:4px">Historial de Valores — Propiedades</div>
+          <p style="color:var(--text3);font-size:12px;margin-bottom:14px">Evolución del valor de cada propiedad año a año en USD.</p>
+          <div class="filters" style="margin-bottom:14px">
+            <button class="filter-btn f-all active" onclick="filtroHistorial('all',this)">Todas</button>
+            <button class="filter-btn f-arg" onclick="filtroHistorial('ARG',this)">🇦🇷 ARG</button>
+            <button class="filter-btn f-usa" onclick="filtroHistorial('USA',this)">🇺🇸 USA</button>
+            <button class="filter-btn f-uru" onclick="filtroHistorial('URU',this)">🇺🇾 URU</button>
+            <button class="filter-btn f-esp" onclick="filtroHistorial('ESP',this)">🇪🇸 ESP</button>
+            <button class="filter-btn" onclick="filtroHistorial('vendidas',this)">Vendidas</button>
+          </div>
+          <div class="card"><div class="table-wrap"><table>
+            <thead><tr>
+              <th>#</th><th>Propiedad</th><th>Tit.</th>
+              <th class="num">2017</th><th class="num">2018</th><th class="num">2019</th>
+              <th class="num">2020</th><th class="num">2021</th><th class="num">2022</th>
+              <th class="num">2023</th><th class="num">2024</th><th class="num">2025</th>
+              <th class="num">2026</th><th class="num">Var%</th>
+            </tr></thead>
+            <tbody id="tbody-historial-props"></tbody>
+          </table></div></div>
+        </div>
 
       </div><!-- /page-patrimonio -->
 
@@ -1378,61 +1397,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
       </div>
 
 
-        <div id="pat-historial" class="tab-content">
-          <div class="section-title" style="margin-bottom:4px">Historial de Valores — Propiedades</div>
-          <p style="color:var(--text3);font-size:12px;margin-bottom:14px">Evolución del valor de cada propiedad año a año en USD.</p>
-          <div class="filters" style="margin-bottom:14px">
-            <button class="filter-btn f-all active" onclick="filtroHistorial('all',this)">Todas</button>
-            <button class="filter-btn f-arg" onclick="filtroHistorial('ARG',this)">🇦🇷 ARG</button>
-            <button class="filter-btn f-usa" onclick="filtroHistorial('USA',this)">🇺🇸 USA</button>
-            <button class="filter-btn f-uru" onclick="filtroHistorial('URU',this)">🇺🇾 URU</button>
-            <button class="filter-btn f-esp" onclick="filtroHistorial('ESP',this)">🇪🇸 ESP</button>
-            <button class="filter-btn f-arg" onclick="filtroHistorial('vendidas',this)">Vendidas</button>
-          </div>
-          <div class="card">
-            <div class="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>#</th><th>Propiedad</th><th>Tit.</th>
-                    <th class="num">2017</th><th class="num">2018</th><th class="num">2019</th>
-                    <th class="num">2020</th><th class="num">2021</th><th class="num">2022</th>
-                    <th class="num">2023</th><th class="num">2024</th><th class="num">2025</th>
-                    <th class="num">2026</th><th class="num">Var%</th>
-                  </tr>
-                </thead>
-                <tbody id="tbody-historial-props"></tbody>
-              </table>
-            </div>
-          </div>
-
-      <!-- Modal Comparador -->
-      <div class="modal-overlay" id="modal-comparador">
-        <div class="modal" style="max-width:800px;width:95%">
-          <div class="modal-header">
-            <div class="modal-title">⚖️ Comparador de Propiedades</div>
-            <button class="modal-close" onclick="closeModal('modal-comparador')">×</button>
-          </div>
-          <div class="modal-body">
-            <div class="form-row cols-2" style="margin-bottom:16px">
-              <div>
-                <label class="fld">Propiedad A</label>
-                <select class="fld" id="comp-prop1"><option value="">Seleccionar...</option></select>
-              </div>
-              <div>
-                <label class="fld">Propiedad B</label>
-                <select class="fld" id="comp-prop2"><option value="">Seleccionar...</option></select>
-              </div>
-            </div>
-            <div style="text-align:center;margin-bottom:16px">
-              <button class="btn-primary" style="width:auto;padding:10px 32px" onclick="compararActivos()">Comparar →</button>
-            </div>
-            <div id="comp-result"></div>
-          </div>
-        </div>
-      </div>
-
-      </div><!-- /page-propiedades -->
+        <!-- /page-propiedades -->
 
       <!-- ======== PROP RANKING ======== -->
       <div id="page-ranking" class="page">
@@ -3512,7 +3477,7 @@ function navTo(page) {
 }
 
 function switchTab(group, tab, el) {
-  const pageMap = { prop:'propiedades', banco:'bancos', pe:'private_equity', org:'organigramas', soc:'sociedades', aut:'autos', gasto:'gastos', pat:'patrimonio' };
+  const pageMap = { prop:'propiedades', banco:'bancos', pe:'private_equity', org:'organigramas', soc:'sociedades', aut:'autos', gasto:'gastos' };
   const pageId = pageMap[group] || group;
   const page = document.getElementById('page-' + pageId);
   if (!page) { console.error('Page not found: page-' + pageId); return; }
@@ -3632,7 +3597,7 @@ async function populateAllSelects() {
 async function loadPage(page) {
   switch(page) {
     case 'dashboard': await loadDashboard(); break;
-    case 'patrimonio': await loadPatrimonio(); renderHistorialProps('all'); initFirstTab('patrimonio'); break;
+    case 'patrimonio': await loadPatrimonio(); renderHistorialProps('all'); break;
     case 'propiedades': await loadPropiedades(); await loadAlquileres(); initFirstTab('propiedades'); break;
     case 'ranking': await loadRanking(); break;
     case 'bancos': await loadBancos(); await loadBancosEvolucion(); initFirstTab('bancos'); break;
