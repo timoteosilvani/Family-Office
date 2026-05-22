@@ -1878,6 +1878,48 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
           <button class="tab-btn" onclick="switchTab('gasto','carga',this)">✏️ Carga</button>
         </div>
 
+        <div id="gasto-tabla" class="tab-content" style="display:block">
+          <div class="section-title" style="margin-bottom:4px">Vista Tabla</div>
+          <p style="color:var(--text3);font-size:12px;margin-bottom:14px">Filas = conceptos, columnas = meses. Todas las propiedades una abajo de la otra.</p>
+          <div class="card" style="margin-bottom:14px;padding:12px 16px">
+            <div class="form-row cols-4" style="margin:0">
+              <div>
+                <label class="fld">Buscar propiedad</label>
+                <select class="fld" id="gastos-prop-tabla" onchange="verGastosTabla()">
+                  <option value="">Todas las propiedades</option>
+                </select>
+              </div>
+              <div>
+                <label class="fld">Año</label>
+                <select class="fld" id="gastos-anio-tabla" onchange="verGastosTabla()">
+                  <option value="2026">2026</option><option value="2025">2025</option>
+                </select>
+              </div>
+              <div>
+                <label class="fld">País</label>
+                <select class="fld" id="gastos-pais-tabla" onchange="verGastosTabla()">
+                  <option value="">Todos</option>
+                  <option value="ARG">🇦🇷 Argentina</option>
+                  <option value="USA">🇺🇸 USA</option>
+                  <option value="URU">🇺🇾 Uruguay</option>
+                  <option value="ESP">🇪🇸 España</option>
+                </select>
+              </div>
+              <div>
+                <label class="fld">Titular</label>
+                <select class="fld" id="gastos-tit-tabla" onchange="verGastosTabla()">
+                  <option value="">Todos</option>
+                  <option value="JC">JC</option><option value="FC">FC</option>
+                  <option value="M">M</option><option value="MFL">MFL</option>
+                  <option value="YAC">YAC</option><option value="FCC">FCC</option>
+                  <option value="G">G</option>
+                </select>
+              </div>
+            </div>
+          </div>
+          <div id="gastos-tabla-result"></div>
+        </div>
+
         <div id="gasto-detalle" class="tab-content">
           <div class="section-title" style="margin-bottom:4px">Detalle de Movimientos</div>
           <p style="color:var(--text3);font-size:12px;margin-bottom:14px">Todos los gastos, rentas e impuestos con su medio de pago. Se carga automáticamente.</p>
@@ -1963,48 +2005,6 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
               </table>
             </div>
           </div>
-        </div>
-
-        <div id="gasto-tabla" class="tab-content" style="display:block">
-          <div class="section-title" style="margin-bottom:4px">Vista Tabla</div>
-          <p style="color:var(--text3);font-size:12px;margin-bottom:14px">Filas = conceptos, columnas = meses. Todas las propiedades una abajo de la otra.</p>
-          <div class="card" style="margin-bottom:14px;padding:12px 16px">
-            <div class="form-row cols-4" style="margin:0">
-              <div>
-                <label class="fld">Buscar propiedad</label>
-                <select class="fld" id="gastos-prop-tabla" onchange="verGastosTabla()">
-                  <option value="">Todas las propiedades</option>
-                </select>
-              </div>
-              <div>
-                <label class="fld">Año</label>
-                <select class="fld" id="gastos-anio-tabla" onchange="verGastosTabla()">
-                  <option value="2026">2026</option><option value="2025">2025</option>
-                </select>
-              </div>
-              <div>
-                <label class="fld">País</label>
-                <select class="fld" id="gastos-pais-tabla" onchange="verGastosTabla()">
-                  <option value="">Todos</option>
-                  <option value="ARG">🇦🇷 Argentina</option>
-                  <option value="USA">🇺🇸 USA</option>
-                  <option value="URU">🇺🇾 Uruguay</option>
-                  <option value="ESP">🇪🇸 España</option>
-                </select>
-              </div>
-              <div>
-                <label class="fld">Titular</label>
-                <select class="fld" id="gastos-tit-tabla" onchange="verGastosTabla()">
-                  <option value="">Todos</option>
-                  <option value="JC">JC</option><option value="FC">FC</option>
-                  <option value="M">M</option><option value="MFL">MFL</option>
-                  <option value="YAC">YAC</option><option value="FCC">FCC</option>
-                  <option value="G">G</option>
-                </select>
-              </div>
-            </div>
-          </div>
-          <div id="gastos-tabla-result"></div>
         </div>
 
         <div id="gasto-anual2" class="tab-content">
