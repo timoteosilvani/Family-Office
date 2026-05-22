@@ -846,6 +846,12 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
         <div class="topbar-subtitle" id="topbar-subtitle">Resumen global del portfolio</div>
       </div>
       <div class="topbar-right">
+        <div style="position:relative">
+          <input type="text" id="global-search" placeholder="🔍 Buscar..."
+            style="background:var(--bg3);border:1px solid var(--border2);border-radius:20px;padding:6px 14px;font-size:12px;color:var(--text);width:180px;outline:none"
+            oninput="globalSearch(this.value)" onfocus="this.style.borderColor='var(--gold)'" onblur="this.style.borderColor='var(--border2)'">
+          <div id="search-results" style="display:none;position:absolute;top:36px;right:0;width:320px;background:var(--bg2);border:1px solid var(--border2);border-radius:var(--radius);box-shadow:0 8px 24px rgba(0,0,0,0.4);z-index:1000;max-height:400px;overflow-y:auto"></div>
+        </div>
         <span id="topbar-date" style="font-size:12px;color:var(--text3)"></span>
       </div>
     </div>
@@ -938,6 +944,12 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
 
       <!-- ======== PATRIMONIO HISTÓRICO ======== -->
       <div id="page-patrimonio" class="page">
+        <div class="tabs" style="margin-bottom:16px">
+          <button class="tab-btn active" onclick="switchTab('pat','resumen',this)">Resumen</button>
+          <button class="tab-btn" onclick="switchTab('pat','historial',this)">Historial Propiedades</button>
+        </div>
+
+        <div id="pat-resumen" class="tab-content" style="display:block">
         <div class="section-title">Evolución Patrimonial</div>
         <p style="color:var(--text3);font-size:13px;margin-bottom:20px">Consolidado anual en USD. Cada fila es un titular, cada columna un año.</p>
 
@@ -1335,6 +1347,39 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
           </div>
         </div>
       </div>
+
+        </div><!-- /pat-resumen -->
+
+        <div id="pat-historial" class="tab-content">
+          <div class="section-title" style="margin-bottom:4px">Historial de Valores — Propiedades</div>
+          <p style="color:var(--text3);font-size:12px;margin-bottom:14px">Evolución del valor de cada propiedad año a año en USD.</p>
+          <div class="filters" style="margin-bottom:14px">
+            <button class="filter-btn f-all active" onclick="filtroHistorial('all',this)">Todas</button>
+            <button class="filter-btn f-arg" onclick="filtroHistorial('ARG',this)">🇦🇷 ARG</button>
+            <button class="filter-btn f-usa" onclick="filtroHistorial('USA',this)">🇺🇸 USA</button>
+            <button class="filter-btn f-uru" onclick="filtroHistorial('URU',this)">🇺🇾 URU</button>
+            <button class="filter-btn f-esp" onclick="filtroHistorial('ESP',this)">🇪🇸 ESP</button>
+            <button class="filter-btn f-arg" onclick="filtroHistorial('vendidas',this)">Vendidas</button>
+          </div>
+          <div class="card">
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>#</th><th>Propiedad</th><th>Tit.</th>
+                    <th class="num">2017</th><th class="num">2018</th><th class="num">2019</th>
+                    <th class="num">2020</th><th class="num">2021</th><th class="num">2022</th>
+                    <th class="num">2023</th><th class="num">2024</th><th class="num">2025</th>
+                    <th class="num">2026</th><th class="num">Var%</th>
+                  </tr>
+                </thead>
+                <tbody id="tbody-historial-props"></tbody>
+              </table>
+            </div>
+          </div>
+        </div><!-- /pat-historial -->
+
+      </div><!-- /page-patrimonio -->
 
       <!-- ======== PROP RANKING ======== -->
       <div id="page-ranking" class="page">
@@ -3439,7 +3484,7 @@ function navTo(page) {
 }
 
 function switchTab(group, tab, el) {
-  const pageMap = { prop:'propiedades', banco:'bancos', pe:'private_equity', org:'organigramas', soc:'sociedades', aut:'autos', gasto:'gastos' };
+  const pageMap = { prop:'propiedades', banco:'bancos', pe:'private_equity', org:'organigramas', soc:'sociedades', aut:'autos', gasto:'gastos', pat:'patrimonio' };
   const pageId = pageMap[group] || group;
   const page = document.getElementById('page-' + pageId);
   if (!page) { console.error('Page not found: page-' + pageId); return; }
@@ -3559,7 +3604,7 @@ async function populateAllSelects() {
 async function loadPage(page) {
   switch(page) {
     case 'dashboard': await loadDashboard(); break;
-    case 'patrimonio': await loadPatrimonio(); renderHistorialProps('all'); break;
+    case 'patrimonio': await loadPatrimonio(); renderHistorialProps('all'); initFirstTab('patrimonio'); break;
     case 'propiedades': await loadPropiedades(); await loadAlquileres(); initFirstTab('propiedades'); break;
     case 'ranking': await loadRanking(); break;
     case 'bancos': await loadBancos(); await loadBancosEvolucion(); initFirstTab('bancos'); break;
