@@ -980,6 +980,8 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
         </div>
         </div><!-- /pat-resumen -->
 
+        
+
         <div id="pat-historial" class="tab-content">
           <div class="section-title" style="margin-bottom:4px">Historial de Valores</div>
           <p style="color:var(--text3);font-size:12px;margin-bottom:14px">Evolución del valor de cada propiedad año a año en USD.</p>
@@ -1002,381 +1004,6 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
             <tbody id="tbody-historial-props"></tbody>
           </table></div></div>
         </div><!-- /pat-historial -->
-
-      </div><!-- /page-patrimonio -->
-
-      <!-- ======== PROPIEDADES ======== -->
-      <div id="page-propiedades" class="page">
-        <div class="tabs">
-          <button class="tab-btn active" onclick="switchTab('prop','info',this)">Información</button>
-          <button class="tab-btn" onclick="switchTab('prop','alquileres',this)">🏠 Alquileres</button>
-          <button class="tab-btn" onclick="switchTab('prop','adjuntos',this)">📎 Adjuntos</button>
-        </div>
-
-        <div id="prop-info" class="tab-content active">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
-            <div class="section-title" style="margin:0">Catálogo de Propiedades</div>
-            <button class="btn-secondary" onclick="openModal('modal-prop-nueva')">+ Nueva Propiedad</button>
-          </div>
-          <div class="filters">
-            <button class="filter-btn f-all active" onclick="filtroProp('all',this)" data-pais="all">Todas</button>
-            <button class="filter-btn f-arg" onclick="filtroProp('ARG',this)" data-pais="ARG">🇦🇷 Argentina</button>
-            <button class="filter-btn f-usa" onclick="filtroProp('USA',this)" data-pais="USA">🇺🇸 USA</button>
-            <button class="filter-btn f-uru" onclick="filtroProp('URU',this)" data-pais="URU">🇺🇾 Uruguay</button>
-            <button class="filter-btn f-esp" onclick="filtroProp('ESP',this)" data-pais="ESP">🇪🇸 España</button>
-          </div>
-          <div class="card">
-            <div class="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th onclick="sortProps('nro')" style="cursor:pointer" title="Ordenar">
-                      # <span id="sort-nro" style="color:var(--gold)">↕</span></th>
-                    <th onclick="sortProps('nombre')" style="cursor:pointer" title="Ordenar">
-                      Propiedad <span id="sort-nombre"></span></th>
-                    <th onclick="sortProps('titular')" style="cursor:pointer" title="Ordenar">
-                      Titular <span id="sort-titular"></span></th>
-                    <th onclick="sortProps('pais')" style="cursor:pointer" title="Ordenar">
-                      País <span id="sort-pais"></span></th>
-                    <th onclick="sortProps('tipo')" style="cursor:pointer" title="Ordenar">
-                      Tipo <span id="sort-tipo"></span></th>
-                    <th class="num" onclick="sortProps('valor_2026')" style="cursor:pointer" title="Ordenar">
-                      Valor 2026 <span id="sort-valor_2026"></span></th>
-                    <th class="num" onclick="sortProps('_renta')" style="cursor:pointer" title="Ordenar">
-                      Renta <span id="sort-_renta"></span></th>
-                    <th class="num" onclick="sortProps('_gastos')" style="cursor:pointer" title="Ordenar">
-                      Gastos <span id="sort-_gastos"></span></th>
-                    <th class="num" onclick="sortProps('_imp')" style="cursor:pointer" title="Ordenar">
-                      Impuestos <span id="sort-_imp"></span></th>
-                    <th class="num" onclick="sortProps('_neto')" style="cursor:pointer" title="Ordenar">
-                      Neto <span id="sort-_neto"></span></th>
-                    <th style="text-align:center">Acciones</th>
-                  </tr>
-                </thead>
-                <tbody id="tbody-propiedades">
-                  <tr><td colspan="9"><div class="loader"><div class="spinner"></div></div></td></tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-
-        <div id="prop-alquileres" class="tab-content">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-            <div>
-              <div class="section-title" style="margin:0">Alquileres</div>
-              <p style="color:var(--text3);font-size:12px;margin:4px 0 0">Contratos, inquilinos y cobros por propiedad.</p>
-            </div>
-            <button class="btn-secondary" onclick="openModal('modal-nuevo-contrato')">+ Nuevo Contrato</button>
-          </div>
-
-          <!-- Filtro por propiedad -->
-          <!-- Toggle activos/históricos -->
-          <div class="filters" style="margin-bottom:14px">
-            <button class="filter-btn f-all active" onclick="setAlqView('activos',this)">🟢 Activos</button>
-            <button class="filter-btn f-arg" onclick="setAlqView('historicos',this)">📁 Históricos</button>
-            <button class="filter-btn f-arg" onclick="setAlqView('todos',this)">Todos</button>
-          </div>
-          <div class="card" style="margin-bottom:14px;padding:12px 16px">
-            <div class="form-row cols-2" style="margin:0">
-              <div>
-                <label class="fld">Propiedad</label>
-                <select class="fld" id="alq-prop-sel" onchange="loadAlquileres()">
-                  <option value="">Todas las propiedades</option>
-                </select>
-              </div>
-              <div>
-                <label class="fld">Titular</label>
-                <select class="fld" id="alq-titular" onchange="loadAlquileres()">
-                  <option value="">Todos</option>
-                  <option value="JC">JC</option><option value="FC">FC</option>
-                  <option value="M">M</option><option value="MFL">MFL</option>
-                  <option value="YAC">YAC</option><option value="FCC">FCC</option>
-                  <option value="G">G</option>
-                </select>
-              </div>
-            </div>
-          </div>
-
-          <!-- KPIs -->
-          <div class="grid-4" style="margin-bottom:16px" id="alq-kpis">
-            <div class="kpi-card"><div class="kpi-accent gold"></div>
-              <div class="kpi-label">Contratos Activos</div>
-              <div class="kpi-value" id="alq-count-activos">—</div>
-            </div>
-            <div class="kpi-card"><div class="kpi-accent esp"></div>
-              <div class="kpi-label">Renta Mensual</div>
-              <div class="kpi-value" id="alq-renta-mensual">—</div>
-              <div class="kpi-sub">USD total</div>
-            </div>
-            <div class="kpi-card"><div class="kpi-accent uru"></div>
-              <div class="kpi-label">Próx. Vencimiento</div>
-              <div class="kpi-value" id="alq-prox-venc" style="font-size:14px">—</div>
-            </div>
-            <div class="kpi-card"><div class="kpi-accent usa"></div>
-              <div class="kpi-label">Vencidos</div>
-              <div class="kpi-value" id="alq-vencidos">—</div>
-            </div>
-          </div>
-
-          <!-- Tabla contratos -->
-          <div class="card" style="margin-bottom:16px">
-            <div class="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th onclick="sortAlq('nombre')" style="cursor:pointer">Propiedad <span id="srt-alq-nombre"></span></th>
-                    <th>País</th><th onclick="sortAlq('titular')" style="cursor:pointer">Titular <span id="srt-alq-titular"></span></th>
-                    <th>Inquilino</th>
-                    <th class="num" onclick="sortAlq('precio_base')" style="cursor:pointer">Renta <span id="srt-alq-precio_base"></span></th>
-                    <th>Moneda</th>
-                    <th onclick="sortAlq('fecha_inicio')" style="cursor:pointer">Inicio <span id="srt-alq-fecha_inicio"></span></th>
-                    <th onclick="sortAlq('fecha_fin')" style="cursor:pointer">Fin contrato <span id="srt-alq-fecha_fin" style="color:var(--gold)">↕</span></th>
-                    <th onclick="sortAlq('_dias')" style="cursor:pointer">Días <span id="srt-alq-_dias"></span></th>
-                    <th onclick="sortAlq('_estado')" style="cursor:pointer">Estado <span id="srt-alq-_estado"></span></th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody id="tbody-alquileres">
-                  <tr><td colspan="11"><div class="loader"><div class="spinner"></div></div></td></tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <!-- Detalle de cobros del contrato seleccionado -->
-          <div id="alq-cobros-panel" style="display:none">
-            <div class="section-title" style="font-size:14px;margin-bottom:12px" id="alq-cobros-titulo">Cobros</div>
-            <div class="card">
-              <div class="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Mes</th><th class="num">Acordado</th><th class="num">Cobrado</th>
-                      <th class="num">Diferencia</th><th>Cobrado</th><th>Medio de Pago</th><th></th>
-                    </tr>
-                  </thead>
-                  <tbody id="tbody-cobros"></tbody>
-                </table>
-              </div>
-              <button class="btn-secondary" style="margin-top:12px" onclick="document.getElementById('alq-cobros-panel').style.display='none'">Cerrar</button>
-            </div>
-          </div>
-        </div>
-
-        <!-- Modal nuevo contrato -->
-        <div class="modal-overlay" id="modal-nuevo-contrato">
-          <div class="modal">
-            <div class="modal-header">
-              <div class="modal-title">Nuevo Contrato de Alquiler</div>
-              <button class="modal-close" onclick="closeModal('modal-nuevo-contrato')">×</button>
-            </div>
-            <div class="modal-body">
-              <div class="form-row cols-2">
-                <div>
-                  <label class="fld">Propiedad</label>
-                  <select class="fld" id="nc-prop">
-                    <option value="">Seleccionar...</option>
-                  </select>
-                </div>
-                <div>
-                  <label class="fld">Inquilino</label>
-                  <input class="fld" type="text" id="nc-inquilino" placeholder="Nombre completo">
-                </div>
-              </div>
-              <div class="form-row cols-3">
-                <div>
-                  <label class="fld">Fecha Inicio</label>
-                  <input class="fld" type="date" id="nc-inicio">
-                </div>
-                <div>
-                  <label class="fld">Fecha Fin</label>
-                  <input class="fld" type="date" id="nc-fin">
-                </div>
-                <div>
-                  <label class="fld">Moneda</label>
-                  <select class="fld" id="nc-moneda">
-                    <option value="USD">USD</option>
-                    <option value="ARS">ARS</option>
-                    <option value="UYU">UYU</option>
-                    <option value="EUR">EUR</option>
-                  </select>
-                </div>
-              </div>
-              <div class="form-row cols-2">
-                <div>
-                  <label class="fld">Precio Base</label>
-                  <input class="fld" type="number" id="nc-precio" placeholder="0">
-                </div>
-              </div>
-              <div class="form-row cols-1">
-                <div><label class="fld">Notas</label><textarea class="fld" id="nc-notas" rows="2"></textarea></div>
-              </div>
-            </div>
-            <div class="modal-footer">
-              <button class="btn-secondary" onclick="closeModal('modal-nuevo-contrato')">Cancelar</button>
-              <button class="btn-primary" style="width:auto;padding:10px 24px" onclick="guardarContrato()">Guardar</button>
-            </div>
-          </div>
-        </div>
-
-        <div id="prop-adjuntos" class="tab-content">
-          <div class="section-title">Adjuntos por Propiedad</div>
-          <p style="color:var(--text3);font-size:13px;margin-bottom:16px">Escrituras, contratos, seguros y otros documentos.</p>
-          <div class="card" style="margin-bottom:14px">
-            <div class="form-row cols-2">
-              <div>
-                <label class="fld">Propiedad</label>
-                <select class="fld" id="adj-prop-sel" onchange="loadAdjuntos()">
-                  <option value="">Seleccionar propiedad...</option>
-                </select>
-              </div>
-              <div style="display:flex;align-items:flex-end">
-                <button class="btn-secondary" onclick="document.getElementById('adj-file-input').click()">
-                  ⬆ Subir archivo
-                </button>
-                <input type="file" id="adj-file-input" style="display:none" multiple accept=".pdf,.doc,.docx,.jpg,.png,.xls,.xlsx" onchange="uploadAdjunto(this)">
-              </div>
-            </div>
-          </div>
-          <div id="adj-list" class="card">
-            <p style="color:var(--text3);text-align:center;padding:24px">Seleccioná una propiedad para ver sus adjuntos.</p>
-          </div>
-        </div>
-
-        <div id="prop-carga" class="tab-content">
-          <div style="display:inline-block;background:var(--arg-soft);border:1px solid var(--arg-mid);color:var(--arg);border-radius:20px;padding:4px 14px;font-size:11px;font-weight:600;letter-spacing:0.5px;margin-bottom:14px">📋 CARGA MENSUAL DE PROPIEDADES</div>
-          <div class="section-title">Rentas · Gastos · Impuestos</div>
-          <div class="card" style="margin-bottom:16px">
-            <div class="form-row cols-3">
-              <div>
-                <label class="fld">Propiedad</label>
-                <select class="fld" id="carga-prop-sel">
-                  <option value="">Seleccionar propiedad...</option>
-                </select>
-              </div>
-              <div>
-                <label class="fld">Año</label>
-                <select class="fld" id="carga-prop-anio">
-                  <option value="2026">2026</option>
-                  <option value="2025">2025</option>
-                  <option value="2024">2024</option>
-                  <option value="2023">2023</option>
-                </select>
-              </div>
-              <div>
-                <label class="fld">Mes</label>
-                <select class="fld" id="carga-prop-mes">
-                  <option value="1">Enero</option><option value="2">Febrero</option>
-                  <option value="3">Marzo</option><option value="4">Abril</option>
-                  <option value="5">Mayo</option><option value="6">Junio</option>
-                  <option value="7">Julio</option><option value="8">Agosto</option>
-                  <option value="9">Septiembre</option><option value="10">Octubre</option>
-                  <option value="11">Noviembre</option><option value="12">Diciembre</option>
-                </select>
-              </div>
-            </div>
-            <button class="btn-primary" style="width:auto;padding:10px 20px" onclick="cargarMovProp()">Ver / Cargar período →</button>
-          </div>
-
-          <div id="form-mov-prop" style="display:none">
-            <div id="carga-periodo-indicador" style="background:var(--gold-soft);border:1px solid var(--gold);color:var(--gold);border-radius:var(--radius);padding:10px 16px;font-size:13px;font-weight:500;margin-bottom:12px"></div>
-            <!-- Resumen anual -->
-            <div id="resumen-anual-prop" class="grid-4" style="margin-bottom:12px"></div>
-            <div class="card">
-              <div class="form-row cols-2" style="margin-bottom:16px">
-                <div>
-                  <label class="fld">Moneda de carga</label>
-                  <select class="fld" id="mp-moneda">
-                    <option value="USD">USD - Dólar</option>
-                    <option value="ARS">ARS - Peso Argentino</option>
-                    <option value="UYU">UYU - Peso Uruguayo</option>
-                    <option value="EUR">EUR - Euro</option>
-                  </select>
-                </div>
-                <div>
-                  <label class="fld">Medio de Pago</label>
-                  <select class="fld" id="mp-medio" onchange="onMedioPagoChange(this.value,'mp')">
-                    <option value="">— Seleccionar —</option>
-                    <option value="Efectivo">Efectivo</option>
-                    <option value="Transferencia">Transferencia</option>
-                    <option value="Tarjeta de Débito">Tarjeta de Débito</option>
-                    <option value="Débito Automático">Débito Automático</option>
-                    <option value="Tarjeta de Crédito">Tarjeta de Crédito</option>
-                    <option value="Cheque">Cheque</option>
-                    <option value="Pago Mis Cuentas">Pago Mis Cuentas</option>
-                    <option value="Itaú Pagos">Itaú Pagos</option>
-                  </select>
-                </div>
-              </div>
-
-              <!-- Panel de cuenta / tarjeta -->
-              <div id="mp-subpanel" style="display:none;margin-top:12px"></div>
-              <input type="hidden" id="mp-medio-detail" value="">
-              <div class="section-title" style="font-size:13px;margin-bottom:12px">Rentas</div>
-              <div class="form-row cols-2">
-                <div><label class="fld">Renta</label><input class="fld" type="number" id="mp-renta" value="0"></div>
-                <div><label class="fld">Otro Ingreso</label><input class="fld" type="number" id="mp-otro-ingreso" value="0"></div>
-              </div>
-
-              <div class="divider"></div>
-              <div class="section-title" style="font-size:13px;margin-bottom:12px">Gastos</div>
-              <div class="form-row cols-4">
-                <div><label class="fld">Gas</label><input class="fld" type="number" id="mp-gas" value="0"></div>
-                <div><label class="fld">Luz</label><input class="fld" type="number" id="mp-luz" value="0"></div>
-                <div><label class="fld">Cable</label><input class="fld" type="number" id="mp-cable" value="0"></div>
-                <div><label class="fld">Teléfono</label><input class="fld" type="number" id="mp-telefono" value="0"></div>
-              </div>
-              <div class="form-row cols-4">
-                <div><label class="fld">Expensas</label><input class="fld" type="number" id="mp-expensas" value="0"></div>
-                <div><label class="fld">Jardinero</label><input class="fld" type="number" id="mp-jardinero" value="0"></div>
-                <div><label class="fld">Limpieza</label><input class="fld" type="number" id="mp-limpieza" value="0"></div>
-                <div><label class="fld">Mantenimiento</label><input class="fld" type="number" id="mp-mantenimiento" value="0"></div>
-              </div>
-              <div class="form-row cols-4">
-                <div><label class="fld">Depósito</label><input class="fld" type="number" id="mp-deposito" value="0"></div>
-                <div><label class="fld">Comisión</label><input class="fld" type="number" id="mp-comision" value="0"></div>
-                <div><label class="fld">Seguros</label><input class="fld" type="number" id="mp-seguros" value="0"></div>
-                <div><label class="fld">Administración</label><input class="fld" type="number" id="mp-administracion" value="0"></div>
-              </div>
-              <div class="form-row cols-2">
-                <div><label class="fld">Otros Gastos</label><input class="fld" type="number" id="mp-otros-gastos" value="0"></div>
-              </div>
-
-              <div class="divider"></div>
-              <div class="section-title" style="font-size:13px;margin-bottom:12px">Impuestos</div>
-              <div class="form-row cols-4">
-                <div><label class="fld">ARBA/ABL</label><input class="fld" type="number" id="mp-arba" value="0"></div>
-                <div><label class="fld">Mun. Tigre</label><input class="fld" type="number" id="mp-tigre" value="0"></div>
-                <div><label class="fld">Property Tax</label><input class="fld" type="number" id="mp-propertytax" value="0"></div>
-                <div><label class="fld">Trib. Domiciliario</label><input class="fld" type="number" id="mp-tributo" value="0"></div>
-              </div>
-              <div class="form-row cols-4">
-                <div><label class="fld">Imp. Primarias</label><input class="fld" type="number" id="mp-primarias" value="0"></div>
-                <div><label class="fld">Contrib. Inmob.</label><input class="fld" type="number" id="mp-contribucion" value="0"></div>
-                <div><label class="fld">Saneamiento</label><input class="fld" type="number" id="mp-saneamiento" value="0"></div>
-                <div><label class="fld">Ascensor</label><input class="fld" type="number" id="mp-ascensor" value="0"></div>
-              </div>
-              <div class="form-row cols-2">
-                <div><label class="fld">Otros Impuestos</label><input class="fld" type="number" id="mp-otros-imp" value="0"></div>
-              </div>
-
-              <div class="divider"></div>
-              <div class="form-row cols-1">
-                <div><label class="fld">Notas</label><textarea class="fld" id="mp-notas" placeholder="Observaciones..."></textarea></div>
-              </div>
-
-              <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:16px">
-                <button class="btn-secondary" onclick="document.getElementById('form-mov-prop').style.display='none';document.getElementById('resumen-anual-prop').innerHTML=''">Cancelar</button>
-                <button class="btn-primary" style="width:auto;padding:10px 24px" onclick="guardarMovProp()">Guardar</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-
-        
 
       </div><!-- /page-patrimonio -->
 
@@ -1778,6 +1405,35 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
               </table>
             </div>
           </div>
+
+      <!-- Modal Comparador -->
+      <div class="modal-overlay" id="modal-comparador">
+        <div class="modal" style="max-width:800px;width:95%">
+          <div class="modal-header">
+            <div class="modal-title">⚖️ Comparador de Propiedades</div>
+            <button class="modal-close" onclick="closeModal('modal-comparador')">×</button>
+          </div>
+          <div class="modal-body">
+            <div class="form-row cols-2" style="margin-bottom:16px">
+              <div>
+                <label class="fld">Propiedad A</label>
+                <select class="fld" id="comp-prop1"><option value="">Seleccionar...</option></select>
+              </div>
+              <div>
+                <label class="fld">Propiedad B</label>
+                <select class="fld" id="comp-prop2"><option value="">Seleccionar...</option></select>
+              </div>
+            </div>
+            <div style="text-align:center;margin-bottom:16px">
+              <button class="btn-primary" style="width:auto;padding:10px 32px" onclick="compararActivos()">Comparar →</button>
+            </div>
+            <div id="comp-result"></div>
+          </div>
+        </div>
+      </div>
+
+      </div><!-- /page-propiedades -->
+
       <!-- ======== PROP RANKING ======== -->
       <div id="page-ranking" class="page">
         <div class="section-title">Ranking de Propiedades</div>
@@ -3367,31 +3023,6 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
         </div>
       </div>
 
-      <!-- Modal Comparador -->
-      <div class="modal-overlay" id="modal-comparador">
-        <div class="modal" style="max-width:800px;width:95%">
-          <div class="modal-header">
-            <div class="modal-title">⚖️ Comparador de Propiedades</div>
-            <button class="modal-close" onclick="closeModal('modal-comparador')">×</button>
-          </div>
-          <div class="modal-body">
-            <div class="form-row cols-2" style="margin-bottom:16px">
-              <div>
-                <label class="fld">Propiedad A</label>
-                <select class="fld" id="comp-prop1"><option value="">Seleccionar...</option></select>
-              </div>
-              <div>
-                <label class="fld">Propiedad B</label>
-                <select class="fld" id="comp-prop2"><option value="">Seleccionar...</option></select>
-              </div>
-            </div>
-            <div style="text-align:center;margin-bottom:16px">
-              <button class="btn-primary" style="width:auto;padding:10px 32px" onclick="compararActivos()">Comparar →</button>
-            </div>
-            <div id="comp-result"></div>
-          </div>
-        </div>
-      </div>
 
       <!-- ======== ORGANIGRAMAS ======== -->
       <div id="page-organigramas" class="page">
