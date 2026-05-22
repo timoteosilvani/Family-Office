@@ -1874,7 +1874,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
         <div class="tabs">
           <button class="tab-btn active" onclick="switchTab('gasto','tabla',this)">Vista Tabla</button>
           <button class="tab-btn" onclick="switchTab('gasto','anual2',this)">Vista Global</button>
-          <button class="tab-btn" onclick="switchTab('gasto','detalle',this)">📋 Detalle</button>
+          <button class="tab-btn" onclick="switchTab('gasto','detalle',this);loadDetalle()">📋 Detalle</button>
           <button class="tab-btn" onclick="switchTab('gasto','carga',this)">✏️ Carga</button>
         </div>
 
@@ -5691,8 +5691,8 @@ async function loadGastos() {
   const detProp = document.getElementById('det-prop');
   if (detProp) detProp.innerHTML = '<option value="">Todas</option>' +
     props.map(p => `<option value="${p.id}">[${p.titular}] ${p.nombre}</option>`).join('');
-  // Load all views
-  await Promise.all([verGastosTabla(), filtrarAnual2(), loadDetalle()]);
+  // Load main views (detalle loads on demand when tab is clicked)
+  await Promise.all([verGastosTabla(), filtrarAnual2()]);
 }
 
 
