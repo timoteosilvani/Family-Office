@@ -1155,6 +1155,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
                     <th onclick="sortAlq('fecha_fin')" style="cursor:pointer">Fin contrato <span id="srt-alq-fecha_fin" style="color:var(--gold)">↕</span></th>
                     <th onclick="sortAlq('_dias')" style="cursor:pointer">Días <span id="srt-alq-_dias"></span></th>
                     <th onclick="sortAlq('_estado')" style="cursor:pointer">Estado <span id="srt-alq-_estado"></span></th>
+                    <th>Contrato</th>
                     <th></th>
                   </tr>
                 </thead>
@@ -4038,7 +4039,7 @@ function renderHistorialProps(filtro) {
   if (!tbody) return;
 
   tbody.innerHTML = data.map(p => {
-    const vals = YEARS.map(y => p.valores[y] || null);
+    const vals = YEARS.map(y => p.valores[String(y)] || null);
     const first = vals.find(v => v !== null);
     const last = vals.filter(v => v !== null).pop();
     const varPct = first && last && first !== last ? ((last - first) / first * 100).toFixed(1) : null;
@@ -4059,7 +4060,7 @@ function renderHistorialProps(filtro) {
   }).join('');
 
   // Totals row
-  const totals = YEARS.map(y => data.reduce((sum, p) => sum + (p.valores[y]||0), 0));
+  const totals = YEARS.map(y => data.reduce((sum, p) => sum + (p.valores[String(y)]||0), 0));
   const firstTot = totals.find(v => v > 0);
   const lastTot = [...totals].reverse().find(v => v > 0);
   const varTot = firstTot && lastTot ? ((lastTot-firstTot)/firstTot*100).toFixed(1) : null;
@@ -6419,6 +6420,44 @@ async function verCobros(contratoId, inquilino) {
 async function toggleCobro(id, val) {
   await sb.from('cobros_alquiler').update({ cobrado: val }).eq('id', id);
   toast('Estado actualizado ✓', 'success');
+}
+
+async function subirContrato(contratoId) {
+  const input = document.getElementById('file-contrato-' + contratoId);
+  if (input) input.click();
+}
+
+async function uploadContrato(input, contratoId, inquilino) {
+  if (!input.files.length) return;
+  const file = input.files[0];
+  toast(`Subiendo contrato de ${inquilino}...`);
+  
+  const path = `contratos/${contratoId}/${Date.now()}_${file.name}`;
+  const { error: upErr } = await sb.storage.from('Adjuntos').upload(path, file);
+  if (upErr) {
+    toast('Error al subir: ' + upErr.message, 'error');
+    return;
+  }
+  
+  // Save reference in adjuntos table linking to contrato
+  await sb.from('adjuntos').insert({
+    nombre: file.name,
+    tipo: file.type,
+    storage_path: path,
+    tamano: file.size,
+  });
+  
+  toast(`Contrato de ${inquilino} subido ✓`, 'success');
+  input.value = '';
+  
+  // Show download link
+  const btn = input.previousElementSibling;
+  if (btn) {
+    btn.style.background = 'var(--esp-soft)';
+    btn.style.borderColor = 'var(--esp)';
+    btn.style.color = 'var(--esp)';
+    btn.title = file.name;
+  }
 }
 
 async function archivarContrato(id) {
