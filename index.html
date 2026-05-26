@@ -4050,7 +4050,7 @@ function renderHistorialProps(filtro) {
       <td style="font-size:12px;font-weight:500">${p.nombre}${isVendida?' <span style="font-size:9px;background:var(--usa);color:#fff;border-radius:3px;padding:1px 4px">V</span>':''}</td>
       <td style="font-size:11px;color:var(--text3)">${p.titular}</td>
       ${YEARS.map(y => {
-        const v = p.valores[y];
+        const v = p.valores[String(y)];
         return `<td class="num" style="font-size:11px;color:${v?'var(--text)':'var(--border2)'}">${v?'$'+fmt(v):'—'}</td>`;
       }).join('')}
       <td class="num ${varPct>0?'positive':'negative'}" style="font-size:11px;font-weight:600">
@@ -6370,7 +6370,14 @@ function renderAlquileres(contratos) {
       <td><span style="font-size:11px;color:${estadoColor}">${estadoLabel}</span></td>
       <td>
         <button class="btn-secondary" style="padding:3px 8px;font-size:11px;margin-right:3px" onclick="verCobros('${ct.id}','${ct.inquilino.replace(/'/g,"\'")}')">Cobros</button>
-        <button class="btn-secondary" style="padding:3px 8px;font-size:11px" onclick="editarContrato('${ct.id}')">✎</button>
+        <button class="btn-secondary" style="padding:3px 8px;font-size:11px;margin-right:3px" onclick="editarContrato('${ct.id}')">✎</button>
+        ${ct.activo ? `<button class="btn-secondary" style="padding:3px 8px;font-size:11px" onclick="archivarContrato('${ct.id}')" title="Mover a históricos">📁</button>` : ''}
+      </td>
+      <td>
+        <label style="cursor:pointer">
+          <input type="file" style="display:none" accept=".pdf,.doc,.docx" onchange="uploadContrato(this,'${ct.id}','${ct.inquilino.replace(/'/g,"\'")}')">
+          <span class="btn-secondary" style="padding:3px 8px;font-size:11px;display:inline-block">📄 Contrato</span>
+        </label>
       </td>
     </tr>`;
   }).join('') || '<tr><td colspan="11" style="color:var(--text3);text-align:center;padding:24px">Sin contratos. Usá "+ Nuevo Contrato" para agregar.</td></tr>';
