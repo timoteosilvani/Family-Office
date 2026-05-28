@@ -419,7 +419,8 @@ body {
 }
 
 /* Grid */
-.grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; min-width: 0; }
+.grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; min-w
+.grid-5 { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }idth: 0; }
 .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; min-width: 0; }
 .grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; min-width: 0; }
 @media (max-width: 1100px) { .grid-4 { grid-template-columns: repeat(2,1fr); } }
@@ -873,7 +874,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
         </div>
 
         <!-- KPIs principales -->
-        <div class="grid-4" style="margin-bottom:20px" id="kpi-global">
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px" id="kpi-global">
           <div class="loader"><div class="spinner"></div></div>
         </div>
 
@@ -1419,11 +1420,18 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
             <table>
               <thead>
                 <tr>
-                  <th>#</th><th>Propiedad</th><th>Titular</th><th>País</th>
-                  <th class="num">V. Compra</th><th class="num">V. 2026</th>
-                  <th class="num">Renta</th><th class="num">Gastos</th>
-                  <th class="num">Impuestos</th><th class="num">Neto USD</th>
-                  <th class="num">% Compra</th><th class="num">% Actual</th>
+                  <th>#</th>
+                  <th onclick="sortRanking('nombre')" style="cursor:pointer">Propiedad <span id="srt-rk-nombre"></span></th>
+                  <th onclick="sortRanking('titular')" style="cursor:pointer">Titular <span id="srt-rk-titular"></span></th>
+                  <th onclick="sortRanking('pais')" style="cursor:pointer">País <span id="srt-rk-pais"></span></th>
+                  <th class="num" onclick="sortRanking('valor_compra')" style="cursor:pointer">V. Compra <span id="srt-rk-valor_compra"></span></th>
+                  <th class="num" onclick="sortRanking('valor_2026')" style="cursor:pointer">V. 2026 <span id="srt-rk-valor_2026"></span></th>
+                  <th class="num" onclick="sortRanking('_renta')" style="cursor:pointer">Renta <span id="srt-rk-_renta"></span></th>
+                  <th class="num" onclick="sortRanking('_gastos')" style="cursor:pointer">Gastos <span id="srt-rk-_gastos"></span></th>
+                  <th class="num" onclick="sortRanking('_impuestos')" style="cursor:pointer">Impuestos <span id="srt-rk-_impuestos"></span></th>
+                  <th class="num" onclick="sortRanking('_neto')" style="cursor:pointer">Neto USD <span id="srt-rk-_neto" style="color:var(--gold)">↓</span></th>
+                  <th class="num" onclick="sortRanking('_pctCompra')" style="cursor:pointer">% Compra <span id="srt-rk-_pctCompra"></span></th>
+                  <th class="num" onclick="sortRanking('_pctAnual')" style="cursor:pointer">% Anual <span id="srt-rk-_pctAnual"></span></th>
                 </tr>
               </thead>
               <tbody id="tbody-ranking">
@@ -1594,7 +1602,8 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
       <div id="page-private_equity" class="page">
         <div class="tabs">
           <button class="tab-btn active" onclick="switchTab('pe','info',this)">Información</button>
-          <button class="tab-btn" onclick="switchTab('pe','carga',this)">Actualizar Valuación</button>
+          <button class="tab-btn" onclick="switchTab('pe','evolucion',this);loadPEEvolucion()">Evolución Mensual</button>
+          <button class="tab-btn" onclick="switchTab('pe','carga',this)">✏️ Carga</button>
         </div>
         <div id="pe-info" class="tab-content active">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
@@ -1624,37 +1633,173 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
             </div>
           </div>
         </div>
-        <div id="pe-carga" class="tab-content">
-          <div style="display:inline-block;background:var(--uru-soft);border:1px solid var(--uru-mid);color:var(--uru);border-radius:20px;padding:4px 14px;font-size:11px;font-weight:600;letter-spacing:0.5px;margin-bottom:14px">📋 ACTUALIZACIÓN DE VALUACIÓN</div>
-          <div class="section-title">Private Equity — Valor 2026</div>
-          <div class="card">
-            <div class="form-row cols-3">
-              <div>
-                <label class="fld">Inversión</label>
-                <select class="fld" id="pe-sel">
-                  <option value="">Seleccionar...</option>
+        <div id="pe-evolucion" class="tab-content">
+          <div class="section-title" style="margin-bottom:4px">Evolución Mensual</div>
+          <p style="color:var(--text3);font-size:12px;margin-bottom:14px">Movimientos por inversión. Seleccioná una inversión para ver el detalle.</p>
+          
+          <!-- Filters -->
+          <div class="card" style="margin-bottom:14px;padding:12px 16px">
+            <div class="form-row cols-3" style="margin:0">
+              <div><label class="fld">Inversión</label>
+                <select class="fld" id="pe-ev-sel" onchange="loadPEEvolucion()">
+                  <option value="">Todas</option>
                 </select>
               </div>
-              <div>
-                <label class="fld">Valor 2026 (USD)</label>
-                <input class="fld" type="number" id="pe-valor" placeholder="0">
+              <div><label class="fld">Año</label>
+                <select class="fld" id="pe-ev-anio" onchange="loadPEEvolucion()">
+                  <option value="2026">2026</option>
+                  <option value="2025">2025</option>
+                  <option value="2024">2024</option>
+                </select>
               </div>
-              <div>
-                <label class="fld">Distribución (USD)</label>
-                <input class="fld" type="number" id="pe-dist" placeholder="0">
+              <div><label class="fld">Titular</label>
+                <select class="fld" id="pe-ev-titular" onchange="loadPEEvolucion()">
+                  <option value="">Todos</option>
+                  <option value="JC">JC</option><option value="FC">FC</option>
+                  <option value="M">M</option><option value="G">G</option>
+                  <option value="MFL">MFL</option><option value="FCC">FCC</option>
+                </select>
               </div>
             </div>
-            <div class="form-row cols-1">
-              <div><label class="fld">Notas</label><textarea class="fld" id="pe-notas"></textarea></div>
+          </div>
+
+          <!-- KPIs -->
+          <div class="grid-4" style="margin-bottom:16px">
+            <div class="kpi-card"><div class="kpi-accent esp"></div>
+              <div class="kpi-label">Utilidad Acum.</div>
+              <div class="kpi-value" id="pe-ev-utilidad">—</div>
             </div>
-            <div style="display:flex;justify-content:flex-end;margin-top:8px">
-              <button class="btn-primary" style="width:auto;padding:10px 24px" onclick="guardarPE()">Guardar</button>
+            <div class="kpi-card"><div class="kpi-accent gold"></div>
+              <div class="kpi-label">Aportes</div>
+              <div class="kpi-value" id="pe-ev-aportes">—</div>
+            </div>
+            <div class="kpi-card"><div class="kpi-accent usa"></div>
+              <div class="kpi-label">Gastos + Imp.</div>
+              <div class="kpi-value" id="pe-ev-gastos">—</div>
+            </div>
+            <div class="kpi-card"><div class="kpi-accent uru"></div>
+              <div class="kpi-label">Neto</div>
+              <div class="kpi-value" id="pe-ev-neto">—</div>
+            </div>
+          </div>
+
+          <!-- Detail table - shows per PE with rows = concepts, cols = months -->
+          <div id="pe-ev-detail">
+            <div class="card">
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th style="min-width:140px">Inversión / Concepto</th>
+                      <th class="num">Ene</th><th class="num">Feb</th><th class="num">Mar</th>
+                      <th class="num">Abr</th><th class="num">May</th><th class="num">Jun</th>
+                      <th class="num">Jul</th><th class="num">Ago</th><th class="num">Sep</th>
+                      <th class="num">Oct</th><th class="num">Nov</th><th class="num">Dic</th>
+                      <th class="num">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody id="tbody-pe-evolucion">
+                    <tr><td colspan="14" style="color:var(--text3);text-align:center;padding:20px">
+                      Seleccioná un año para ver la evolución
+                    </td></tr>
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         </div>
-      </div>
 
-      <!-- ======== AUTOS ======== -->
+        <div id="pe-carga" class="tab-content">
+          <div style="display:inline-block;background:var(--uru-soft);border:1px solid var(--uru-mid);color:var(--uru);border-radius:20px;padding:4px 14px;font-size:11px;font-weight:600;letter-spacing:0.5px;margin-bottom:14px">✏️ CARGA PRIVATE EQUITY</div>
+          
+          <!-- Mode toggle -->
+          <div style="display:flex;gap:8px;margin-bottom:16px">
+            <button class="btn-secondary" id="pe-carga-anual-btn" onclick="setPECargaMode('anual')" style="background:var(--gold-soft);border-color:var(--gold);color:var(--gold)">📊 Actualizar Valor Anual</button>
+            <button class="btn-secondary" id="pe-carga-mensual-btn" onclick="setPECargaMode('mensual')">📅 Carga Mensual</button>
+          </div>
+
+          <!-- ANUAL MODE -->
+          <div id="pe-carga-anual">
+            <div class="card" style="max-width:600px">
+              <div class="form-row cols-2">
+                <div>
+                  <label class="fld">Inversión</label>
+                  <select class="fld" id="pe-sel">
+                    <option value="">Seleccionar...</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="fld">Valor 2026 (USD)</label>
+                  <input class="fld" type="number" id="pe-valor" value="0">
+                </div>
+              </div>
+              <div class="form-row cols-1">
+                <div>
+                  <label class="fld">Distribución (USD)</label>
+                  <input class="fld" type="number" id="pe-dist" value="0">
+                </div>
+              </div>
+              <div class="form-row cols-1">
+                <div><label class="fld">Notas</label>
+                  <textarea class="fld" id="pe-notas" rows="2"></textarea>
+                </div>
+              </div>
+              <div style="display:flex;justify-content:flex-end;margin-top:8px">
+                <button class="btn-primary" style="width:auto;padding:10px 24px" onclick="guardarPE()">Guardar</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- MENSUAL MODE -->
+          <div id="pe-carga-mensual" style="display:none">
+            <div class="card" style="margin-bottom:12px;padding:12px 16px">
+              <div class="form-row cols-3" style="margin:0">
+                <div><label class="fld">Inversión</label>
+                  <select class="fld" id="pe-mens-sel"><option value="">Seleccionar...</option></select>
+                </div>
+                <div><label class="fld">Año</label>
+                  <select class="fld" id="pe-mens-anio">
+                    <option value="2026">2026</option>
+                    <option value="2025">2025</option>
+                    <option value="2024">2024</option>
+                  </select>
+                </div>
+                <div><label class="fld">Mes</label>
+                  <select class="fld" id="pe-mens-mes">
+                    <option value="1">Enero</option><option value="2">Febrero</option>
+                    <option value="3">Marzo</option><option value="4">Abril</option>
+                    <option value="5">Mayo</option><option value="6">Junio</option>
+                    <option value="7">Julio</option><option value="8">Agosto</option>
+                    <option value="9">Septiembre</option><option value="10">Octubre</option>
+                    <option value="11">Noviembre</option><option value="12">Diciembre</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+            <div class="card">
+              <div class="form-row cols-2">
+                <div><label class="fld">Utilidad (USD)</label>
+                  <input class="fld" type="number" id="pe-mens-utilidad" value="0"></div>
+                <div><label class="fld">Aporte de Capital (USD)</label>
+                  <input class="fld" type="number" id="pe-mens-aporte" value="0"></div>
+              </div>
+              <div class="form-row cols-2">
+                <div><label class="fld">Gastos (USD)</label>
+                  <input class="fld" type="number" id="pe-mens-gastos" value="0"></div>
+                <div><label class="fld">Impuestos (USD)</label>
+                  <input class="fld" type="number" id="pe-mens-impuestos" value="0"></div>
+              </div>
+              <div><label class="fld">Notas</label>
+                <textarea class="fld" id="pe-mens-notas" rows="2"></textarea></div>
+              <div style="display:flex;justify-content:flex-end;margin-top:12px">
+                <button class="btn-primary" style="width:auto;padding:10px 24px" onclick="guardarMovPE()">Guardar</button>
+              </div>
+            </div>
+          </div>
+
+        </div><!-- /pe-carga -->
+      </div><!-- /page-private_equity -->
+
       <div id="page-autos" class="page">
         <div class="tabs">
           <button class="tab-btn active" onclick="switchTab('aut','info',this)">Información</button>
@@ -3605,7 +3750,7 @@ async function loadPage(page) {
     case 'propiedades': await loadPropiedades(); await loadAlquileres(); initFirstTab('propiedades'); break;
     case 'ranking': await loadRanking(); break;
     case 'bancos': await loadBancos(); await loadBancosEvolucion(); initFirstTab('bancos'); break;
-    case 'private_equity': await loadPE(); initFirstTab('private_equity'); break;
+    case 'private_equity': await loadPE(); await loadPEEvolucion(); initFirstTab('private_equity'); break;
     case 'autos': 
       await loadAutos(); 
       await loadAutosEvolucion();
@@ -3894,9 +4039,9 @@ function renderPatrimonioPivot() {
   // Header: Titular | 2017 | 2018 | ... | 2026 | Var%
   const thead = document.getElementById('thead-patrimonio');
   thead.innerHTML = `<tr>
-    <th style="min-width:80px">Titular</th>
-    ${anios.map(a=>`<th class="num" style="min-width:100px">${a}</th>`).join('')}
-    <th class="num" style="min-width:80px">Var. 25→26</th>
+    <th style="min-width:60px;white-space:nowrap">Titular</th>
+    ${anios.map(a=>`<th class="num" style="min-width:72px;font-size:11px">${a}</th>`).join('')}
+    <th class="num" style="min-width:70px;font-size:11px">Var%</th>
   </tr>`;
 
   const tbody = document.getElementById('tbody-patrimonio');
@@ -4264,6 +4409,166 @@ async function compararActivos() {
         </tbody>
       </table>
     </div>`;
+}
+
+// ============================================
+// PRIVATE EQUITY — Evolución Mensual y Carga Mensual
+// ============================================
+
+function setPECargaMode(mode) {
+  const anual = document.getElementById('pe-carga-anual');
+  const mensual = document.getElementById('pe-carga-mensual');
+  const btnA = document.getElementById('pe-carga-anual-btn');
+  const btnM = document.getElementById('pe-carga-mensual-btn');
+  if (!anual || !mensual) return;
+  if (mode === 'anual') {
+    anual.style.display = 'block'; mensual.style.display = 'none';
+    btnA.style.cssText = 'background:var(--gold-soft);border-color:var(--gold);color:var(--gold)';
+    btnM.style.cssText = '';
+  } else {
+    anual.style.display = 'none'; mensual.style.display = 'block';
+    btnM.style.cssText = 'background:var(--gold-soft);border-color:var(--gold);color:var(--gold)';
+    btnA.style.cssText = '';
+    // Populate PE select if empty
+    const sel = document.getElementById('pe-mens-sel');
+    if (sel && sel.options.length <= 1 && window._peData) {
+      sel.innerHTML = '<option value="">Seleccionar...</option>' +
+        window._peData.map(p => `<option value="${p.id}">${p.nombre} (${p.titular})</option>`).join('');
+    }
+  }
+}
+
+async function loadPEEvolucion() {
+  const peId = document.getElementById('pe-ev-sel')?.value || '';
+  const anio = parseInt(document.getElementById('pe-ev-anio')?.value || 2026);
+  const titFiltro = document.getElementById('pe-ev-titular')?.value || '';
+  const MESES = [1,2,3,4,5,6,7,8,9,10,11,12];
+  const MESES_N = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+
+  // Populate PE select if empty
+  const sel = document.getElementById('pe-ev-sel');
+  if (sel && sel.options.length <= 1 && window._peData) {
+    sel.innerHTML = '<option value="">Todas</option>' +
+      window._peData.map(p => `<option value="${p.id}">${p.nombre} (${p.titular})</option>`).join('');
+  }
+
+  const tbody = document.getElementById('tbody-pe-evolucion');
+  if (!tbody) return;
+  tbody.innerHTML = '<tr><td colspan="14"><div class="loader"><div class="spinner"></div></div></td></tr>';
+
+  try {
+    let query = sb.from('movimientos_pe').select('*').eq('anio', anio);
+    if (peId) query = query.eq('pe_id', peId);
+    const { data } = await query;
+    const movs = data || [];
+
+    let filtered = [...(window._peData||[])];
+    if (titFiltro) filtered = filtered.filter(p => p.titular === titFiltro);
+    if (peId) filtered = filtered.filter(p => p.id === peId);
+
+    // KPIs
+    const totUtil = movs.reduce((a,m) => a+(m.utilidad||0), 0);
+    const totAporte = movs.reduce((a,m) => a+(m.aporte_capital||0), 0);
+    const totGastos = movs.reduce((a,m) => a+(m.gastos||0)+(m.impuestos||0), 0);
+    const totNeto = totUtil - totGastos;
+    const ge = id => document.getElementById(id);
+    if (ge('pe-ev-utilidad')) ge('pe-ev-utilidad').textContent = '$' + fmt(totUtil);
+    if (ge('pe-ev-aportes')) ge('pe-ev-aportes').textContent = '$' + fmt(totAporte);
+    if (ge('pe-ev-gastos')) ge('pe-ev-gastos').textContent = '$' + fmt(totGastos);
+    const netoEl = ge('pe-ev-neto');
+    if (netoEl) { netoEl.textContent = '$' + fmt(totNeto); netoEl.style.color = totNeto>=0?'var(--esp)':'var(--usa)'; }
+
+    if (!filtered.length) {
+      tbody.innerHTML = '<tr><td colspan="14" style="color:var(--text3);text-align:center;padding:20px">Sin datos</td></tr>';
+      return;
+    }
+
+    // Build rows: for each PE show 4 concept rows like ANEXO PE
+    let html = '';
+    filtered.forEach(pe => {
+      const mMap = {};
+      movs.filter(m => m.pe_id === pe.id).forEach(m => { mMap[m.mes] = m; });
+      const hasData = Object.keys(mMap).length > 0;
+
+      const rowVal = (field, color) => MESES.map(mes => {
+        const v = mMap[mes]?.[field] || null;
+        return `<td class="num" style="font-size:10px;color:${v?color:'var(--border2)'}">${v?'$'+fmt(v):'—'}</td>`;
+      }).join('');
+
+      const totUtil = MESES.reduce((a,mes) => a+(mMap[mes]?.utilidad||0), 0);
+      const totAporte = MESES.reduce((a,mes) => a+(mMap[mes]?.aporte_capital||0), 0);
+      const totGastos = MESES.reduce((a,mes) => a+(mMap[mes]?.gastos||0)+(mMap[mes]?.impuestos||0), 0);
+      const totNeto = totUtil - totGastos;
+
+      // PE header row
+      html += `<tr style="background:var(--bg3)">
+        <td colspan="14" style="font-size:11px;font-weight:700;color:var(--gold);padding:7px 8px;letter-spacing:0.5px">
+          ${pe.nombre} <span style="color:var(--text3);font-weight:400">(${pe.titular})</span>
+          ${!hasData?'<span style="font-size:10px;color:var(--text3);margin-left:8px">Sin movimientos cargados</span>':''}
+        </td>
+      </tr>`;
+
+      if (hasData) {
+        html += `<tr>
+          <td style="font-size:11px;color:var(--esp);padding-left:16px">💰 Utilidad</td>
+          ${rowVal('utilidad','var(--esp)')}
+          <td class="num bold positive" style="font-size:11px">$${fmt(totUtil)}</td>
+        </tr>
+        <tr>
+          <td style="font-size:11px;color:var(--gold);padding-left:16px">➕ Aporte Capital</td>
+          ${MESES.map(mes => { const v = mMap[mes]?.aporte_capital||null; return `<td class="num" style="font-size:10px;color:${v?'var(--gold)':'var(--border2)'}">${v?'$'+fmt(v):'—'}</td>`; }).join('')}
+          <td class="num bold" style="font-size:11px;color:var(--gold)">$${fmt(totAporte)}</td>
+        </tr>
+        <tr>
+          <td style="font-size:11px;color:var(--usa);padding-left:16px">🔴 Gastos + Imp.</td>
+          ${MESES.map(mes => { const v = (mMap[mes]?.gastos||0)+(mMap[mes]?.impuestos||0); return `<td class="num" style="font-size:10px;color:${v?'var(--usa)':'var(--border2)'}">${v?'$'+fmt(v):'—'}</td>`; }).join('')}
+          <td class="num bold negative" style="font-size:11px">$${fmt(totGastos)}</td>
+        </tr>
+        <tr style="border-top:1px solid var(--border)">
+          <td style="font-size:11px;font-weight:600;padding-left:16px">TOTAL</td>
+          ${MESES.map(mes => {
+            const v = (mMap[mes]?.utilidad||0) - (mMap[mes]?.gastos||0) - (mMap[mes]?.impuestos||0);
+            const hasM = mMap[mes];
+            return `<td class="num" style="font-size:11px;font-weight:600;color:${!hasM?'var(--border2)':v>=0?'var(--esp)':'var(--usa)'}">${!hasM?'—':'$'+fmt(v)}</td>`;
+          }).join('')}
+          <td class="num bold" style="color:${totNeto>=0?'var(--esp)':'var(--usa)'}">$${fmt(totNeto)}</td>
+        </tr>`;
+      }
+    });
+
+    tbody.innerHTML = html;
+  } catch(e) {
+    tbody.innerHTML = `<tr><td colspan="14" style="color:var(--text3);text-align:center;padding:20px">Corré el SQL de movimientos_pe primero</td></tr>`;
+    console.warn('loadPEEvolucion:', e.message);
+  }
+}
+
+async function guardarMovPE() {
+  const peId = document.getElementById('pe-mens-sel')?.value;
+  const anio = parseInt(document.getElementById('pe-mens-anio')?.value);
+  const mes = parseInt(document.getElementById('pe-mens-mes')?.value);
+  if (!peId) return toast('Seleccioná una inversión', 'error');
+
+  const utilidad = parseFloat(document.getElementById('pe-mens-utilidad')?.value) || 0;
+  const aporte = parseFloat(document.getElementById('pe-mens-aporte')?.value) || 0;
+  const gastos = parseFloat(document.getElementById('pe-mens-gastos')?.value) || 0;
+  const impuestos = parseFloat(document.getElementById('pe-mens-impuestos')?.value) || 0;
+  const notas = document.getElementById('pe-mens-notas')?.value || '';
+  const neto = utilidad - gastos - impuestos;
+
+  const { error } = await sb.from('movimientos_pe').upsert({
+    pe_id: peId, anio, mes, utilidad, aporte_capital: aporte,
+    gastos, impuestos, neto_usd: neto, notas,
+    created_by: currentUser?.id
+  }, { onConflict: 'pe_id,anio,mes' });
+
+  if (error) return toast('Error: ' + error.message, 'error');
+  toast('Movimiento guardado ✓', 'success');
+  
+  // Reset fields
+  ['pe-mens-utilidad','pe-mens-aporte','pe-mens-gastos','pe-mens-impuestos'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.value = 0;
+  });
 }
 
 // ============================================
@@ -4757,38 +5062,73 @@ async function loadRanking() {
   // Enrich props with movimientos
   rankData = (props || []).map(p => ({
     ...p,
-    _renta:     movByProp[p.id]?.renta || (p.precio_alquiler || 0),
+    _renta:     movByProp[p.id]?.renta || 0,
     _gastos:    movByProp[p.id]?.gastos || 0,
     _impuestos: movByProp[p.id]?.impuestos || 0,
-    _neto:      movByProp[p.id]?.neto || (p.precio_alquiler || 0),
+    _neto:      movByProp[p.id]?.neto || 0,
+    _hasMov:    !!movByProp[p.id],
   })).sort((a,b) => b._neto - a._neto);
 
   renderRanking('all');
 }
 
+let rankSortCol = '_neto'; let rankSortDir = -1;
+function sortRanking(col) {
+  if (rankSortCol === col) rankSortDir *= -1;
+  else { rankSortCol = col; rankSortDir = col === 'nombre' || col === 'titular' || col === 'pais' ? 1 : -1; }
+  document.querySelectorAll('[id^="srt-rk-"]').forEach(el => el.textContent = '');
+  const ind = document.getElementById('srt-rk-' + col);
+  if (ind) ind.textContent = rankSortDir === 1 ? ' ↑' : ' ↓';
+  renderRanking();
+}
+
 function renderRanking(paisFiltro) {
-  const rows = paisFiltro === 'all' ? rankData : rankData.filter(p => p.pais === paisFiltro);
+  if (paisFiltro !== undefined) window._rankPaisFiltro = paisFiltro;
+  const filtro = window._rankPaisFiltro || 'all';
+  let rows = filtro === 'all' ? [...rankData] : rankData.filter(p => p.pais === filtro);
+
+  // Apply sort
+  if (typeof rankSortCol !== 'undefined') {
+    rows = rows.sort((a, b) => {
+      let va, vb;
+      if (rankSortCol === '_pctCompra') {
+        va = a.valor_compra > 0 && a._renta > 0 ? a._renta / a.valor_compra : 0;
+        vb = b.valor_compra > 0 && b._renta > 0 ? b._renta / b.valor_compra : 0;
+      } else if (rankSortCol === '_pctAnual') {
+        va = a.valor_2026 > 0 && a._renta > 0 ? a._renta / a.valor_2026 : 0;
+        vb = b.valor_2026 > 0 && b._renta > 0 ? b._renta / b.valor_2026 : 0;
+      } else {
+        va = a[rankSortCol]; vb = b[rankSortCol];
+      }
+      if (!va) va = 0; if (!vb) vb = 0;
+      if (typeof va === 'string') return rankSortDir * va.localeCompare(vb, 'es');
+      return rankSortDir * (va - vb);
+    });
+  }
+
   const colPais = { ARG:'arg', USA:'usa', URU:'uru', ESP:'esp' };
   const tbody = document.getElementById('tbody-ranking');
-  // Ordenar por neto (si hay movimientos, sino por valor)
   tbody.innerHTML = rows.map((p, i) => {
-    const rentaAnual = (p._renta || 0) * 12;
-    const pctCompra = p.valor_compra > 0 && rentaAnual > 0 ? (rentaAnual / p.valor_compra * 100) : 0;
-    const pctActual = p.valor_2026 > 0 && rentaAnual > 0 ? (rentaAnual / p.valor_2026 * 100) : 0;
+    // _renta is already ANNUAL total from movimientos - DO NOT multiply by 12
+    const renta = p._renta || 0;
     const neto = p._neto || 0;
+    // %Compra = renta_anual / valor_compra * 100
+    // %Anual  = renta_anual / valor_2026 * 100
+    const pctCompra = p.valor_compra > 0 && renta > 0 ? (renta / p.valor_compra * 100) : 0;
+    const pctAnual  = p.valor_2026  > 0 && renta > 0 ? (renta / p.valor_2026  * 100) : 0;
     return `<tr class="row-${colPais[p.pais]||'arg'}">
       <td style="color:var(--text3);font-weight:600">${i+1}</td>
       <td class="bold">${p.nombre}</td>
       <td>${p.titular}</td>
-      <td><span class="badge badge-${colPais[p.pais]}">${p.pais}</span></td>
+      <td><span class="badge badge-${colPais[p.pais]||'arg'}">${p.pais}</span></td>
       <td class="num">$${fmt(p.valor_compra)}</td>
       <td class="num bold">$${fmt(p.valor_2026)}</td>
-      <td class="num positive">$${fmt(p._renta)}</td>
+      <td class="num positive">$${fmt(renta)}</td>
       <td class="num negative">$${fmt(p._gastos)}</td>
       <td class="num negative">$${fmt(p._impuestos)}</td>
       <td class="num ${neto >= 0 ? 'positive':'negative'} bold">$${fmt(neto)}</td>
-      <td class="num">${pctCompra > 0 ? pctCompra.toFixed(2)+'%' : '—'}</td>
-      <td class="num">${pctActual > 0 ? pctActual.toFixed(2)+'%' : '—'}</td>
+      <td class="num ${pctCompra > 0 ? 'positive' : ''}">${pctCompra > 0 ? pctCompra.toFixed(2)+'%' : '—'}</td>
+      <td class="num ${pctAnual  > 0 ? 'positive' : ''}">${pctAnual  > 0 ? pctAnual.toFixed(2)+'%'  : '—'}</td>
     </tr>`;
   }).join('') || '<tr><td colspan="12" style="color:var(--text3);text-align:center">Sin datos</td></tr>';
 }
@@ -5286,6 +5626,52 @@ function renderOrgG() {
 // ============================================
 // HELPERS
 // ============================================
+async function recalcPatrimonioActual() {
+  // Recalculate 2026 row in patrimonio_historico for each titular
+  // based on current values in all asset tables
+  try {
+    const [{ data: props }, { data: bancosMovs }, { data: pe }, { data: autos }, { data: bancos }] = await Promise.all([
+      sb.from('propiedades').select('titular, valor_2026').eq('activa', true).eq('vendida', false),
+      sb.from('movimientos_bancos').select('neto_usd, banco_id').eq('anio', 2026).eq('mes', 4),
+      sb.from('private_equity').select('titular, valor_2026').eq('activo', true),
+      sb.from('autos').select('titular, valor_2026').eq('activo', true),
+      sb.from('bancos').select('id, titular, pais'),
+    ]);
+    
+    const bancosTitMap = {};
+    bancos?.forEach(b => bancosTitMap[b.id] = b.titular);
+    
+    const byTit = {};
+    const ensureTit = t => { if (!byTit[t]) byTit[t] = { propiedades:0, banco:0, private_equity:0, autos:0 }; };
+    
+    props?.forEach(p => { ensureTit(p.titular); byTit[p.titular].propiedades += p.valor_2026||0; });
+    bancosMovs?.forEach(m => { 
+      const t = bancosTitMap[m.banco_id]; 
+      if (t) { ensureTit(t); byTit[t].banco += m.neto_usd||0; }
+    });
+    pe?.forEach(p => { ensureTit(p.titular); byTit[p.titular].private_equity += p.valor_2026||0; });
+    autos?.forEach(a => { ensureTit(a.titular); byTit[a.titular].autos += a.valor_2026||0; });
+    
+    // Upsert into patrimonio_historico for year 2026
+    const upserts = Object.entries(byTit).map(([titular, vals]) => ({
+      titular,
+      anio: 2026,
+      propiedades: Math.round(vals.propiedades),
+      banco: Math.round(vals.banco),
+      private_equity: Math.round(vals.private_equity),
+      autos: Math.round(vals.autos),
+      total: Math.round(vals.propiedades + vals.banco + vals.private_equity + vals.autos),
+    }));
+    
+    for (const row of upserts) {
+      await sb.from('patrimonio_historico').upsert(row, { onConflict: 'titular,anio' });
+    }
+    console.log('Patrimonio 2026 recalculado ✓');
+  } catch(e) {
+    console.warn('recalcPatrimonioActual error:', e.message);
+  }
+}
+
 async function editarValorProp(id, nombre, valorActual) {
   const nuevo = prompt(`Nuevo valor 2026 para "${nombre}" (USD):\nActual: $${fmt(valorActual)}`, valorActual);
   if (nuevo === null) return;
