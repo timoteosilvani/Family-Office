@@ -879,39 +879,23 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
         </div>
 
         <!-- KPIs por país -->
-        <div class="grid-4" style="margin-bottom:24px">
-          <div class="kpi-card">
-            <div class="kpi-accent arg"></div>
-            <div class="kpi-label">🇦🇷 Argentina</div>
-            <div class="kpi-value" id="kpi-arg">—</div>
-            <div class="kpi-sub" id="kpi-arg-pct">— del total</div>
-          </div>
-          <div class="kpi-card">
-            <div class="kpi-accent usa"></div>
-            <div class="kpi-label">🇺🇸 USA</div>
-            <div class="kpi-value" id="kpi-usa">—</div>
-            <div class="kpi-sub" id="kpi-usa-pct">— del total</div>
-          </div>
-          <div class="kpi-card">
-            <div class="kpi-accent uru"></div>
-            <div class="kpi-label">🇺🇾 Uruguay</div>
-            <div class="kpi-value" id="kpi-uru">—</div>
-            <div class="kpi-sub" id="kpi-uru-pct">— del total</div>
-          </div>
-          <div class="kpi-card">
-            <div class="kpi-accent esp"></div>
-            <div class="kpi-label">🇪🇸 España</div>
-            <div class="kpi-value" id="kpi-esp">—</div>
-            <div class="kpi-sub" id="kpi-esp-pct">— del total</div>
-          </div>
+        <!-- Hidden spans for JS compat - values shown in chart panel -->
+        <div style="display:none">
+          <span id="kpi-arg"></span><span id="kpi-arg-pct"></span>
+          <span id="kpi-usa"></span><span id="kpi-usa-pct"></span>
+          <span id="kpi-uru"></span><span id="kpi-uru-pct"></span>
+          <span id="kpi-esp"></span><span id="kpi-esp-pct"></span>
         </div>
 
         <!-- Gráficos fila 1 -->
         <div class="grid-2" style="margin-bottom:24px">
           <div class="card">
             <div class="section-title" style="margin-bottom:16px">Distribución por País</div>
-            <div style="position:relative;height:220px;display:flex;align-items:center;justify-content:center">
-              <canvas id="chart-paises"></canvas>
+            <div style="display:flex;gap:20px;align-items:center">
+              <div style="position:relative;height:220px;flex-shrink:0;width:220px;display:flex;align-items:center;justify-content:center">
+                <canvas id="chart-paises"></canvas>
+              </div>
+              <div style="flex:1;display:flex;flex-direction:column;gap:8px" id="legend-paises-values"></div>
             </div>
             <div id="legend-paises" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;justify-content:center"></div>
           </div>
@@ -3471,6 +3455,41 @@ let currentUser = null;
 let tcCache = {};
 
 async function checkSession() {
+  // Check if this is a password reset redirect from Supabase
+  const hash = window.location.hash;
+  if (hash && hash.includes('type=recovery')) {
+    // Extract tokens from hash
+    const params = new URLSearchParams(hash.substring(1));
+    const accessToken = params.get('access_token');
+    const refreshToken = params.get('refresh_token');
+    if (accessToken) {
+      // Set the session with these tokens
+      await sb.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
+      // Show password reset form instead of app
+      document.getElementById('login-screen').style.display = 'none';
+      document.getElementById('reset-screen').style.display = 'flex';
+      // Clear the hash from URL
+      history.replaceState(null, '', window.location.pathname);
+      return;
+    }
+  }
+  // Also handle magic link / invite (type=invite or type=magiclink)
+  if (hash && (hash.includes('type=invite') || hash.includes('type=magiclink'))) {
+    const params = new URLSearchParams(hash.substring(1));
+    const accessToken = params.get('access_token');
+    const refreshToken = params.get('refresh_token');
+    if (accessToken) {
+      await sb.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
+      // Show password setup form for new users
+      document.getElementById('login-screen').style.display = 'none';
+      document.getElementById('reset-screen').style.display = 'flex';
+      document.querySelector('#reset-screen div div:first-child').textContent = 'Elegí tu contraseña para acceder';
+      history.replaceState(null, '', window.location.pathname);
+      return;
+    }
+  }
+
+
   const { data: { session } } = await sb.auth.getSession();
   if (session) {
     currentUser = session.user;
@@ -3907,25 +3926,10 @@ async function loadDashboard() {
 
   // KPIs principales
   document.getElementById('kpi-global').innerHTML = `
-    <div class="kpi-card"><div class="kpi-accent gold"></div>
-      <div class="kpi-label">Patrimonio Total</div>
-      <div class="kpi-value" style="font-size:20px">$${fmt(total)}</div>
-      <div class="kpi-sub">USD · 2026</div>
-    </div>
-    <div class="kpi-card"><div class="kpi-accent arg"></div>
-      <div class="kpi-label">Propiedades</div>
-      <div class="kpi-value">$${fmt(totalProp)}</div>
-      <div class="kpi-sub">${pct(totalProp,total)} del total</div>
-    </div>
-    <div class="kpi-card"><div class="kpi-accent usa"></div>
-      <div class="kpi-label">Cuentas Bancarias</div>
-      <div class="kpi-value">$${fmt(totalBanco)}</div>
-      <div class="kpi-sub">${pct(totalBanco,total)} del total</div>
-    </div>
-    <div class="kpi-card"><div class="kpi-accent esp"></div>
-      <div class="kpi-label">PE + Autos</div>
-      <div class="kpi-value">$${fmt(totalPE+totalAutos)}</div>
-      <div class="kpi-sub">${pct(totalPE+totalAutos,total)} del total</div>
+    <div style="border:1px solid var(--gold);border-radius:var(--radius);background:linear-gradient(135deg,var(--bg2),var(--bg3));padding:28px 40px">
+      <div style="font-size:11px;letter-spacing:2px;color:var(--text3);font-weight:600;margin-bottom:8px">PATRIMONIO TOTAL</div>
+      <div style="font-size:44px;font-weight:300;color:var(--gold);letter-spacing:-2px;line-height:1">${fmt(total)}</div>
+      <div style="font-size:12px;color:var(--text3);margin-top:8px">USD · 2026</div>
     </div>`;
 
   // KPIs país
@@ -3945,6 +3949,19 @@ async function loadDashboard() {
   const paisColors = ['#2980b9','#c0392b','#d4a017','#27ae60'];
   chartPaises = makeDonut('chart-paises', paisLabels, paisVals, paisColors);
   makeLegend('legend-paises', paisLabels, paisColors, paisVals, total);
+  // Populate value panel next to paises chart
+  const paisPanel = document.getElementById('legend-paises-values');
+  if (paisPanel) paisPanel.innerHTML = paisLabels.map((l,i) => `
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:var(--bg3);border-radius:6px;border-left:3px solid ${paisColors[i]}">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="width:8px;height:8px;border-radius:50%;background:${paisColors[i]};flex-shrink:0"></span>
+        <span style="font-size:12px;color:var(--text2)">${l}</span>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:13px;font-weight:500;color:var(--text)">$${fmt(paisVals[i])}</div>
+        <div style="font-size:10px;color:var(--text3)">${total>0?(paisVals[i]/total*100).toFixed(1)+'%':''}</div>
+      </div>
+    </div>`).join('');
 
   // Donut activos
   chartActivos = destroyChart(chartActivos);
@@ -7460,6 +7477,36 @@ async function guardarMovAuto() {
   }, { onConflict: 'auto_id,anio,mes' });
   if (error) return toast('Error: ' + error.message, 'error');
   toast('Gasto de auto guardado ✓', 'success');
+}
+
+// ============================================
+// PASSWORD RESET
+// ============================================
+async function guardarNuevaPassword() {
+  const pass1 = document.getElementById('new-password').value;
+  const pass2 = document.getElementById('confirm-password').value;
+  const errEl = document.getElementById('reset-error');
+  
+  if (!pass1 || pass1.length < 8) {
+    errEl.textContent = 'La contraseña debe tener al menos 8 caracteres';
+    errEl.style.display = 'block'; return;
+  }
+  if (pass1 !== pass2) {
+    errEl.textContent = 'Las contraseñas no coinciden';
+    errEl.style.display = 'block'; return;
+  }
+  
+  errEl.style.display = 'none';
+  const { error } = await sb.auth.updateUser({ password: pass1 });
+  if (error) {
+    errEl.textContent = 'Error: ' + error.message;
+    errEl.style.display = 'block'; return;
+  }
+  
+  // Password set successfully - show app
+  document.getElementById('reset-screen').style.display = 'none';
+  toast('Contraseña guardada ✓ Bienvenido/a', 'success');
+  await checkSession();
 }
 
 // ============================================
