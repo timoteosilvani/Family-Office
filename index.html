@@ -721,6 +721,29 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
 <!-- ============================================
      LOGIN
 ============================================ -->
+<div id="reset-screen" style="display:none;align-items:center;justify-content:center;min-height:100vh;background:var(--bg)">
+  <div style="background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:40px;width:100%;max-width:380px;box-shadow:0 8px 32px rgba(0,0,0,0.4)">
+    <div style="font-family:'DM Serif Display',serif;font-size:24px;color:var(--gold);margin-bottom:4px">Family Office</div>
+    <div style="font-size:11px;color:var(--text3);letter-spacing:2px;font-weight:600;margin-bottom:28px">GESTIÓN PATRIMONIAL</div>
+    <div style="font-size:15px;color:var(--text);margin-bottom:24px">Elegí tu contraseña para acceder</div>
+    <div style="margin-bottom:14px">
+      <label style="font-size:11px;color:var(--text3);letter-spacing:1px;display:block;margin-bottom:6px">NUEVA CONTRASEÑA</label>
+      <input type="password" id="new-password" placeholder="Mínimo 8 caracteres" 
+        style="width:100%;padding:10px 14px;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;color:var(--text);font-size:14px;box-sizing:border-box;outline:none">
+    </div>
+    <div style="margin-bottom:24px">
+      <label style="font-size:11px;color:var(--text3);letter-spacing:1px;display:block;margin-bottom:6px">CONFIRMAR CONTRASEÑA</label>
+      <input type="password" id="confirm-password" placeholder="Repetí la contraseña"
+        style="width:100%;padding:10px 14px;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;color:var(--text);font-size:14px;box-sizing:border-box;outline:none">
+    </div>
+    <div id="reset-error" style="color:#e74c3c;font-size:12px;margin-bottom:12px;display:none;padding:8px 12px;background:rgba(231,76,60,0.1);border-radius:6px"></div>
+    <button onclick="guardarNuevaPassword()" 
+      style="width:100%;padding:12px;background:var(--gold);color:#000;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer">
+      Guardar contraseña →
+    </button>
+  </div>
+</div>
+
 <div id="login-screen">
   <div class="login-card">
     <div class="login-logo">
@@ -3455,37 +3478,27 @@ let currentUser = null;
 let tcCache = {};
 
 async function checkSession() {
-  // Check if this is a password reset redirect from Supabase
+  // Handle Supabase auth redirects (invite, recovery, magiclink)
   const hash = window.location.hash;
-  if (hash && hash.includes('type=recovery')) {
-    // Extract tokens from hash
+  if (hash && hash.includes('access_token')) {
     const params = new URLSearchParams(hash.substring(1));
     const accessToken = params.get('access_token');
     const refreshToken = params.get('refresh_token');
-    if (accessToken) {
-      // Set the session with these tokens
-      await sb.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
-      // Show password reset form instead of app
-      document.getElementById('login-screen').style.display = 'none';
-      document.getElementById('reset-screen').style.display = 'flex';
-      // Clear the hash from URL
-      history.replaceState(null, '', window.location.pathname);
-      return;
-    }
-  }
-  // Also handle magic link / invite (type=invite or type=magiclink)
-  if (hash && (hash.includes('type=invite') || hash.includes('type=magiclink'))) {
-    const params = new URLSearchParams(hash.substring(1));
-    const accessToken = params.get('access_token');
-    const refreshToken = params.get('refresh_token');
-    if (accessToken) {
-      await sb.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
-      // Show password setup form for new users
-      document.getElementById('login-screen').style.display = 'none';
-      document.getElementById('reset-screen').style.display = 'flex';
-      document.querySelector('#reset-screen div div:first-child').textContent = 'Elegí tu contraseña para acceder';
-      history.replaceState(null, '', window.location.pathname);
-      return;
+    const type = params.get('type');
+    
+    if (accessToken && (type === 'invite' || type === 'recovery' || type === 'magiclink' || type === 'signup')) {
+      try {
+        // Set session
+        await sb.auth.setSession({ access_token: accessToken, refresh_token: refreshToken || '' });
+        // Clear hash from URL
+        history.replaceState(null, '', window.location.pathname);
+        // Show password setup screen
+        document.getElementById('login-screen').style.display = 'none';
+        document.getElementById('reset-screen').style.display = 'flex';
+        return;
+      } catch(e) {
+        console.warn('Token error:', e.message);
+      }
     }
   }
 
@@ -7503,10 +7516,10 @@ async function guardarNuevaPassword() {
     errEl.style.display = 'block'; return;
   }
   
-  // Password set successfully - show app
+  // Password set successfully - reload to show app
   document.getElementById('reset-screen').style.display = 'none';
   toast('Contraseña guardada ✓ Bienvenido/a', 'success');
-  await checkSession();
+  setTimeout(() => window.location.reload(), 1500);
 }
 
 // ============================================
