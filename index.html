@@ -7848,6 +7848,32 @@ async function guardarNuevaPassword() {
 // INIT
 // ============================================
 checkSession();
+
+// ============================================
+// SERVICE WORKER REGISTRATION
+// ============================================
+const APP_VERSION = '20260601-001';
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
+    reg.addEventListener('updatefound', () => {
+      const newWorker = reg.installing;
+      newWorker.addEventListener('statechange', () => {
+        if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+          // New version available — show toast and reload
+          const banner = document.createElement('div');
+          banner.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1e1e1e;border:1px solid #c9a84c;border-radius:10px;padding:14px 22px;color:#e8e4dc;font-family:DM Sans,sans-serif;font-size:13px;z-index:9999;box-shadow:0 8px 32px rgba(0,0,0,0.6);display:flex;align-items:center;gap:14px';
+          banner.innerHTML = `<span>🔄 Nueva versión disponible</span><button onclick="window.location.reload()" style="background:#c9a84c;color:#0f0f0f;border:none;border-radius:6px;padding:6px 14px;font-weight:600;cursor:pointer;font-family:inherit">Actualizar</button>`;
+          document.body.appendChild(banner);
+        }
+      });
+    });
+  }).catch(e => console.warn('SW registration failed:', e));
+
+  // Listen for SW message to force reload
+  navigator.serviceWorker.addEventListener('message', e => {
+    if (e.data === 'RELOAD') window.location.reload();
+  });
+}
 </script>
 </body>
 </html>
