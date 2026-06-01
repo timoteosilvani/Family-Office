@@ -716,7 +716,9 @@ tr.row-arg td { background: rgba(41,128,185,0.07) !important; }
 tr.row-usa td { background: rgba(192,57,43,0.07) !important; }
 tr.row-uru td { background: rgba(212,160,23,0.07) !important; }
 tr.row-esp td { background: rgba(39,174,96,0.07) !important; }
-.row-par td { background: rgba(39,174,96,0.07) !important; }
+.row-par td { background: rgba(230,126,34,0.07) !important; }
+.row-par:hover td { background: rgba(230,126,34,0.14) !important; }
+.row-par td:first-child { border-left: 3px solid var(--par); }
 tr.row-arg:hover td { background: rgba(41,128,185,0.14) !important; }
 tr.row-usa:hover td { background: rgba(192,57,43,0.14) !important; }
 tr.row-uru:hover td { background: rgba(212,160,23,0.14) !important; }
@@ -1022,29 +1024,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
         </div><!-- /pat-historial -->
 
 
-        <!-- Historial de valores -->
-        <div style="margin-top:24px">
-          <div class="section-title" style="margin-bottom:4px">Historial de Valores — Propiedades</div>
-          <p style="color:var(--text3);font-size:12px;margin-bottom:14px">Evolución del valor de cada propiedad año a año en USD.</p>
-          <div class="filters" style="margin-bottom:14px">
-            <button class="filter-btn f-all active" onclick="filtroHistorial('all',this)">Todas</button>
-            <button class="filter-btn f-arg" onclick="filtroHistorial('ARG',this)">🇦🇷 ARG</button>
-            <button class="filter-btn f-usa" onclick="filtroHistorial('USA',this)">🇺🇸 USA</button>
-            <button class="filter-btn f-uru" onclick="filtroHistorial('URU',this)">🇺🇾 URU</button>
-            <button class="filter-btn f-esp" onclick="filtroHistorial('ESP',this)">🇪🇸 ESP</button>
-            <button class="filter-btn" onclick="filtroHistorial('vendidas',this)">Vendidas</button>
-          </div>
-          <div class="card"><div class="table-wrap"><table>
-            <thead><tr>
-              <th>#</th><th>Propiedad</th><th>Tit.</th>
-              <th class="num">2017</th><th class="num">2018</th><th class="num">2019</th>
-              <th class="num">2020</th><th class="num">2021</th><th class="num">2022</th>
-              <th class="num">2023</th><th class="num">2024</th><th class="num">2025</th>
-              <th class="num">2026</th><th class="num">Var%</th>
-            </tr></thead>
-            <tbody id="tbody-historial-props"></tbody>
-          </table></div></div>
-        </div>
+        
 
       </div><!-- /page-patrimonio -->
 
@@ -1053,6 +1033,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
         <div class="tabs">
           <button class="tab-btn active" onclick="switchTab('prop','info',this)">Información</button>
           <button class="tab-btn" onclick="switchTab('prop','alquileres',this)">🏠 Alquileres</button>
+          <button class="tab-btn" onclick="switchTab('prop','historial',this);renderHistorialProps('all')">📈 Historial</button>
           <button class="tab-btn" onclick="switchTab('prop','adjuntos',this)">📎 Adjuntos</button>
         </div>
 
@@ -1264,6 +1245,30 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
           </div>
         </div>
 
+        <div id="prop-historial" class="tab-content">
+          <div class="section-title" style="margin-bottom:4px">Historial de Valores</div>
+          <p style="color:var(--text3);font-size:12px;margin-bottom:14px">Evolución del valor de cada propiedad año a año en USD.</p>
+          <div class="filters" style="margin-bottom:14px">
+            <button class="filter-btn f-all active" onclick="filtroHistorial('all',this)">Todas</button>
+            <button class="filter-btn f-arg" onclick="filtroHistorial('ARG',this)">🇦🇷 ARG</button>
+            <button class="filter-btn f-usa" onclick="filtroHistorial('USA',this)">🇺🇸 USA</button>
+            <button class="filter-btn f-uru" onclick="filtroHistorial('URU',this)">🇺🇾 URU</button>
+            <button class="filter-btn f-esp" onclick="filtroHistorial('ESP',this)">🇪🇸 ESP</button>
+          </div>
+          <div class="card"><div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
+            <table style="min-width:1000px">
+              <thead><tr>
+                <th>#</th><th>Propiedad</th><th>Tit.</th>
+                <th class="num">2017</th><th class="num">2018</th><th class="num">2019</th>
+                <th class="num">2020</th><th class="num">2021</th><th class="num">2022</th>
+                <th class="num">2023</th><th class="num">2024</th><th class="num">2025</th>
+                <th class="num">2026</th><th class="num">Var%</th>
+              </tr></thead>
+              <tbody id="tbody-historial-props"></tbody>
+            </table>
+          </div></div>
+        </div>
+
         <div id="prop-adjuntos" class="tab-content">
           <div class="section-title">Adjuntos por Propiedad</div>
           <p style="color:var(--text3);font-size:13px;margin-bottom:16px">Escrituras, contratos, seguros y otros documentos.</p>
@@ -1465,7 +1470,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
         <div class="tabs">
           <button class="tab-btn active" onclick="switchTab('banco','info',this)">Información</button>
           <button class="tab-btn" onclick="switchTab('banco','evolucion',this)">Evolución Mensual</button>
-          <button class="tab-btn" onclick="switchTab('banco','carga',this)">Carga Mensual</button>
+          <button class="tab-btn" onclick="switchTab('banco','carga',this)">Carga</button>
         </div>
 
         <div id="banco-info" class="tab-content active">
@@ -1823,7 +1828,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
           <button class="tab-btn active" onclick="switchTab('aut','info',this)">Información</button>
           <button class="tab-btn" onclick="switchTab('aut','vendidos',this)">Vendidos</button>
           <button class="tab-btn" onclick="switchTab('aut','evolucion',this)">Gastos Mensuales</button>
-          <button class="tab-btn" onclick="switchTab('aut','carga',this)">Carga de Gastos</button>
+          <button class="tab-btn" onclick="switchTab('aut','carga',this)">Carga</button>
         </div>
         <div id="aut-info" class="tab-content" style="display:block">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
@@ -2895,7 +2900,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
       <div id="page-sociedades" class="page">
         <div class="tabs">
           <button class="tab-btn active" onclick="switchTab('soc','info',this)">Información</button>
-          <button class="tab-btn" onclick="switchTab('soc','carga',this)">Carga de Gastos</button>
+          <button class="tab-btn" onclick="switchTab('soc','carga',this)">Carga</button>
         </div>
 
         <div id="soc-info" class="tab-content" style="display:block">
@@ -3789,7 +3794,7 @@ async function populateAllSelects() {
 async function loadPage(page) {
   switch(page) {
     case 'dashboard': await loadDashboard(); break;
-    case 'patrimonio': await loadPatrimonio(); renderHistorialProps('all'); break;
+    case 'patrimonio': await loadPatrimonio(); break;
     case 'propiedades': await loadPropiedades(); await loadAlquileres(); initFirstTab('propiedades'); break;
     case 'ranking': await loadRanking(); break;
     case 'bancos': await loadBancos(); await loadBancosEvolucion(); initFirstTab('bancos'); break;
@@ -6308,6 +6313,34 @@ function injectComentarios() {
   });
 }
 
+function injectComentariosGen(fields, prefix) {
+  fields.forEach(f => {
+    const input = document.getElementById(prefix + '-' + f);
+    if (!input) return;
+    const row = input.closest('tr');
+    if (!row || row.querySelector('.coment-cell-' + prefix)) return;
+    const td = document.createElement('td');
+    td.className = 'coment-cell-' + prefix;
+    td.style.padding = '3px 6px';
+    td.innerHTML = `<input class="fld coment-input-${prefix}" data-field="${f}" type="text" placeholder="💬 comentario" 
+      style="padding:4px 6px;font-size:11px;width:140px;background:var(--bg2);border:1px solid var(--border)">`;
+    row.appendChild(td);
+  });
+}
+function getComentariosGen(prefix) {
+  const com = {};
+  document.querySelectorAll('.coment-input-' + prefix).forEach(inp => {
+    if (inp.value.trim()) com[inp.dataset.field] = inp.value.trim();
+  });
+  return com;
+}
+function setComentariosGen(prefix, com) {
+  com = com || {};
+  document.querySelectorAll('.coment-input-' + prefix).forEach(inp => {
+    inp.value = com[inp.dataset.field] || '';
+  });
+}
+
 function getComentarios() {
   const com = {};
   document.querySelectorAll('.coment-input').forEach(inp => {
@@ -7483,6 +7516,8 @@ async function cargarMovSoc() {
   if (ind) ind.textContent = `Editando: ${socNombre} — ${meses[mes]} ${anio}`;
   form.style.display = 'block';
   form.dataset.socId = socId; form.dataset.anio = anio; form.dataset.mes = mes;
+  injectComentariosGen(['aportes','impuestos','otros'], 'ms');
+  setComentariosGen('ms', data?.comentarios);
   
   if (data) {
     document.getElementById('ms-aportes').value = data.aportes || 0;
@@ -7512,6 +7547,7 @@ async function guardarMovSoc() {
     anio: parseInt(form.dataset.anio), mes: parseInt(form.dataset.mes),
     aportes, impuestos, otros_gastos: otros, total: aportes+impuestos+otros,
     moneda, notas: document.getElementById('ms-notas').value,
+    comentarios: getComentariosGen('ms'),
     created_by: currentUser?.id,
   }, { onConflict: 'sociedad_id,anio,mes' });
   if (error) return toast('Error: ' + error.message, 'error');
@@ -7541,6 +7577,8 @@ async function cargarMovAuto() {
   if (ind) ind.textContent = `Editando: ${autoNombre} — ${meses[mes]} ${anio}`;
   form.style.display = 'block';
   form.dataset.autoId = autoId; form.dataset.anio = anio; form.dataset.mes = mes;
+  injectComentariosGen(['patente','seguro','service','arreglos','otros'], 'ma');
+  setComentariosGen('ma', data?.comentarios);
   
   if (data) {
     document.getElementById('ma-patente').value = data.patente || 0;
@@ -7604,6 +7642,7 @@ async function guardarMovAuto() {
     anio: parseInt(form.dataset.anio), mes: parseInt(form.dataset.mes),
     patente, seguro, service, arreglos, otros_gastos: otros, total_usd: totalUSD,
     moneda, notas: document.getElementById('ma-notas').value,
+    comentarios: getComentariosGen('ma'),
     created_by: currentUser?.id,
   }, { onConflict: 'auto_id,anio,mes' });
   if (error) return toast('Error: ' + error.message, 'error');
