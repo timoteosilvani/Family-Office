@@ -1802,15 +1802,19 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
             <div class="card">
               <div class="form-row cols-2">
                 <div><label class="fld">Utilidad (USD)</label>
-                  <input class="fld" type="number" id="pe-mens-utilidad" value="0"></div>
+                  <input class="fld" type="number" id="pe-mens-utilidad" value="0">
+                  <input class="fld pe-coment" data-field="utilidad" type="text" placeholder="💬 comentario" style="margin-top:4px;font-size:11px"></div>
                 <div><label class="fld">Aporte de Capital (USD)</label>
-                  <input class="fld" type="number" id="pe-mens-aporte" value="0"></div>
+                  <input class="fld" type="number" id="pe-mens-aporte" value="0">
+                  <input class="fld pe-coment" data-field="aporte_capital" type="text" placeholder="💬 comentario" style="margin-top:4px;font-size:11px"></div>
               </div>
               <div class="form-row cols-2">
                 <div><label class="fld">Gastos (USD)</label>
-                  <input class="fld" type="number" id="pe-mens-gastos" value="0"></div>
+                  <input class="fld" type="number" id="pe-mens-gastos" value="0">
+                  <input class="fld pe-coment" data-field="gastos" type="text" placeholder="💬 comentario" style="margin-top:4px;font-size:11px"></div>
                 <div><label class="fld">Impuestos (USD)</label>
-                  <input class="fld" type="number" id="pe-mens-impuestos" value="0"></div>
+                  <input class="fld" type="number" id="pe-mens-impuestos" value="0">
+                  <input class="fld pe-coment" data-field="impuestos" type="text" placeholder="💬 comentario" style="margin-top:4px;font-size:11px"></div>
               </div>
               <div><label class="fld">Notas</label>
                 <textarea class="fld" id="pe-mens-notas" rows="2"></textarea></div>
@@ -4628,9 +4632,14 @@ async function guardarMovPE() {
   const notas = document.getElementById('pe-mens-notas')?.value || '';
   const neto = utilidad - gastos - impuestos;
 
+  const comentarios = {};
+  document.querySelectorAll('.pe-coment').forEach(inp => {
+    if (inp.value.trim()) comentarios[inp.dataset.field] = inp.value.trim();
+  });
+
   const { error } = await sb.from('movimientos_pe').upsert({
     pe_id: peId, anio, mes, utilidad, aporte_capital: aporte,
-    gastos, impuestos, neto_usd: neto, notas,
+    gastos, impuestos, neto_usd: neto, notas, comentarios,
     created_by: currentUser?.id
   }, { onConflict: 'pe_id,anio,mes' });
 
@@ -4641,6 +4650,7 @@ async function guardarMovPE() {
   ['pe-mens-utilidad','pe-mens-aporte','pe-mens-gastos','pe-mens-impuestos'].forEach(id => {
     const el = document.getElementById(id); if (el) el.value = 0;
   });
+  document.querySelectorAll('.pe-coment').forEach(inp => inp.value = '');
 }
 
 // ============================================
@@ -5312,6 +5322,8 @@ async function cargarMovBanco() {
   if (arsFields) arsFields.style.display = bancoObj?.pais === 'ARG' ? 'block' : 'none';
 
   form.style.display = 'block';
+  injectComentariosGen(['inv-usd','cash-usd','credit-usd'], 'mb');
+  setComentariosGen('mb', data?.comentarios);
   form.dataset.bancoId = bancoId; form.dataset.anio = anio; form.dataset.mes = mes;
   if (data) {
     document.getElementById('mb-inv-usd').value = data.invest_account_usd || 0;
@@ -5339,6 +5351,7 @@ async function guardarMovBanco() {
     invest_account_ars: inv_ars, cash_ars, credit_ars,
     total_usd: total, neto_usd: neto,
     notas: document.getElementById('mb-notas').value,
+    comentarios: getComentariosGen('mb'),
     created_by: currentUser?.id,
   }, { onConflict: 'banco_id,anio,mes' });
   if (error) return toast('Error: ' + error.message, 'error');
@@ -6296,18 +6309,27 @@ async function cargarMovProp2() {
 
 // Inject comment fields into each carga row
 function injectComentarios() {
-  const fields = ['renta','otro_ingreso','gas','luz','cable','telefono','expensas','jardinero','limpieza',
-    'mantenimiento','deposito','comision','seguros','administracion','otros_gastos',
-    'arba','tigre','propertytax','tributo','primarias','contribucion','saneamiento','ascensor','otros-imp'];
-  fields.forEach(f => {
-    const input = document.getElementById('mp2-' + f);
+  // Map: HTML input ID suffix -> DB field name
+  const fieldMap = {
+    'renta':'renta','otro-ingreso':'otro_ingreso',
+    'gas':'gas','luz':'luz','cable':'cable','telefono':'telefono','expensas':'expensas',
+    'jardinero':'jardinero','limpieza':'limpieza','mantenimiento':'mantenimiento',
+    'deposito':'deposito','comision':'comision','seguros':'seguros',
+    'administracion':'administracion','otros-gastos':'otros_gastos',
+    'arba':'arba_abl','tigre':'municipalidad_tigre','propertytax':'property_tax',
+    'tributo':'tributo_domiciliario','primarias':'impuesto_primarias',
+    'contribucion':'contribucion_inmobiliaria','saneamiento':'saneamiento',
+    'ascensor':'ascensor','otros-imp':'otros_impuestos'
+  };
+  Object.entries(fieldMap).forEach(([inputSuffix, dbField]) => {
+    const input = document.getElementById('mp2-' + inputSuffix);
     if (!input) return;
     const row = input.closest('tr');
     if (!row || row.querySelector('.comentario-cell')) return;
     const td = document.createElement('td');
     td.className = 'comentario-cell';
     td.style.padding = '3px 4px';
-    td.innerHTML = `<input class="fld coment-input" data-field="${f}" type="text" placeholder="💬 comentario" 
+    td.innerHTML = `<input class="fld coment-input" data-field="${dbField}" type="text" placeholder="💬 comentario" 
       style="padding:4px 6px;font-size:11px;width:140px;background:var(--bg2);border:1px solid var(--border)">`;
     row.appendChild(td);
   });
