@@ -40,6 +40,9 @@
   --esp: #27ae60;
   --esp-soft: rgba(39,174,96,0.12);
   --esp-mid: rgba(39,174,96,0.25);
+  --par: #e67e22;
+  --par-soft: rgba(230,126,34,0.12);
+  --par-mid: rgba(230,126,34,0.25);
 
   --gold: #c9a84c;
   --gold-soft: rgba(201,168,76,0.1);
@@ -395,6 +398,7 @@ body {
 .badge-usa { background: var(--usa-soft); color: var(--usa); border: 1px solid var(--usa-mid); }
 .badge-uru { background: var(--uru-soft); color: var(--uru); border: 1px solid var(--uru-mid); }
 .badge-esp { background: var(--esp-soft); color: var(--esp); border: 1px solid var(--esp-mid); }
+.badge-par { background: var(--par-soft); color: var(--par); border: 1px solid var(--par-mid); border-radius:4px; padding:2px 8px; font-size:10px; font-weight:600; }
 
 .pais-dot {
   width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; display: inline-block;
@@ -486,6 +490,12 @@ td {
 tr:last-child td { border-bottom: none; }
 tr:hover td { background: rgba(255,255,255,0.02); }
 td.num { text-align: right; font-variant-numeric: tabular-nums; font-size: 12px; }
+th.num { text-align: right; }
+.has-coment { position: relative; cursor: help; }
+.has-coment::after { content: ''; position: absolute; top: 2px; right: 2px; width: 0; height: 0; border-style: solid; border-width: 0 6px 6px 0; border-color: transparent var(--gold) transparent transparent; }
+.coment-tooltip { position: relative; }
+.coment-tooltip:hover .coment-pop { display: block; }
+.coment-pop { display: none; position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); background: var(--bg2); border: 1px solid var(--gold); border-radius: 6px; padding: 6px 10px; font-size: 11px; color: var(--text); white-space: normal; width: max-content; max-width: 220px; z-index: 100; box-shadow: 0 4px 12px rgba(0,0,0,0.4); margin-bottom: 4px; text-align: left; }
 td.bold { color: var(--text); font-weight: 500; }
 .positive { color: #5cb85c; }
 .negative { color: var(--usa); }
@@ -706,6 +716,7 @@ tr.row-arg td { background: rgba(41,128,185,0.07) !important; }
 tr.row-usa td { background: rgba(192,57,43,0.07) !important; }
 tr.row-uru td { background: rgba(212,160,23,0.07) !important; }
 tr.row-esp td { background: rgba(39,174,96,0.07) !important; }
+.row-par td { background: rgba(39,174,96,0.07) !important; }
 tr.row-arg:hover td { background: rgba(41,128,185,0.14) !important; }
 tr.row-usa:hover td { background: rgba(192,57,43,0.14) !important; }
 tr.row-uru:hover td { background: rgba(212,160,23,0.14) !important; }
@@ -4205,7 +4216,7 @@ function filtroHistorial(filtro, btn) {
 }
 
 function renderHistorialProps(filtro) {
-  const colPais = {ARG:'arg',USA:'usa',URU:'uru',ESP:'esp'};
+  const colPais = {ARG:'arg',USA:'usa',URU:'uru',ESP:'esp',PAR:'par',PY:'par'};
   const YEARS = [2017,2018,2019,2020,2021,2022,2023,2024,2025,2026];
 
   let data = PROP_HIST_DATA;
@@ -4316,6 +4327,32 @@ function globalSearch(query) {
           sub: `${p.titular} · ${p.pais}`,
           color: 'var(--uru)',
           action: `navTo('private_equity')`
+        });
+      }
+    });
+
+    // Search autos
+    (window._autosCache||[]).forEach(a => {
+      if ((a.nombre||'').toLowerCase().includes(q) || (a.titular||'').toLowerCase().includes(q) || (a.patente||'').toLowerCase().includes(q)) {
+        results.push({
+          tipo: 'Auto', icono: '🚗',
+          titulo: a.nombre,
+          sub: `${a.titular} · ${a.pais}${a.anio_modelo?' · '+a.anio_modelo:''}`,
+          color: {ARG:'var(--arg)',USA:'var(--usa)',URU:'var(--uru)',ESP:'var(--esp)',PY:'var(--par)'}[a.pais]||'var(--text)',
+          action: `navTo('autos')`
+        });
+      }
+    });
+
+    // Search sociedades
+    (window._sociedadesCache||[]).forEach(s => {
+      if ((s.nombre||'').toLowerCase().includes(q) || (s.titular||'').toLowerCase().includes(q)) {
+        results.push({
+          tipo: 'Sociedad', icono: '🏢',
+          titulo: s.nombre,
+          sub: `${s.titular||''} · ${s.pais||''}`,
+          color: {ARG:'var(--arg)',USA:'var(--usa)',URU:'var(--uru)',ESP:'var(--esp)',PY:'var(--par)'}[s.pais]||'var(--text)',
+          action: `navTo('sociedades')`
         });
       }
     });
@@ -5136,7 +5173,7 @@ function renderRanking(paisFiltro) {
     });
   }
 
-  const colPais = { ARG:'arg', USA:'usa', URU:'uru', ESP:'esp' };
+  const colPais = { ARG:'arg', USA:'usa', URU:'uru', ESP:'esp', PAR:'par', PY:'par' };
   const tbody = document.getElementById('tbody-ranking');
   tbody.innerHTML = rows.map((p, i) => {
     // _renta is already ANNUAL total from movimientos - DO NOT multiply by 12
@@ -5213,7 +5250,7 @@ function renderBancos(paisFiltro) {
     return bancosSortDir * (va - vb);
   });
 
-  const colPais = { ARG:'arg', USA:'usa', URU:'uru', ESP:'esp' };
+  const colPais = { ARG:'arg', USA:'usa', URU:'uru', ESP:'esp', PAR:'par', PY:'par' };
   const tbody = document.getElementById('tbody-bancos');
 
   tbody.innerHTML = rows.map(b => {
@@ -5325,7 +5362,7 @@ function renderPE() {
     if (typeof va==='string') return peSortDir*va.localeCompare(vb,'es');
     return peSortDir*(va-vb);
   });
-  const colPais = { ARG:'arg', USA:'usa', URU:'uru', ESP:'esp' };
+  const colPais = { ARG:'arg', USA:'usa', URU:'uru', ESP:'esp', PAR:'par', PY:'par' };
   tbody.innerHTML = rows.map(r => {
     const var2526 = r.valor_2025 > 0 ? ((r.valor_2026 - r.valor_2025)/r.valor_2025*100) : 0;
     return `<tr class="row-${colPais[r.pais]||'arg'}">
@@ -5401,10 +5438,11 @@ async function guardarNuevaPE() {
 async function loadAutos() {
   const anio = new Date().getFullYear();
   const [{ data }, { data: gastosAutos }] = await Promise.all([
-    sb.from('autos').select('*').eq('activo', true).order('nro'),
+    sb.from('autos').select('*').order('nro'),
     sb.from('movimientos_autos').select('auto_id,patente,seguro,service,otros_gastos,total_usd').eq('anio', anio),
   ]);
   const rows = data || [];
+  window._autosCache = rows;
   // Aggregate gastos per auto
   const gasMap = {};
   (gastosAutos||[]).forEach(g => {
@@ -5415,8 +5453,12 @@ async function loadAutos() {
     gasMap[g.auto_id].otr += g.otros_gastos||0;
     gasMap[g.auto_id].tot += g.total_usd||0;
   });
-  const colPais = { ARG:'arg', USA:'usa', URU:'uru', ESP:'esp' };
-  document.getElementById('tbody-autos').innerHTML = rows.map(r => {
+  const colPais = { ARG:'arg', USA:'usa', URU:'uru', ESP:'esp', PAR:'par', PY:'par' };
+  // Active autos in main table
+  const activos = rows.filter(r => r.activo !== false && !r.vendido);
+  const vendidos = rows.filter(r => r.activo === false || r.vendido);
+
+  document.getElementById('tbody-autos').innerHTML = activos.map(r => {
     const g = gasMap[r.id] || {};
     return `
     <tr class="row-${colPais[r.pais]||'arg'}">
@@ -5429,6 +5471,20 @@ async function loadAutos() {
       <td class="num negative" style="font-size:11px">${g.tot>0?'$'+fmt(g.tot):'—'}</td>
       <td><button class="btn-secondary" style="padding:3px 8px;font-size:11px" onclick="editAuto('${r.id}','${r.nombre}','${r.titular}',${r.anio_modelo||0},'${r.pais}',${r.valor_2026||0})">Editar</button></td>
     </tr>`;}).join('') || '<tr><td colspan="8" style="color:var(--text3);text-align:center">Sin datos</td></tr>';
+
+  // Vendidos table
+  const tbodyVend = document.getElementById('tbody-autos-vendidos');
+  if (tbodyVend) {
+    tbodyVend.innerHTML = vendidos.map(r => `
+      <tr class="row-${colPais[r.pais]||'arg'}">
+        <td style="color:var(--text3)">${r.nro||'—'}</td>
+        <td class="bold">${r.nombre}</td>
+        <td>${r.titular}</td>
+        <td>${r.anio_modelo||'—'}</td>
+        <td><span class="badge badge-${colPais[r.pais]||'arg'}">${r.pais}</span></td>
+        <td class="num">$${fmt(r.valor_2026)}</td>
+      </tr>`).join('') || '<tr><td colspan="6" style="color:var(--text3);text-align:center;padding:20px">No hay vehículos vendidos</td></tr>';
+  }
 }
 
 function editAuto(id, nombre, titular, anio, pais, val26) {
@@ -6218,6 +6274,8 @@ async function cargarMovProp2() {
 
   const form = document.getElementById('form-mov-prop2');
   form.style.display = 'block';
+  injectComentarios();
+  setComentarios(data?.comentarios);
   form.dataset.propId = propId;
   form.dataset.anio = anio;
   form.dataset.mes = mes;
@@ -6229,6 +6287,40 @@ async function cargarMovProp2() {
     document.querySelectorAll('[id^="mn-"]').forEach(el => { el.value = defaultMoneda; });
   }
   setTimeout(() => updateCargaTotals('mp2'), 100);
+}
+
+// Inject comment fields into each carga row
+function injectComentarios() {
+  const fields = ['renta','otro_ingreso','gas','luz','cable','telefono','expensas','jardinero','limpieza',
+    'mantenimiento','deposito','comision','seguros','administracion','otros_gastos',
+    'arba','tigre','propertytax','tributo','primarias','contribucion','saneamiento','ascensor','otros-imp'];
+  fields.forEach(f => {
+    const input = document.getElementById('mp2-' + f);
+    if (!input) return;
+    const row = input.closest('tr');
+    if (!row || row.querySelector('.comentario-cell')) return;
+    const td = document.createElement('td');
+    td.className = 'comentario-cell';
+    td.style.padding = '3px 4px';
+    td.innerHTML = `<input class="fld coment-input" data-field="${f}" type="text" placeholder="💬 comentario" 
+      style="padding:4px 6px;font-size:11px;width:140px;background:var(--bg2);border:1px solid var(--border)">`;
+    row.appendChild(td);
+  });
+}
+
+function getComentarios() {
+  const com = {};
+  document.querySelectorAll('.coment-input').forEach(inp => {
+    if (inp.value.trim()) com[inp.dataset.field] = inp.value.trim();
+  });
+  return com;
+}
+
+function setComentarios(com) {
+  com = com || {};
+  document.querySelectorAll('.coment-input').forEach(inp => {
+    inp.value = com[inp.dataset.field] || '';
+  });
 }
 
 async function guardarMovProp2() {
@@ -6285,6 +6377,7 @@ async function guardarMovProp2() {
     base.otros_impuestos=g('mp2-otros-imp'); base.moneda_impuestos=monedaImp;
   }
   base.notas=document.getElementById('mp2-notas').value;
+  base.comentarios=getComentarios();
   base.created_by=currentUser?.id;
   // Save per-row moneda
   const getMn = id => document.getElementById(id)?.value || null;
@@ -6373,7 +6466,7 @@ async function filtrarAnual2() {
   });
 
   const meses = ['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
-  const colPais = { ARG:'arg', USA:'usa', URU:'uru', ESP:'esp' };
+  const colPais = { ARG:'arg', USA:'usa', URU:'uru', ESP:'esp', PAR:'par', PY:'par' };
 
   let html = '';
   Object.values(byProp).sort((a,b) => (a.prop.nro||99)-(b.prop.nro||99)).forEach(({ prop, movs: mv }) => {
@@ -6472,7 +6565,7 @@ async function verGastosTabla() {
   }
 
   const meses = ['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
-  const colPais = {ARG:'arg',USA:'usa',URU:'uru',ESP:'esp'};
+  const colPais = {ARG:'arg',USA:'usa',URU:'uru',ESP:'esp',PAR:'par',PY:'par'};
   
   const RENTAS = [['Renta','renta'],['Otro Ingreso','otro_ingreso']];
   const GASTOS = [['Gas','gas'],['Luz','luz'],['Cable','cable'],['Teléfono','telefono'],
@@ -6579,7 +6672,7 @@ async function loadDetalle() {
   });
 
   const meses = ['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
-  const colPais = {ARG:'arg',USA:'usa',URU:'uru',ESP:'esp'};
+  const colPais = {ARG:'arg',USA:'usa',URU:'uru',ESP:'esp',PAR:'par',PY:'par'};
 
   // Build flat list of items
   const RENTA_ITEMS = [['Renta','renta','mp_renta','renta'],['Otro Ingreso','otro_ingreso','mp_otro_ingreso','renta']];
@@ -6626,7 +6719,8 @@ async function loadDetalle() {
       else if (tipo === 'gasto') totGasto += usd;
       else totImp += usd;
 
-      rows.push({ prop, mes: m.mes, tipo, label, val, moneda, usd, mp });
+      const comentario = (m.comentarios && m.comentarios[field]) || '';
+      rows.push({ prop, mes: m.mes, tipo, label, val, moneda, usd, mp, comentario });
     });
   });
 
@@ -6665,7 +6759,7 @@ async function loadDetalle() {
       <td class="bold" style="font-size:12px">${r.prop.nombre}</td>
       <td style="font-size:11px;color:var(--text3)">${meses[r.mes]}</td>
       <td><span style="font-size:11px">${tipo_icons[r.tipo]} ${r.tipo}</span></td>
-      <td style="font-size:12px">${r.label}</td>
+      <td style="font-size:12px" class="${r.comentario?'coment-tooltip has-coment':''}">${r.label}${r.comentario?`<span class="coment-pop">💬 ${r.comentario}</span>`:''}</td>
       <td class="num" style="font-size:12px">${fmt(r.val)}</td>
       <td style="font-size:11px;color:var(--text3)">${r.moneda}</td>
       <td class="num ${r.tipo==='renta'?'positive':'negative'}" style="font-size:12px">$${fmt(r.usd)}</td>
@@ -6716,6 +6810,22 @@ async function loadAlquileres() {
 
     contratosData = contratos || [];
 
+    // Fetch which contracts have uploaded files (check storage folders)
+    window._contratoFiles = {};
+    try {
+      const { data: files } = await sb.storage.from('Adjuntos').list('contratos', { limit: 1000 });
+      if (files) {
+        for (const folder of files) {
+          if (folder.id === null) { // it's a folder
+            const { data: subFiles } = await sb.storage.from('Adjuntos').list('contratos/' + folder.name, { limit: 10 });
+            if (subFiles && subFiles.length) {
+              window._contratoFiles[folder.name] = 'contratos/' + folder.name + '/' + subFiles[0].name;
+            }
+          }
+        }
+      }
+    } catch(e) { console.warn('contract files:', e.message); }
+
     // Filter
     const hoy = new Date(); hoy.setHours(0,0,0,0);
     let filtered = contratosData;
@@ -6763,7 +6873,7 @@ async function loadAlquileres() {
 }
 
 function renderAlquileres(contratos) {
-  const colPais = {ARG:'arg',USA:'usa',URU:'uru',ESP:'esp'};
+  const colPais = {ARG:'arg',USA:'usa',URU:'uru',ESP:'esp',PAR:'par',PY:'par'};
   const meses = ['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
   const hoy = new Date(); hoy.setHours(0,0,0,0);
   const tbody = document.getElementById('tbody-alquileres');
@@ -6794,10 +6904,12 @@ function renderAlquileres(contratos) {
         <button class="btn-secondary" style="padding:3px 8px;font-size:11px;margin-right:3px" onclick="editarContrato('${ct.id}')">✎</button>
       </td>
       <td>
-        <label style="cursor:pointer" title="Adjuntar contrato PDF">
+        ${window._contratoFiles && window._contratoFiles[ct.id] 
+          ? `<button class="btn-secondary" style="padding:3px 10px;font-size:11px;background:var(--esp-soft);border-color:var(--esp);color:var(--esp)" onclick="abrirContrato('${ct.id}')" title="Ver contrato">✓ Contrato</button>`
+          : `<label style="cursor:pointer" title="Adjuntar contrato PDF">
           <input type="file" style="display:none" accept=".pdf,.doc,.docx" onchange="uploadContrato(this,'${ct.id}','${ct.inquilino.replace(/'/g,"\'")}')">
           <span class="btn-secondary" style="padding:3px 10px;font-size:11px;display:inline-block">📄 Contrato</span>
-        </label>
+        </label>`}
       </td>
     </tr>`;
   }).join('') || '<tr><td colspan="11" style="color:var(--text3);text-align:center;padding:24px">Sin contratos. Usá "+ Nuevo Contrato" para agregar.</td></tr>';
@@ -6876,14 +6988,19 @@ async function uploadContrato(input, contratoId, inquilino) {
   
   toast(`Contrato de ${inquilino} subido ✓`, 'success');
   input.value = '';
-  
-  // Show download link
-  const btn = input.previousElementSibling;
-  if (btn) {
-    btn.style.background = 'var(--esp-soft)';
-    btn.style.borderColor = 'var(--esp)';
-    btn.style.color = 'var(--esp)';
-    btn.title = file.name;
+  // Reload to show green button
+  await loadAlquileres();
+}
+
+async function abrirContrato(contratoId) {
+  const path = window._contratoFiles?.[contratoId];
+  if (!path) { toast('No se encontró el contrato', 'error'); return; }
+  try {
+    const { data, error } = await sb.storage.from('Adjuntos').createSignedUrl(path, 3600);
+    if (error || !data) { toast('Error al abrir: ' + (error?.message||''), 'error'); return; }
+    window.open(data.signedUrl, '_blank');
+  } catch(e) {
+    toast('Error al abrir el contrato', 'error');
   }
 }
 
@@ -7122,7 +7239,7 @@ async function loadBancosEvolucion() {
     sb.from('movimientos_bancos').select('*').eq('anio', anio).order('mes'),
   ]);
 
-  const colPais = {ARG:'arg',USA:'usa',URU:'uru',ESP:'esp'};
+  const colPais = {ARG:'arg',USA:'usa',URU:'uru',ESP:'esp',PAR:'par',PY:'par'};
   const meses = ['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
 
   // Filter bancos
@@ -7203,7 +7320,7 @@ async function loadAutosEvolucion() {
     sb.from('movimientos_autos').select('*').eq('anio', anio).order('mes'),
   ]);
 
-  const colPais = {ARG:'arg',USA:'usa',URU:'uru',ESP:'esp'};
+  const colPais = {ARG:'arg',USA:'usa',URU:'uru',ESP:'esp',PAR:'par',PY:'par'};
   const meses = ['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
 
   let filtered = (autos||[]);
@@ -7280,6 +7397,7 @@ async function loadSociedades() {
   }
   socsData = socs;
   socsMovData = movs;
+  window._sociedadesCache = socs;
   
   // Populate select
   const sel = document.getElementById('carga-soc-sel');
@@ -7299,7 +7417,7 @@ async function loadSociedades() {
 
 function renderSociedades(filtro) {
   const rows = filtro === 'all' ? socsData : socsData.filter(s => s.titular === filtro);
-  const colPais = { ARG:'arg', USA:'usa', URU:'uru', ESP:'esp' };
+  const colPais = { ARG:'arg', USA:'usa', URU:'uru', ESP:'esp', PAR:'par', PY:'par' };
   const tbody = document.getElementById('tbody-sociedades');
   
   const getMovTotals = (socId) => {
@@ -7445,7 +7563,7 @@ function renderAutos() {
     return autosSortDir*(va-vb);
   });
   const gasMap = window._autosGasMap||{};
-  const colPais = {ARG:'arg',USA:'usa',URU:'uru',ESP:'esp'};
+  const colPais = {ARG:'arg',USA:'usa',URU:'uru',ESP:'esp',PAR:'par',PY:'par'};
   document.getElementById('tbody-autos').innerHTML = rows.map(r => {
     const g = gasMap[r.id]||{};
     return `<tr class="row-${colPais[r.pais]||'arg'}">
