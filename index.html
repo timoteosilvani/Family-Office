@@ -1035,14 +1035,6 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
           <button class="tab-btn" onclick="switchTab('prop','alquileres',this)">🏠 Alquileres</button>
           <button class="tab-btn" onclick="switchTab('prop','historial',this);renderHistorialProps('all')">📈 Historial</button>
           <button class="tab-btn" onclick="switchTab('prop','adjuntos',this)">📎 Adjuntos</button>
-          <button class="tab-btn" onclick="switchTab('prop','test',this)">🧪 Test</button>
-        </div>
-
-        <div id="prop-test" class="tab-content">
-          <div style="text-align:center;padding:60px 20px;color:var(--text3)">
-            <div style="font-size:32px;margin-bottom:12px">🧪</div>
-            <div style="font-size:14px">Tab de prueba — funciona la actualización automática</div>
-          </div>
         </div>
 
         <div id="prop-info" class="tab-content active">
@@ -7860,7 +7852,7 @@ checkSession();
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260601-002';
+const APP_VERSION = '20260601-003';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
