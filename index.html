@@ -4667,7 +4667,7 @@ async function guardarMovPE() {
 
   const { error } = await sb.from('movimientos_pe').upsert({
     pe_id: peId, anio, mes, utilidad, aporte_capital: aporte,
-    gastos, impuestos, neto_usd: neto, notas, comentarios,
+    gastos, impuestos, notas, comentarios,
     created_by: currentUser?.id
   }, { onConflict: 'pe_id,anio,mes' });
 
@@ -7856,7 +7856,7 @@ checkSession();
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260602-002';
+const APP_VERSION = '20260602-003';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {

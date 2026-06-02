@@ -4,7 +4,7 @@
 // forzar actualización en todos los dispositivos
 // ============================================
 
-const CACHE_VERSION = '20260602-002'; // <-- actualizar en cada deploy
+const CACHE_VERSION = '20260602-003'; // <-- actualizar en cada deploy
 const CACHE_NAME = 'fo-cache-' + CACHE_VERSION;
 
 const PRECACHE = [
