@@ -6367,14 +6367,17 @@ function injectComentariosGen(fields, prefix) {
   fields.forEach(f => {
     const input = document.getElementById(prefix + '-' + f);
     if (!input) return;
-    const row = input.closest('tr');
-    if (!row || row.querySelector('.coment-cell-' + prefix)) return;
-    const td = document.createElement('td');
-    td.className = 'coment-cell-' + prefix;
-    td.style.padding = '3px 6px';
-    td.innerHTML = `<input class="fld coment-input-${prefix}" data-field="${f}" type="text" placeholder="💬 comentario" 
-      style="padding:4px 6px;font-size:11px;width:140px;background:var(--bg2);border:1px solid var(--border)">`;
-    row.appendChild(td);
+    // Insertar el comentario en el mismo contenedor (td o div), justo debajo del campo.
+    // Funciona tanto para formas tipo tabla (autos, sociedades) como div (bancos).
+    const container = input.parentElement;
+    if (!container || container.querySelector('.coment-input-' + prefix)) return;
+    const ci = document.createElement('input');
+    ci.className = 'fld coment-input-' + prefix;
+    ci.dataset.field = f;
+    ci.type = 'text';
+    ci.placeholder = '💬 comentario';
+    ci.style.cssText = 'margin-top:4px;padding:4px 6px;font-size:11px;width:100%;background:var(--bg2);border:1px solid var(--border)';
+    container.appendChild(ci);
   });
 }
 function getComentariosGen(prefix) {
@@ -7852,7 +7855,7 @@ checkSession();
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260601-003';
+const APP_VERSION = '20260602-001';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
