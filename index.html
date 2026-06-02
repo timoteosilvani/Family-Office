@@ -5350,7 +5350,7 @@ async function cargarMovBanco() {
   if (arsFields) arsFields.style.display = bancoObj?.pais === 'ARG' ? 'block' : 'none';
 
   form.style.display = 'block';
-  injectComentariosGen(['inv-usd','cash-usd','credit-usd'], 'mb');
+  injectComentariosGen([['inv-usd','invest_account_usd'],['cash-usd','cash_usd'],['credit-usd','credit_usd']], 'mb');
   setComentariosGen('mb', data?.comentarios);
   form.dataset.bancoId = bancoId; form.dataset.anio = anio; form.dataset.mes = mes;
   if (data) {
@@ -6365,15 +6365,16 @@ function injectComentarios() {
 
 function injectComentariosGen(fields, prefix) {
   fields.forEach(f => {
-    const input = document.getElementById(prefix + '-' + f);
+    // f puede ser 'campo' (id y clave iguales) o ['idSuffix','campoReal']
+    const idSuffix = Array.isArray(f) ? f[0] : f;
+    const dbField = Array.isArray(f) ? f[1] : f;
+    const input = document.getElementById(prefix + '-' + idSuffix);
     if (!input) return;
-    // Insertar el comentario en el mismo contenedor (td o div), justo debajo del campo.
-    // Funciona tanto para formas tipo tabla (autos, sociedades) como div (bancos).
     const container = input.parentElement;
     if (!container || container.querySelector('.coment-input-' + prefix)) return;
     const ci = document.createElement('input');
     ci.className = 'fld coment-input-' + prefix;
-    ci.dataset.field = f;
+    ci.dataset.field = dbField;
     ci.type = 'text';
     ci.placeholder = '💬 comentario';
     ci.style.cssText = 'margin-top:4px;padding:4px 6px;font-size:11px;width:100%;background:var(--bg2);border:1px solid var(--border)';
@@ -7684,7 +7685,7 @@ async function cargarMovSoc() {
   if (ind) ind.textContent = `Editando: ${socNombre} — ${meses[mes]} ${anio}`;
   form.style.display = 'block';
   form.dataset.socId = socId; form.dataset.anio = anio; form.dataset.mes = mes;
-  injectComentariosGen(['aportes','impuestos','otros'], 'ms');
+  injectComentariosGen(['aportes','impuestos',['otros','otros_gastos']], 'ms');
   setComentariosGen('ms', data?.comentarios);
   
   if (data) {
@@ -7745,7 +7746,7 @@ async function cargarMovAuto() {
   if (ind) ind.textContent = `Editando: ${autoNombre} — ${meses[mes]} ${anio}`;
   form.style.display = 'block';
   form.dataset.autoId = autoId; form.dataset.anio = anio; form.dataset.mes = mes;
-  injectComentariosGen(['patente','seguro','service','arreglos','otros'], 'ma');
+  injectComentariosGen(['patente','seguro','service','arreglos',['otros','otros_gastos']], 'ma');
   setComentariosGen('ma', data?.comentarios);
   
   if (data) {
@@ -7855,7 +7856,7 @@ checkSession();
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260602-001';
+const APP_VERSION = '20260602-002';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
