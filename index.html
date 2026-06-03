@@ -4351,7 +4351,7 @@ function renderHistorialProps(filtro) {
   bodyHtml += `<tr style="background:var(--bg3);border-top:2px solid var(--border2)">
     <td colspan="3" class="bold" style="color:var(--gold)">TOTAL</td>
     ${totals.map(v => `<td class="num bold" style="color:var(--gold);font-size:11px">${v>0?'$'+fmt(v):'—'}</td>`).join('')}
-    <td class="num bold ${varTot>0?'positive':(varTot<0?'negative':'')}" style="font-size:11px">${varTot!==null?(varTot>0?'+':'')+varTot+'%':'—'}</td>
+    <td class="num" style="font-size:11px;color:var(--text3)">—</td>
   </tr>`;
 
   if (tbody) tbody.innerHTML = bodyHtml;
@@ -4747,12 +4747,9 @@ async function guardarMovPE() {
 
   if (error) return toast('Error: ' + error.message, 'error');
   toast('Movimiento guardado ✓', 'success');
-  
-  // Reset fields
-  ['pe-mens-utilidad','pe-mens-aporte','pe-mens-gastos','pe-mens-impuestos'].forEach(id => {
-    const el = document.getElementById(id); if (el) el.value = 0;
-  });
-  document.querySelectorAll('.pe-coment').forEach(inp => inp.value = '');
+  // Recargar los valores guardados (en vez de poner todo en 0) y refrescar evolución
+  await loadMovPE();
+  await loadPEEvolucion();
 }
 
 // ============================================
@@ -5509,7 +5506,7 @@ function renderPE() {
     <td class="num bold" style="color:var(--gold)">$${fmt(tot24)}</td>
     <td class="num bold" style="color:var(--gold)">$${fmt(tot25)}</td>
     <td class="num bold" style="color:var(--gold)">$${fmt(tot26)}</td>
-    <td class="num ${totVar>=0?'positive':'negative'} bold">${totVar>0?'+':''}${totVar.toFixed(1)}%</td>
+    <td class="num" style="color:var(--text3)">—</td>
     <td></td>
   </tr>`;
 }
@@ -8116,7 +8113,7 @@ checkSession();
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260602-005';
+const APP_VERSION = '20260602-006';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
