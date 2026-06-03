@@ -3951,6 +3951,51 @@ async function loadTC() {
     set('tc-uyu', '$' + (isNaN(uyu) ? '—' : uyu.toFixed(3)));
     set('tc-eur', isNaN(eur) ? '—' : eur.toFixed(4));
   }
+  await loadAllTC();
+}
+
+// ============================================
+// TC POR MES — índice de todos los tipos de cambio
+// Cada movimiento usa el TC del mes correspondiente.
+// ============================================
+let tcMap = {};       // 'anio-mes' -> {ars_usd, uyu_usd, eur_usd}
+let tcLatest = null;  // TC más reciente (fallback)
+
+async function loadAllTC() {
+  const { data } = await sb.from('tipo_de_cambio').select('*');
+  tcMap = {}; tcLatest = null;
+  let latestK = -1;
+  (data || []).forEach(r => {
+    const rates = {
+      ars_usd: parseFloat(r.ars_usd) || 0,
+      uyu_usd: parseFloat(r.uyu_usd) || 0,
+      eur_usd: parseFloat(r.eur_usd) || 0,
+    };
+    tcMap[r.anio + '-' + r.mes] = rates;
+    const k = r.anio * 100 + r.mes;
+    if (k > latestK) { latestK = k; tcLatest = rates; }
+  });
+}
+
+// Devuelve las tasas del mes pedido; si falta, usa el mes previo más cercano
+// del mismo año, luego cualquier mes del año, luego el último cargado.
+function tcFor(anio, mes) {
+  anio = parseInt(anio); mes = parseInt(mes);
+  if (tcMap[anio + '-' + mes]) return tcMap[anio + '-' + mes];
+  for (let m = mes; m >= 1; m--) if (tcMap[anio + '-' + m]) return tcMap[anio + '-' + m];
+  for (let m = 1; m <= 12; m++) if (tcMap[anio + '-' + m]) return tcMap[anio + '-' + m];
+  return tcLatest || { ars_usd: 1220, uyu_usd: 42.415, eur_usd: 0.9638 };
+}
+
+// Convierte un valor a USD usando el TC del mes del movimiento.
+function convUSD(val, moneda, anio, mes) {
+  val = parseFloat(val) || 0;
+  if (!val || !moneda || moneda === 'USD') return val;
+  const tc = tcFor(anio, mes);
+  if (moneda === 'ARS') return val / (tc.ars_usd || 1220);
+  if (moneda === 'UYU') return val / (tc.uyu_usd || 42.415);
+  if (moneda === 'EUR') return val / (tc.eur_usd || 0.9638);
+  return val;
 }
 
 async function loadTC_tabla() {
@@ -5104,11 +5149,7 @@ async function guardarMovProp() {
   const tiposCarga = form.dataset.tipoCarga || 'todo'; // 'renta', 'gastos', 'impuestos', 'todo'
 
   function toUSD(val, mon) {
-    if (mon === 'USD') return val;
-    if (mon === 'ARS') return val / (tcCache.ars_usd || 1220);
-    if (mon === 'UYU') return val / (tcCache.uyu_usd || 42.415);
-    if (mon === 'EUR') return val / (tcCache.eur_usd || 0.9638);
-    return val;
+    return convUSD(val, mon, anio, mes);
   }
   const g = id => parseFloat(document.getElementById(id).value) || 0;
 
@@ -5501,7 +5542,8 @@ async function cargarMovBanco() {
 
 async function guardarMovBanco() {
   const form = document.getElementById('form-mov-banco');
-  const tc = tcCache.ars_usd || 1220;
+  const anioB = parseInt(form.dataset.anio), mesB = parseInt(form.dataset.mes);
+  const tc = tcFor(anioB, mesB).ars_usd || 1220;
   const g = id => parseFloat(document.getElementById(id).value)||0;
   const inv_usd = g('mb-inv-usd'), cash_usd = g('mb-cash-usd'), credit_usd = g('mb-credit-usd');
   const inv_ars = g('mb-inv-ars'), cash_ars = g('mb-cash-ars'), credit_ars = g('mb-credit-ars');
@@ -5509,7 +5551,7 @@ async function guardarMovBanco() {
   const neto = total - credit_usd - (credit_ars/tc);
   const { error } = await sb.from('movimientos_bancos').upsert({
     banco_id: form.dataset.bancoId,
-    anio: parseInt(form.dataset.anio), mes: parseInt(form.dataset.mes),
+    anio: anioB, mes: mesB,
     invest_account_usd: inv_usd, cash_usd, credit_usd,
     invest_account_ars: inv_ars, cash_ars, credit_ars,
     total_usd: total, neto_usd: neto,
@@ -6571,11 +6613,7 @@ async function guardarMovProp2() {
   const monedaImp = document.getElementById('mp2-moneda-imp')?.value || 'USD';
 
   function toUSD(val, mon) {
-    if (!mon || mon==='USD') return val;
-    if (mon==='ARS') return val/(tcCache.ars_usd||1220);
-    if (mon==='UYU') return val/(tcCache.uyu_usd||42.415);
-    if (mon==='EUR') return val/(tcCache.eur_usd||0.9638);
-    return val;
+    return convUSD(val, mon, anio, mes);
   }
   const g = id => parseFloat(document.getElementById(id)?.value)||0;
 
@@ -6942,7 +6980,6 @@ async function loadDetalle() {
     const prop = propMap[m.propiedad_id];
     if (!prop) return;
     const moneda = m.moneda_renta || 'USD';
-    const tc = moneda==='ARS'?1220:moneda==='UYU'?42.415:moneda==='EUR'?0.9638:1;
 
     ALL_ITEMS.forEach(([label, field, mpField, tipo]) => {
       const val = parseFloat(m[field]) || 0;
@@ -6951,7 +6988,7 @@ async function loadDetalle() {
       const mp = m[mpField] || m.medio_pago || '';
       if (medioFiltro && mp !== medioFiltro) return;
       
-      const usd = moneda === 'USD' ? val : val / tc;
+      const usd = convUSD(val, moneda, anio, m.mes);
       if (tipo === 'renta') totRenta += usd;
       else if (tipo === 'gasto') totGasto += usd;
       else totImp += usd;
@@ -7376,11 +7413,13 @@ function selectAccountItem(panelId, mpSelectId, key) {
 // Update totals display in carga tables
 function updateCargaTotals(formId) {
   try {
+    const _f = document.getElementById('form-mov-prop2');
+    const _anio = parseInt(_f?.dataset.anio) || new Date().getFullYear();
+    const _mes = parseInt(_f?.dataset.mes) || (new Date().getMonth()+1);
     const monedaSel = document.getElementById((formId||'mp2') + '-moneda');
     const moneda = monedaSel?.value || 'USD';
     function toUSD(v) {
-      const tc = moneda==='ARS'?(tcCache.ars_usd||1220):moneda==='UYU'?(tcCache.uyu_usd||42.415):moneda==='EUR'?(tcCache.eur_usd||0.9638):1;
-      return moneda==='USD' ? v : v/tc;
+      return convUSD(v, moneda, _anio, _mes);
     }
     const g = id => parseFloat(document.getElementById(id)?.value)||0;
     
@@ -7390,8 +7429,7 @@ function updateCargaTotals(formId) {
         const val = parseFloat(document.getElementById(inputId)?.value)||0;
         if (!val) return 0;
         const m = document.getElementById(monedaId)?.value || 'USD';
-        const tc = m==='ARS'?(tcCache.ars_usd||1220):m==='UYU'?(tcCache.uyu_usd||42.415):m==='EUR'?(tcCache.eur_usd||0.9638):1;
-        return m==='USD' ? val : val/tc;
+        return convUSD(val, m, _anio, _mes);
       }
       const fieldMonedaMap = {
         'mp2-renta':'renta','mp2-otro-ingreso':'otro_ingreso',
@@ -7927,7 +7965,7 @@ async function loadTarjetaCard() {
   const movMap = {};
   (movs||[]).forEach(m => { movMap[m.tarjeta_id] = m; });
 
-  const tc = (tcCache && tcCache.ars_usd) ? tcCache.ars_usd : 1220;
+  const tc = tcFor(anio, mes).ars_usd || 1220;
 
   let html = `<div class="table-wrap"><table style="font-size:12px">
     <thead><tr><th>Cliente</th><th class="num">Monto U$S</th><th class="num">Monto $ (pesos)</th><th class="num">Total USD</th><th>💬 Comentario</th></tr></thead>
@@ -7953,14 +7991,16 @@ function tarRowTotal(inp) {
   const tr = inp.closest('tr');
   const usd = parseFloat(tr.querySelector('.tar-usd').value)||0;
   const ars = parseFloat(tr.querySelector('.tar-ars').value)||0;
-  const tc = (tcCache && tcCache.ars_usd) ? tcCache.ars_usd : 1220;
+  const anio = parseInt(document.getElementById('tar-carga-anio')?.value) || new Date().getFullYear();
+  const mes = parseInt(document.getElementById('tar-carga-mes')?.value) || (new Date().getMonth()+1);
+  const tc = tcFor(anio, mes).ars_usd || 1220;
   tr.querySelector('.tar-rowtot').textContent = '$' + fmt(usd + ars/tc);
 }
 
 async function guardarTarjetaCard() {
   const anio = parseInt(document.getElementById('tar-carga-anio').value);
   const mes = parseInt(document.getElementById('tar-carga-mes').value);
-  const tc = (tcCache && tcCache.ars_usd) ? tcCache.ars_usd : 1220;
+  const tc = tcFor(anio, mes).ars_usd || 1220;
   const rows = document.querySelectorAll('#tar-carga-clientes tr[data-tid]');
   const payload = [];
   rows.forEach(tr => {
@@ -8019,18 +8059,15 @@ async function cargarMovSoc() {
 
 async function guardarMovSoc() {
   const form = document.getElementById('form-mov-soc');
+  const _anio = parseInt(form.dataset.anio), _mes = parseInt(form.dataset.mes);
   const g = id => parseFloat(document.getElementById(id).value)||0;
   function toUSD(val, mon) {
-    if (mon==='USD') return val;
-    if (mon==='ARS') return val/(tcCache.ars_usd||1220);
-    if (mon==='UYU') return val/(tcCache.uyu_usd||42.415);
-    if (mon==='EUR') return val/(tcCache.eur_usd||0.9638);
-    return val;
+    return convUSD(val, mon, _anio, _mes);
   }
   const moneda = document.getElementById('ms-moneda')?.value || 'USD';
-  const aportes = toUSD(g('ms-aportes'));
-  const impuestos = toUSD(g('ms-impuestos'));
-  const otros = toUSD(g('ms-otros'));
+  const aportes = toUSD(g('ms-aportes'), moneda);
+  const impuestos = toUSD(g('ms-impuestos'), moneda);
+  const otros = toUSD(g('ms-otros'), moneda);
   
   const { error } = await sb.from('movimientos_sociedades').upsert({
     sociedad_id: form.dataset.socId,
@@ -8115,12 +8152,10 @@ function renderAutos() {
 
 async function guardarMovAuto() {
   const form = document.getElementById('form-mov-auto');
+  const _anio = parseInt(form.dataset.anio), _mes = parseInt(form.dataset.mes);
   const g = id => parseFloat(document.getElementById(id).value)||0;
   function toUSD(val, mon) {
-    if (mon==='USD') return val;
-    if (mon==='ARS') return val/(tcCache.ars_usd||1220);
-    if (mon==='UYU') return val/(tcCache.uyu_usd||42.415);
-    return val;
+    return convUSD(val, mon, _anio, _mes);
   }
   const moneda = document.getElementById('ma-moneda').value;
   const patente = g('ma-patente'), seguro = g('ma-seguro'), service = g('ma-service');
@@ -8203,7 +8238,7 @@ function toggleTheme() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260603-004';
+const APP_VERSION = '20260603-005';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
