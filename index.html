@@ -846,6 +846,11 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
         Sociedades
       </div>
 
+      <div class="nav-item" onclick="navTo('tarjetas')" data-page="tarjetas">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+        Tarjetas
+      </div>
+
       <div class="nav-section-label">Más</div>
       <div class="nav-item" onclick="navTo('organigramas')" data-page="organigramas">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="5" r="3"/><line x1="12" y1="8" x2="12" y2="12"/><rect x="2" y="15" width="6" height="6" rx="1"/><rect x="9" y="15" width="6" height="6" rx="1"/><rect x="16" y="15" width="6" height="6" rx="1"/><line x1="5" y1="15" x2="5" y2="12"/><line x1="12" y1="15" x2="12" y2="12"/><line x1="19" y1="15" x2="19" y2="12"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
@@ -3066,6 +3071,65 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
         </div>
       </div>
 
+      <!-- ======== TARJETAS ======== -->
+      <div id="page-tarjetas" class="page">
+        <div class="tabs">
+          <button class="tab-btn active" onclick="switchTab('tar','info',this)">Información</button>
+          <button class="tab-btn" onclick="switchTab('tar','carga',this)">Carga</button>
+        </div>
+
+        <div id="tar-info" class="tab-content active">
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">
+            <div class="section-title" style="margin:0">Tarjetas — Resumen en USD</div>
+            <select class="fld" id="tar-anio" style="width:auto" onchange="loadTarjetas()">
+              <option value="2026">2026</option>
+              <option value="2025">2025</option>
+            </select>
+          </div>
+          <div id="tar-info-result"><div class="loader"><div class="spinner"></div></div></div>
+        </div>
+
+        <div id="tar-carga" class="tab-content">
+          <div class="section-title" style="margin-bottom:12px">Carga de Tarjetas</div>
+          <div class="card" style="margin-bottom:14px">
+            <div class="form-row cols-3" style="margin-bottom:12px">
+              <div><label class="fld">Tarjeta + Cliente</label>
+                <select class="fld" id="tar-carga-sel" onchange="loadTarjetaMov()"><option value="">Seleccionar...</option></select>
+              </div>
+              <div><label class="fld">Año</label>
+                <select class="fld" id="tar-carga-anio" onchange="loadTarjetaMov()">
+                  <option value="2026">2026</option><option value="2025">2025</option>
+                </select>
+              </div>
+              <div><label class="fld">Mes</label>
+                <select class="fld" id="tar-carga-mes" onchange="loadTarjetaMov()">
+                  <option value="1">Enero</option><option value="2">Febrero</option><option value="3">Marzo</option>
+                  <option value="4">Abril</option><option value="5">Mayo</option><option value="6">Junio</option>
+                  <option value="7">Julio</option><option value="8">Agosto</option><option value="9">Septiembre</option>
+                  <option value="10">Octubre</option><option value="11">Noviembre</option><option value="12">Diciembre</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-row cols-2" style="margin-bottom:12px">
+              <div><label class="fld">Monto en U$S (dólares)</label>
+                <input class="fld" type="number" id="tar-monto-usd" value="0" oninput="tarPreview()">
+              </div>
+              <div><label class="fld">Monto en $ (pesos)</label>
+                <input class="fld" type="number" id="tar-monto-ars" value="0" oninput="tarPreview()">
+              </div>
+            </div>
+            <div id="tar-carga-preview" style="background:var(--gold-soft);border:1px solid var(--gold);color:var(--gold);border-radius:var(--radius);padding:10px 16px;font-size:13px;margin-bottom:12px">Total USD: $0</div>
+            <div style="margin-bottom:12px"><label class="fld">Notas</label>
+              <input class="fld" type="text" id="tar-notas" placeholder="(opcional)">
+            </div>
+            <div style="margin-bottom:12px"><label class="fld">💬 Comentario (aparece como esquina dorada)</label>
+              <input class="fld coment-input-mt" data-field="monto" type="text" placeholder="(opcional)">
+            </div>
+            <button class="btn-primary" style="width:auto;padding:10px 24px" onclick="guardarMovTarjeta()">Guardar</button>
+          </div>
+        </div>
+      </div>
+
       <!-- ======== ALERTAS ======== -->
       <div id="page-alertas" class="page">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
@@ -3704,7 +3768,7 @@ function navTo(page) {
 }
 
 function switchTab(group, tab, el) {
-  const pageMap = { prop:'propiedades', banco:'bancos', pe:'private_equity', org:'organigramas', soc:'sociedades', aut:'autos', gasto:'gastos' };
+  const pageMap = { prop:'propiedades', banco:'bancos', pe:'private_equity', org:'organigramas', soc:'sociedades', aut:'autos', gasto:'gastos', tar:'tarjetas' };
   const pageId = pageMap[group] || group;
   const page = document.getElementById('page-' + pageId);
   if (!page) { console.error('Page not found: page-' + pageId); return; }
@@ -3848,6 +3912,10 @@ async function loadPage(page) {
     case 'sociedades': 
       await loadSociedades();
       initFirstTab('sociedades');
+      break;
+    case 'tarjetas':
+      await loadTarjetas();
+      initFirstTab('tarjetas');
       break;
   }
 }
@@ -7660,6 +7728,148 @@ async function loadSocEvolucion() {
   res.innerHTML = html;
 }
 
+// ============================================
+// TARJETAS
+// ============================================
+const TAR_MESES = ['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+
+async function loadTarjetas() {
+  const anio = parseInt(document.getElementById('tar-anio')?.value || 2026);
+  const res = document.getElementById('tar-info-result');
+  if (res) res.innerHTML = '<div class="loader"><div class="spinner"></div></div>';
+
+  const [{ data: tarjetas }, { data: movs }] = await Promise.all([
+    sb.from('tarjetas').select('*').eq('activo', true).order('nro'),
+    sb.from('movimientos_tarjetas').select('*').eq('anio', anio),
+  ]);
+
+  // Poblar el select de carga
+  const sel = document.getElementById('tar-carga-sel');
+  if (sel && sel.options.length <= 1) {
+    sel.innerHTML = '<option value="">Seleccionar...</option>' +
+      (tarjetas||[]).map(t => `<option value="${t.id}">${t.tarjeta} — ${t.cliente}</option>`).join('');
+  }
+
+  if (!res) return;
+
+  // movMap: tarjeta_id -> mes -> mov
+  const movMap = {};
+  (movs||[]).forEach(m => { (movMap[m.tarjeta_id] ||= {})[m.mes] = m; });
+
+  // Agrupar tarjetas por nombre de tarjeta (card)
+  const byCard = {};
+  (tarjetas||[]).forEach(t => { (byCard[t.tarjeta] ||= []).push(t); });
+
+  const MESES = [1,2,3,4,5,6,7,8,9,10,11,12];
+  // Divisor del promedio = mes máximo con cualquier dato
+  let maxMes = 0;
+  (movs||[]).forEach(m => { if ((m.total_usd||0) !== 0 && m.mes > maxMes) maxMes = m.mes; });
+  const divisor = maxMes || 1;
+
+  const tot = (tid, mes) => movMap[tid]?.[mes]?.total_usd || 0;
+
+  let html = '';
+  // Una card por tarjeta (card)
+  Object.keys(byCard).forEach(card => {
+    const filas = byCard[card];
+    html += `<div class="card" style="margin-bottom:12px">
+      <div class="bold" style="margin-bottom:10px;color:var(--gold)">${card}</div>
+      <div class="table-wrap"><table style="font-size:11px">
+        <thead><tr><th>Cliente</th>${MESES.map(m=>`<th class="num">${TAR_MESES[m]}</th>`).join('')}<th class="num">Total</th></tr></thead>
+        <tbody>`;
+    filas.forEach(t => {
+      const vals = MESES.map(m => tot(t.id, m));
+      const sum = vals.reduce((a,b)=>a+b,0);
+      html += `<tr><td style="font-size:11px">${t.cliente}</td>
+        ${MESES.map((m,i)=>{const c=movMap[t.id]?.[m]?.comentarios?.monto;const v=vals[i];return `<td class="num ${c?'coment-tooltip has-coment':''}" style="font-size:10px;position:relative">${v?'$'+fmt(v):'—'}${c?`<span class="coment-pop">💬 ${c}</span>`:''}</td>`;}).join('')}
+        <td class="num bold">$${fmt(sum)}</td></tr>`;
+    });
+    // TOTAL de la tarjeta
+    const cardTot = MESES.map(m => filas.reduce((a,t)=>a+tot(t.id,m),0));
+    html += `<tr style="border-top:1px solid var(--border2)">
+      <td class="bold" style="font-size:11px;color:var(--gold)">TOTAL</td>
+      ${cardTot.map(v=>`<td class="num bold" style="font-size:10px">${v?'$'+fmt(v):'—'}</td>`).join('')}
+      <td class="num bold" style="color:var(--gold)">$${fmt(cardTot.reduce((a,b)=>a+b,0))}</td></tr>`;
+    html += `</tbody></table></div></div>`;
+  });
+
+  // TOTAL GENERAL por mes
+  const allT = (tarjetas||[]);
+  const grand = MESES.map(m => allT.reduce((a,t)=>a+tot(t.id,m),0));
+  html += `<div class="card" style="margin-bottom:12px;border:1px solid var(--gold)">
+    <div class="table-wrap"><table style="font-size:11px">
+      <thead><tr><th style="color:var(--gold)">TOTAL GENERAL</th>${MESES.map(m=>`<th class="num">${TAR_MESES[m]}</th>`).join('')}<th class="num">Total</th></tr></thead>
+      <tbody><tr>
+        <td class="bold" style="color:var(--gold)">Todos</td>
+        ${grand.map(v=>`<td class="num bold" style="font-size:10px">${v?'$'+fmt(v):'—'}</td>`).join('')}
+        <td class="num bold" style="color:var(--gold)">$${fmt(grand.reduce((a,b)=>a+b,0))}</td>
+      </tr></tbody></table></div></div>`;
+
+  // PROMEDIO MENSUAL POR CLIENTE
+  const clientes = [...new Set(allT.map(t=>t.cliente))].sort();
+  html += `<div class="card" style="border:1px solid var(--border2)">
+    <div class="bold" style="margin-bottom:4px">Promedio mensual por cliente</div>
+    <p style="color:var(--text3);font-size:11px;margin-bottom:10px">Suma del año ÷ meses cargados (${divisor})</p>
+    <div class="table-wrap"><table style="font-size:11px">
+      <thead><tr><th>Cliente</th>${MESES.map(m=>`<th class="num">${TAR_MESES[m]}</th>`).join('')}<th class="num">Suma</th><th class="num" style="color:var(--gold)">Promedio</th></tr></thead>
+      <tbody>`;
+  clientes.forEach(cli => {
+    const tids = allT.filter(t=>t.cliente===cli).map(t=>t.id);
+    const vals = MESES.map(m => tids.reduce((a,id)=>a+tot(id,m),0));
+    const sum = vals.reduce((a,b)=>a+b,0);
+    html += `<tr><td style="font-size:11px">${cli}</td>
+      ${vals.map(v=>`<td class="num" style="font-size:10px">${v?'$'+fmt(v):'—'}</td>`).join('')}
+      <td class="num bold">$${fmt(sum)}</td>
+      <td class="num bold" style="color:var(--gold)">$${fmt(sum/divisor)}</td></tr>`;
+  });
+  html += `</tbody></table></div></div>`;
+
+  res.innerHTML = html;
+}
+
+async function loadTarjetaMov() {
+  const tid = document.getElementById('tar-carga-sel').value;
+  if (!tid) return;
+  const anio = parseInt(document.getElementById('tar-carga-anio').value);
+  const mes = parseInt(document.getElementById('tar-carga-mes').value);
+  const { data } = await sb.from('movimientos_tarjetas')
+    .select('*').eq('tarjeta_id', tid).eq('anio', anio).eq('mes', mes).maybeSingle();
+  document.getElementById('tar-monto-usd').value = data?.monto_usd || 0;
+  document.getElementById('tar-monto-ars').value = data?.monto_ars || 0;
+  document.getElementById('tar-notas').value = data?.notas || '';
+  setComentariosGen('mt', data?.comentarios);
+  tarPreview();
+}
+
+function tarPreview() {
+  const usd = parseFloat(document.getElementById('tar-monto-usd').value)||0;
+  const ars = parseFloat(document.getElementById('tar-monto-ars').value)||0;
+  const mes = parseInt(document.getElementById('tar-carga-mes').value)||1;
+  const tc = (tcCache && tcCache.ars_usd) ? tcCache.ars_usd : 1220;
+  const total = usd + ars/tc;
+  document.getElementById('tar-carga-preview').innerHTML = `Total USD: $${fmt(total)} <span style="opacity:.7">(U$S ${fmt(usd)} + $${fmt(ars)} ÷ ${fmt(tc)})</span>`;
+}
+
+async function guardarMovTarjeta() {
+  const tarjeta_id = document.getElementById('tar-carga-sel').value;
+  if (!tarjeta_id) return toast('Seleccioná una tarjeta', 'error');
+  const anio = parseInt(document.getElementById('tar-carga-anio').value);
+  const mes = parseInt(document.getElementById('tar-carga-mes').value);
+  const monto_usd = parseFloat(document.getElementById('tar-monto-usd').value)||0;
+  const monto_ars = parseFloat(document.getElementById('tar-monto-ars').value)||0;
+  const tc = (tcCache && tcCache.ars_usd) ? tcCache.ars_usd : 1220;
+  const total_usd = monto_usd + monto_ars/tc;
+  const { error } = await sb.from('movimientos_tarjetas').upsert({
+    tarjeta_id, anio, mes, monto_usd, monto_ars, total_usd,
+    notas: document.getElementById('tar-notas').value,
+    comentarios: getComentariosGen('mt'),
+    created_by: currentUser?.id,
+  }, { onConflict: 'tarjeta_id,anio,mes' });
+  if (error) return toast('Error: ' + error.message, 'error');
+  toast('Tarjeta actualizada ✓', 'success');
+  await loadTarjetas();
+}
+
 function filtroSoc(val, btn) {
   document.querySelectorAll('#soc-info .filter-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
@@ -7856,7 +8066,7 @@ checkSession();
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260602-003';
+const APP_VERSION = '20260602-004';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
