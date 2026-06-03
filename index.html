@@ -52,6 +52,24 @@
   --radius-lg: 12px;
 }
 
+/* ===== TEMA CLARO ===== */
+body.light-theme {
+  --bg: #f4f2ec;
+  --bg2: #ffffff;
+  --bg3: #ebe8e0;
+  --border: #ddd9cf;
+  --border2: #c8c3b6;
+  --text: #1f1d18;
+  --text2: #5f5a52;
+  --text3: #94908a;
+  --gold-soft: rgba(201,168,76,0.16);
+  --usa-soft: rgba(192,57,43,0.10);
+  --arg-soft: rgba(41,128,185,0.10);
+  --uru-soft: rgba(212,160,23,0.12);
+  --esp-soft: rgba(39,174,96,0.10);
+  --par-soft: rgba(230,126,34,0.10);
+}
+
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 html { font-size: 14px; }
 body {
@@ -871,6 +889,9 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
         <div class="user-name" id="user-name">—</div>
         <div class="user-email" id="user-email">—</div>
       </div>
+      <button class="logout-btn" onclick="toggleTheme()" title="Cambiar tema" style="margin-right:4px">
+        <svg id="theme-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      </button>
       <button class="logout-btn" onclick="doLogout()" title="Cerrar sesión">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
       </button>
@@ -3308,7 +3329,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
           <div class="form-row cols-2">
             <div>
               <label class="fld">Año</label>
-              <select class="fld" id="tc-anio">
+              <select class="fld" id="tc-anio" onchange="loadTCInputs()">
                 <option value="2026">2026</option>
                 <option value="2025">2025</option>
                 <option value="2024">2024</option>
@@ -3318,7 +3339,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
             </div>
             <div>
               <label class="fld">Mes</label>
-              <select class="fld" id="tc-mes">
+              <select class="fld" id="tc-mes" onchange="loadTCInputs()">
                 <option value="1">Enero</option><option value="2">Febrero</option>
                 <option value="3">Marzo</option><option value="4">Abril</option>
                 <option value="5">Mayo</option><option value="6">Junio</option>
@@ -3961,14 +3982,37 @@ function editTC(anio, mes, ars, uyu, eur) {
 async function guardarTC() {
   const anio = parseInt(document.getElementById('tc-anio').value);
   const mes = parseInt(document.getElementById('tc-mes').value);
+  if (!anio || !mes) return toast('Elegí año y mes', 'error');
   const ars = parseFloat(document.getElementById('tc-ars-in').value);
   const uyu = parseFloat(document.getElementById('tc-uyu-in').value);
   const eur = parseFloat(document.getElementById('tc-eur-in').value);
-  const { error } = await sb.from('tipo_de_cambio').upsert({ anio, mes, ars_usd: ars, uyu_usd: uyu, eur_usd: eur }, { onConflict: 'anio,mes' });
+  if (isNaN(ars) && isNaN(uyu) && isNaN(eur)) return toast('Cargá al menos un tipo de cambio', 'error');
+
+  // Traer fila existente para preservar lo que no se completa
+  const { data: existing } = await sb.from('tipo_de_cambio')
+    .select('*').eq('anio', anio).eq('mes', mes).maybeSingle();
+
+  const payload = {
+    anio, mes,
+    ars_usd: !isNaN(ars) ? ars : (existing?.ars_usd ?? null),
+    uyu_usd: !isNaN(uyu) ? uyu : (existing?.uyu_usd ?? null),
+    eur_usd: !isNaN(eur) ? eur : (existing?.eur_usd ?? null),
+  };
+  const { error } = await sb.from('tipo_de_cambio').upsert(payload, { onConflict: 'anio,mes' });
   if (error) return toast('Error: ' + error.message, 'error');
   toast('Tipo de cambio actualizado ✓', 'success');
   await loadTC();
   await loadTC_tabla();
+}
+
+async function loadTCInputs() {
+  const anio = parseInt(document.getElementById('tc-anio').value);
+  const mes = parseInt(document.getElementById('tc-mes').value);
+  const { data } = await sb.from('tipo_de_cambio')
+    .select('*').eq('anio', anio).eq('mes', mes).maybeSingle();
+  document.getElementById('tc-ars-in').value = data?.ars_usd ?? '';
+  document.getElementById('tc-uyu-in').value = data?.uyu_usd ?? '';
+  document.getElementById('tc-eur-in').value = data?.eur_usd ?? '';
 }
 
 // ============================================
@@ -8111,9 +8155,35 @@ async function guardarNuevaPassword() {
 checkSession();
 
 // ============================================
+// TEMA CLARO / OSCURO
+// ============================================
+function applyTheme(theme) {
+  if (theme === 'light') document.body.classList.add('light-theme');
+  else document.body.classList.remove('light-theme');
+  const icon = document.getElementById('theme-icon');
+  if (icon) {
+    icon.innerHTML = theme === 'light'
+      ? '<circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>'
+      : '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>';
+  }
+}
+function toggleTheme() {
+  const isLight = document.body.classList.contains('light-theme');
+  const next = isLight ? 'dark' : 'light';
+  applyTheme(next);
+  try { localStorage.setItem('fo-theme', next); } catch(e) {}
+}
+(function initTheme(){
+  let t = 'dark';
+  try { t = localStorage.getItem('fo-theme') || 'dark'; } catch(e) {}
+  applyTheme(t);
+})();
+
+
+// ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260602-006';
+const APP_VERSION = '20260602-007';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
