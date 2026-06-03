@@ -3961,12 +3961,13 @@ async function loadTC_tabla() {
   }
   const meses = ['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
   const tbody = document.getElementById('tbody-tc');
+  const num = (v, dec) => (v===null||v===undefined||isNaN(parseFloat(v))) ? '—' : parseFloat(v).toLocaleString('es-AR',{minimumFractionDigits:dec,maximumFractionDigits:dec});
   tbody.innerHTML = data?.map(r => `
     <tr>
       <td>${r.anio}</td><td>${meses[r.mes]}</td>
-      <td class="num">${parseFloat(r.ars_usd).toLocaleString('es-AR')}</td>
-      <td class="num">${parseFloat(r.uyu_usd).toFixed(3)}</td>
-      <td class="num">${parseFloat(r.eur_usd).toFixed(4)}</td>
+      <td class="num">${num(r.ars_usd,2)}</td>
+      <td class="num">${num(r.uyu_usd,3)}</td>
+      <td class="num">${num(r.eur_usd,4)}</td>
       <td><button class="btn-secondary" style="padding:4px 10px;font-size:11px" onclick="editTC(${r.anio},${r.mes},${r.ars_usd},${r.uyu_usd},${r.eur_usd})">Editar</button></td>
     </tr>`).join('') || '<tr><td colspan="6" style="color:var(--text3);text-align:center">Sin datos</td></tr>';
 }
@@ -3988,17 +3989,29 @@ async function guardarTC() {
   const eur = parseFloat(document.getElementById('tc-eur-in').value);
   if (isNaN(ars) && isNaN(uyu) && isNaN(eur)) return toast('Cargá al menos un tipo de cambio', 'error');
 
-  // Traer fila existente para preservar lo que no se completa
+  // Fila existente del mismo mes
   const { data: existing } = await sb.from('tipo_de_cambio')
     .select('*').eq('anio', anio).eq('mes', mes).maybeSingle();
+  // Fallback: último TC cargado (para arrastrar valores faltantes en filas nuevas)
+  let fb = existing;
+  if (!fb) {
+    const { data: latest } = await sb.from('tipo_de_cambio')
+      .select('*').order('anio', { ascending: false }).order('mes', { ascending: false }).limit(1);
+    fb = (latest && latest[0]) || {};
+  }
 
-  const payload = {
-    anio, mes,
-    ars_usd: !isNaN(ars) ? ars : (existing?.ars_usd ?? null),
-    uyu_usd: !isNaN(uyu) ? uyu : (existing?.uyu_usd ?? null),
-    eur_usd: !isNaN(eur) ? eur : (existing?.eur_usd ?? null),
+  const vals = {
+    ars_usd: !isNaN(ars) ? ars : (fb.ars_usd ?? 1220),
+    uyu_usd: !isNaN(uyu) ? uyu : (fb.uyu_usd ?? 42),
+    eur_usd: !isNaN(eur) ? eur : (fb.eur_usd ?? 0.92),
   };
-  const { error } = await sb.from('tipo_de_cambio').upsert(payload, { onConflict: 'anio,mes' });
+
+  let error;
+  if (existing) {
+    ({ error } = await sb.from('tipo_de_cambio').update(vals).eq('anio', anio).eq('mes', mes));
+  } else {
+    ({ error } = await sb.from('tipo_de_cambio').insert({ anio, mes, ...vals }));
+  }
   if (error) return toast('Error: ' + error.message, 'error');
   toast('Tipo de cambio actualizado ✓', 'success');
   await loadTC();
@@ -8183,7 +8196,7 @@ function toggleTheme() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260602-007';
+const APP_VERSION = '20260602-008';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
