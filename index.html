@@ -3325,7 +3325,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
           </div>
         </div>
         <div class="card" style="margin-top:16px">
-          <div class="section-title" style="font-size:14px">Actualizar TC</div>
+          <div class="section-title" style="font-size:14px">Actualizar TC <span style="font-size:10px;color:var(--gold);font-weight:400">· editor v10</span></div>
           <div class="form-row cols-2">
             <div>
               <label class="fld">Año</label>
@@ -3941,12 +3941,15 @@ async function loadTC() {
     .select('*')
     .eq('anio', 2026)
     .eq('mes', now.getMonth() + 1)
-    .single();
+    .maybeSingle();
   if (data) {
-    tcCache = data;
-    document.getElementById('tc-ars').textContent = '$' + data.ars_usd.toLocaleString('es-AR');
-    document.getElementById('tc-uyu').textContent = '$' + data.uyu_usd.toFixed(3);
-    document.getElementById('tc-eur').textContent = data.eur_usd.toFixed(4);
+    const ars = parseFloat(data.ars_usd), uyu = parseFloat(data.uyu_usd), eur = parseFloat(data.eur_usd);
+    // Guardar números (no strings) para que las conversiones funcionen bien
+    tcCache = { ...data, ars_usd: ars, uyu_usd: uyu, eur_usd: eur };
+    const set = (id, txt) => { const el = document.getElementById(id); if (el) el.textContent = txt; };
+    set('tc-ars', '$' + (isNaN(ars) ? '—' : ars.toLocaleString('es-AR')));
+    set('tc-uyu', '$' + (isNaN(uyu) ? '—' : uyu.toFixed(3)));
+    set('tc-eur', isNaN(eur) ? '—' : eur.toFixed(4));
   }
 }
 
@@ -4016,11 +4019,19 @@ async function guardarTC() {
   }
   if (error) return toast('Error: ' + error.message, 'error');
   if (!saved || saved.length === 0) {
-    return toast('No se guardó (la base no permite escribir en tipo_de_cambio — falta correr fix_tc_rls.sql)', 'error');
+    return toast('No se guardó (la base no permite escribir — corré fix_tc_rls.sql)', 'error');
   }
-  toast('Tipo de cambio actualizado ✓', 'success');
-  await loadTC();
-  await loadTC_tabla();
+  // Verificación: releer de la base lo que realmente quedó
+  const { data: check } = await sb.from('tipo_de_cambio')
+    .select('ars_usd').eq('anio', anio).eq('mes', mes).maybeSingle();
+  const real = check?.ars_usd;
+  if (real != null && Math.abs(parseFloat(real) - vals.ars_usd) < 0.001) {
+    toast(`Guardado ✓ — ARS en base: ${parseFloat(real).toLocaleString('es-AR')}`, 'success');
+  } else {
+    toast(`Atención: guardé ${vals.ars_usd} pero en base figura ${real}. No persistió.`, 'error');
+  }
+  try { await loadTC(); } catch(e) { console.warn('loadTC:', e.message); }
+  try { await loadTC_tabla(); } catch(e) { console.warn('loadTC_tabla:', e.message); }
 }
 
 async function loadTCInputs() {
@@ -8201,7 +8212,7 @@ function toggleTheme() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260602-009';
+const APP_VERSION = '20260603-002';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
