@@ -1269,7 +1269,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
                 <th class="num">2023</th><th class="num">2024</th><th class="num">2025</th>
                 <th class="num">2026</th><th class="num">Var%</th>
               </tr></thead>
-              <tbody id="tbody-historial-props"></tbody>
+              <tbody id="tbody-historial-props-prop"></tbody>
             </table>
           </div></div>
         </div>
@@ -1711,29 +1711,9 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
             </div>
           </div>
 
-          <!-- Detail table - shows per PE with rows = concepts, cols = months -->
+          <!-- Detail: una tarjeta por PE -->
           <div id="pe-ev-detail">
-            <div class="card">
-              <div class="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th style="min-width:140px">Inversión / Concepto</th>
-                      <th class="num">Ene</th><th class="num">Feb</th><th class="num">Mar</th>
-                      <th class="num">Abr</th><th class="num">May</th><th class="num">Jun</th>
-                      <th class="num">Jul</th><th class="num">Ago</th><th class="num">Sep</th>
-                      <th class="num">Oct</th><th class="num">Nov</th><th class="num">Dic</th>
-                      <th class="num">Total</th>
-                    </tr>
-                  </thead>
-                  <tbody id="tbody-pe-evolucion">
-                    <tr><td colspan="14" style="color:var(--text3);text-align:center;padding:20px">
-                      Seleccioná un año para ver la evolución
-                    </td></tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
+            <div class="loader"><div class="spinner"></div></div>
           </div>
         </div>
 
@@ -1752,13 +1732,36 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
               <div class="form-row cols-2">
                 <div>
                   <label class="fld">Inversión</label>
-                  <select class="fld" id="pe-sel">
+                  <select class="fld" id="pe-sel" onchange="loadPEAnual()">
                     <option value="">Seleccionar...</option>
                   </select>
                 </div>
                 <div>
-                  <label class="fld">Valor 2026 (USD)</label>
+                  <label class="fld">Valor del año (USD)</label>
                   <input class="fld" type="number" id="pe-valor" value="0">
+                </div>
+              </div>
+              <div class="form-row cols-3">
+                <div>
+                  <label class="fld">Titular</label>
+                  <select class="fld" id="pe-titular">
+                    <option value="JC">JC</option><option value="FC">FC</option>
+                    <option value="M">M</option><option value="G">G</option>
+                    <option value="MFL">MFL</option><option value="FCC">FCC</option>
+                    <option value="YAC">YAC</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="fld">País</label>
+                  <select class="fld" id="pe-pais">
+                    <option value="ARG">ARG</option><option value="USA">USA</option>
+                    <option value="URU">URU</option><option value="ESP">ESP</option>
+                    <option value="PAR">PAR</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="fld">Share (%)</label>
+                  <input class="fld" type="number" id="pe-share" value="0" step="0.01" placeholder="ej: 12.5">
                 </div>
               </div>
               <div class="form-row cols-1">
@@ -1783,17 +1786,17 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
             <div class="card" style="margin-bottom:12px;padding:12px 16px">
               <div class="form-row cols-3" style="margin:0">
                 <div><label class="fld">Inversión</label>
-                  <select class="fld" id="pe-mens-sel"><option value="">Seleccionar...</option></select>
+                  <select class="fld" id="pe-mens-sel" onchange="loadMovPE()"><option value="">Seleccionar...</option></select>
                 </div>
                 <div><label class="fld">Año</label>
-                  <select class="fld" id="pe-mens-anio">
+                  <select class="fld" id="pe-mens-anio" onchange="loadMovPE()">
                     <option value="2026">2026</option>
                     <option value="2025">2025</option>
                     <option value="2024">2024</option>
                   </select>
                 </div>
                 <div><label class="fld">Mes</label>
-                  <select class="fld" id="pe-mens-mes">
+                  <select class="fld" id="pe-mens-mes" onchange="loadMovPE()">
                     <option value="1">Enero</option><option value="2">Febrero</option>
                     <option value="3">Marzo</option><option value="4">Abril</option>
                     <option value="5">Mayo</option><option value="6">Junio</option>
@@ -3093,16 +3096,16 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
           <div class="section-title" style="margin-bottom:12px">Carga de Tarjetas</div>
           <div class="card" style="margin-bottom:14px">
             <div class="form-row cols-3" style="margin-bottom:12px">
-              <div><label class="fld">Tarjeta + Cliente</label>
-                <select class="fld" id="tar-carga-sel" onchange="loadTarjetaMov()"><option value="">Seleccionar...</option></select>
+              <div><label class="fld">Tarjeta</label>
+                <select class="fld" id="tar-carga-card" onchange="loadTarjetaCard()"><option value="">Seleccionar...</option></select>
               </div>
               <div><label class="fld">Año</label>
-                <select class="fld" id="tar-carga-anio" onchange="loadTarjetaMov()">
+                <select class="fld" id="tar-carga-anio" onchange="loadTarjetaCard()">
                   <option value="2026">2026</option><option value="2025">2025</option>
                 </select>
               </div>
               <div><label class="fld">Mes</label>
-                <select class="fld" id="tar-carga-mes" onchange="loadTarjetaMov()">
+                <select class="fld" id="tar-carga-mes" onchange="loadTarjetaCard()">
                   <option value="1">Enero</option><option value="2">Febrero</option><option value="3">Marzo</option>
                   <option value="4">Abril</option><option value="5">Mayo</option><option value="6">Junio</option>
                   <option value="7">Julio</option><option value="8">Agosto</option><option value="9">Septiembre</option>
@@ -3110,22 +3113,10 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
                 </select>
               </div>
             </div>
-            <div class="form-row cols-2" style="margin-bottom:12px">
-              <div><label class="fld">Monto en U$S (dólares)</label>
-                <input class="fld" type="number" id="tar-monto-usd" value="0" oninput="tarPreview()">
-              </div>
-              <div><label class="fld">Monto en $ (pesos)</label>
-                <input class="fld" type="number" id="tar-monto-ars" value="0" oninput="tarPreview()">
-              </div>
+            <div id="tar-carga-clientes" style="color:var(--text3);font-size:13px;padding:8px 0">Seleccioná una tarjeta para cargar todos sus clientes.</div>
+            <div id="tar-carga-guardar" style="display:none;margin-top:12px">
+              <button class="btn-primary" style="width:auto;padding:10px 24px" onclick="guardarTarjetaCard()">Guardar todos</button>
             </div>
-            <div id="tar-carga-preview" style="background:var(--gold-soft);border:1px solid var(--gold);color:var(--gold);border-radius:var(--radius);padding:10px 16px;font-size:13px;margin-bottom:12px">Total USD: $0</div>
-            <div style="margin-bottom:12px"><label class="fld">Notas</label>
-              <input class="fld" type="text" id="tar-notas" placeholder="(opcional)">
-            </div>
-            <div style="margin-bottom:12px"><label class="fld">💬 Comentario (aparece como esquina dorada)</label>
-              <input class="fld coment-input-mt" data-field="monto" type="text" placeholder="(opcional)">
-            </div>
-            <button class="btn-primary" style="width:auto;padding:10px 24px" onclick="guardarMovTarjeta()">Guardar</button>
           </div>
         </div>
       </div>
@@ -4328,13 +4319,14 @@ function renderHistorialProps(filtro) {
   else if (filtro === 'all') data = data.filter(p => !p.vendida);
 
   const tbody = document.getElementById('tbody-historial-props');
-  if (!tbody) return;
+  const tbody2 = document.getElementById('tbody-historial-props-prop');
+  if (!tbody && !tbody2) return;
 
-  tbody.innerHTML = data.map(p => {
+  let bodyHtml = data.map(p => {
     const vals = YEARS.map(y => p.valores[String(y)] || null);
     const first = vals.find(v => v !== null);
     const last = vals.filter(v => v !== null).pop();
-    const varPct = first && last && first !== last ? ((last - first) / first * 100).toFixed(1) : null;
+    const varPct = first && last && first !== 0 ? ((last - first) / first * 100).toFixed(1) : null;
     const isVendida = p.vendida;
 
     return `<tr class="row-${colPais[p.pais]||'arg'}" style="${isVendida?'opacity:0.6':''}" >
@@ -4345,7 +4337,7 @@ function renderHistorialProps(filtro) {
         const v = p.valores[String(y)];
         return `<td class="num" style="font-size:11px;color:${v?'var(--text)':'var(--border2)'}">${v?'$'+fmt(v):'—'}</td>`;
       }).join('')}
-      <td class="num ${varPct>0?'positive':'negative'}" style="font-size:11px;font-weight:600">
+      <td class="num ${varPct>0?'positive':(varPct<0?'negative':'')}" style="font-size:11px;font-weight:600">
         ${varPct!==null?(varPct>0?'+':'')+varPct+'%':'—'}
       </td>
     </tr>`;
@@ -4356,11 +4348,14 @@ function renderHistorialProps(filtro) {
   const firstTot = totals.find(v => v > 0);
   const lastTot = [...totals].reverse().find(v => v > 0);
   const varTot = firstTot && lastTot ? ((lastTot-firstTot)/firstTot*100).toFixed(1) : null;
-  tbody.innerHTML += `<tr style="background:var(--bg3);border-top:2px solid var(--border2)">
+  bodyHtml += `<tr style="background:var(--bg3);border-top:2px solid var(--border2)">
     <td colspan="3" class="bold" style="color:var(--gold)">TOTAL</td>
     ${totals.map(v => `<td class="num bold" style="color:var(--gold);font-size:11px">${v>0?'$'+fmt(v):'—'}</td>`).join('')}
-    <td class="num bold positive" style="font-size:11px">${varTot?'+'+varTot+'%':'—'}</td>
+    <td class="num bold ${varTot>0?'positive':(varTot<0?'negative':'')}" style="font-size:11px">${varTot!==null?(varTot>0?'+':'')+varTot+'%':'—'}</td>
   </tr>`;
+
+  if (tbody) tbody.innerHTML = bodyHtml;
+  if (tbody2) tbody2.innerHTML = bodyHtml;
 }
 
 // ============================================
@@ -4622,9 +4617,9 @@ async function loadPEEvolucion() {
       window._peData.map(p => `<option value="${p.id}">${p.nombre} (${p.titular})</option>`).join('');
   }
 
-  const tbody = document.getElementById('tbody-pe-evolucion');
-  if (!tbody) return;
-  tbody.innerHTML = '<tr><td colspan="14"><div class="loader"><div class="spinner"></div></div></td></tr>';
+  const detail = document.getElementById('pe-ev-detail');
+  if (!detail) return;
+  detail.innerHTML = '<div class="loader"><div class="spinner"></div></div>';
 
   try {
     let query = sb.from('movimientos_pe').select('*').eq('anio', anio);
@@ -4649,70 +4644,81 @@ async function loadPEEvolucion() {
     if (netoEl) { netoEl.textContent = '$' + fmt(totNeto); netoEl.style.color = totNeto>=0?'var(--esp)':'var(--usa)'; }
 
     if (!filtered.length) {
-      tbody.innerHTML = '<tr><td colspan="14" style="color:var(--text3);text-align:center;padding:20px">Sin datos</td></tr>';
+      detail.innerHTML = '<div class="card" style="color:var(--text3);text-align:center;padding:32px">Sin datos</div>';
       return;
     }
 
-    // Build rows: for each PE show 4 concept rows like ANEXO PE
+    const colName = {ARG:'var(--arg)',USA:'var(--usa)',URU:'var(--uru)',ESP:'var(--esp)',PAR:'var(--gold)',PY:'var(--gold)'};
     let html = '';
     filtered.forEach(pe => {
       const mMap = {};
       movs.filter(m => m.pe_id === pe.id).forEach(m => { mMap[m.mes] = m; });
       const hasData = Object.keys(mMap).length > 0;
+      const colStr = {ARG:'arg',USA:'usa',URU:'uru',ESP:'esp',PAR:'par',PY:'par'}[pe.pais||'']||'arg';
+      const nameCol = colName[pe.pais] || 'var(--text)';
 
-      const colPaisStr = {ARG:'arg',USA:'usa',URU:'uru',ESP:'esp',PAR:'par',PY:'par'}[pe.pais||'']||'arg';
-      const rowVal = (field, color) => MESES.map(mes => {
+      const cell = (field, color) => MESES.map(mes => {
         const v = mMap[mes]?.[field] || null;
         const c = mMap[mes]?.comentarios?.[field] || '';
         return `<td class="num ${c?'coment-tooltip has-coment':''}" style="font-size:10px;color:${v?color:'var(--border2)'};position:relative">${v?'$'+fmt(v):'—'}${c?`<span class="coment-pop">💬 ${c}</span>`:''}</td>`;
       }).join('');
+      const gastosCell = MESES.map(mes => {
+        const v = (mMap[mes]?.gastos||0)+(mMap[mes]?.impuestos||0);
+        const cg = mMap[mes]?.comentarios?.gastos||''; const ci = mMap[mes]?.comentarios?.impuestos||'';
+        const c = [cg,ci].filter(Boolean).join(' | ');
+        return `<td class="num ${c?'coment-tooltip has-coment':''}" style="font-size:10px;color:${v?'var(--usa)':'var(--border2)'};position:relative">${v?'$'+fmt(v):'—'}${c?`<span class="coment-pop">💬 ${c}</span>`:''}</td>`;
+      }).join('');
 
-      const totUtil = MESES.reduce((a,mes) => a+(mMap[mes]?.utilidad||0), 0);
-      const totAporte = MESES.reduce((a,mes) => a+(mMap[mes]?.aporte_capital||0), 0);
-      const totGastos = MESES.reduce((a,mes) => a+(mMap[mes]?.gastos||0)+(mMap[mes]?.impuestos||0), 0);
-      const totNeto = totUtil - totGastos;
+      const tUtil = MESES.reduce((a,m)=>a+(mMap[m]?.utilidad||0),0);
+      const tAporte = MESES.reduce((a,m)=>a+(mMap[m]?.aporte_capital||0),0);
+      const tGastos = MESES.reduce((a,m)=>a+(mMap[m]?.gastos||0)+(mMap[m]?.impuestos||0),0);
+      const tNeto = tUtil - tGastos;
 
-      // PE header row
-      html += `<tr class="row-${colPaisStr}" style="background:var(--bg3)">
-        <td colspan="14" style="font-size:11px;font-weight:700;color:var(--gold);padding:7px 8px;letter-spacing:0.5px">
-          ${pe.nombre} <span style="color:var(--text3);font-weight:400">(${pe.titular})</span>
-          ${!hasData?'<span style="font-size:10px;color:var(--text3);margin-left:8px">Sin movimientos cargados</span>':''}
-        </td>
-      </tr>`;
-
-      if (hasData) {
-        html += `<tr>
-          <td style="font-size:11px;color:var(--esp);padding-left:16px">💰 Utilidad</td>
-          ${rowVal('utilidad','var(--esp)')}
-          <td class="num bold positive" style="font-size:11px">$${fmt(totUtil)}</td>
-        </tr>
-        <tr>
-          <td style="font-size:11px;color:var(--gold);padding-left:16px">➕ Aporte Capital</td>
-          ${MESES.map(mes => { const v = mMap[mes]?.aporte_capital||null; const c = mMap[mes]?.comentarios?.aporte_capital||''; return `<td class="num ${c?'coment-tooltip has-coment':''}" style="font-size:10px;color:${v?'var(--gold)':'var(--border2)'};position:relative">${v?'$'+fmt(v):'—'}${c?`<span class="coment-pop">💬 ${c}</span>`:''}</td>`; }).join('')}
-          <td class="num bold" style="font-size:11px;color:var(--gold)">$${fmt(totAporte)}</td>
-        </tr>
-        <tr>
-          <td style="font-size:11px;color:var(--usa);padding-left:16px">🔴 Gastos + Imp.</td>
-          ${MESES.map(mes => { const v = (mMap[mes]?.gastos||0)+(mMap[mes]?.impuestos||0); const cg = mMap[mes]?.comentarios?.gastos||''; const ci = mMap[mes]?.comentarios?.impuestos||''; const c = [cg,ci].filter(Boolean).join(' | '); return `<td class="num ${c?'coment-tooltip has-coment':''}" style="font-size:10px;color:${v?'var(--usa)':'var(--border2)'};position:relative">${v?'$'+fmt(v):'—'}${c?`<span class="coment-pop">💬 ${c}</span>`:''}</td>`; }).join('')}
-          <td class="num bold negative" style="font-size:11px">$${fmt(totGastos)}</td>
-        </tr>
-        <tr style="border-top:1px solid var(--border)">
-          <td style="font-size:11px;font-weight:600;padding-left:16px">TOTAL</td>
-          ${MESES.map(mes => {
-            const v = (mMap[mes]?.utilidad||0) - (mMap[mes]?.gastos||0) - (mMap[mes]?.impuestos||0);
-            const hasM = mMap[mes];
-            return `<td class="num" style="font-size:11px;font-weight:600;color:${!hasM?'var(--border2)':v>=0?'var(--esp)':'var(--usa)'}">${!hasM?'—':'$'+fmt(v)}</td>`;
-          }).join('')}
-          <td class="num bold" style="color:${totNeto>=0?'var(--esp)':'var(--usa)'}">$${fmt(totNeto)}</td>
-        </tr>`;
-      }
+      html += `<div class="card" style="margin-bottom:14px;border-left:3px solid var(--${colStr})">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+          <span class="bold" style="color:${nameCol};font-size:14px">${pe.nombre}</span>
+          <span class="badge badge-${colStr}">${pe.pais||'—'}</span>
+          <span style="color:var(--text3);font-size:12px">${pe.titular}</span>
+          ${!hasData?'<span style="font-size:10px;color:var(--text3);margin-left:4px">(sin movimientos cargados)</span>':''}
+        </div>
+        <div class="table-wrap"><table style="font-size:11px">
+          <thead><tr><th style="min-width:120px">Concepto</th>${MESES.map(m=>`<th class="num">${MESES_N[m-1]}</th>`).join('')}<th class="num">Total</th></tr></thead>
+          <tbody>
+            <tr><td style="color:var(--esp)">💰 Utilidad</td>${cell('utilidad','var(--esp)')}<td class="num bold positive">${tUtil?'$'+fmt(tUtil):'—'}</td></tr>
+            <tr><td style="color:var(--gold)">➕ Aporte Capital</td>${cell('aporte_capital','var(--gold)')}<td class="num bold" style="color:var(--gold)">${tAporte?'$'+fmt(tAporte):'—'}</td></tr>
+            <tr><td style="color:var(--usa)">🔴 Gastos + Imp.</td>${gastosCell}<td class="num bold negative">${tGastos?'$'+fmt(tGastos):'—'}</td></tr>
+            <tr style="border-top:1px solid var(--border2)">
+              <td class="bold">TOTAL</td>
+              ${MESES.map(mes=>{const hasM=mMap[mes];const v=(mMap[mes]?.utilidad||0)-(mMap[mes]?.gastos||0)-(mMap[mes]?.impuestos||0);return `<td class="num bold" style="font-size:10px;color:${!hasM?'var(--border2)':v>=0?'var(--esp)':'var(--usa)'}">${!hasM?'—':'$'+fmt(v)}</td>`;}).join('')}
+              <td class="num bold" style="color:${tNeto>=0?'var(--esp)':'var(--usa)'}">$${fmt(tNeto)}</td>
+            </tr>
+          </tbody>
+        </table></div>
+      </div>`;
     });
 
-    tbody.innerHTML = html;
+    detail.innerHTML = html;
   } catch(e) {
-    tbody.innerHTML = `<tr><td colspan="14" style="color:var(--text3);text-align:center;padding:20px">Corré el SQL de movimientos_pe primero</td></tr>`;
+    detail.innerHTML = `<div class="card" style="color:var(--text3);text-align:center;padding:32px">Corré el SQL de movimientos_pe primero</div>`;
     console.warn('loadPEEvolucion:', e.message);
   }
+}
+
+async function loadMovPE() {
+  const peId = document.getElementById('pe-mens-sel')?.value;
+  if (!peId) return;
+  const anio = parseInt(document.getElementById('pe-mens-anio')?.value);
+  const mes = parseInt(document.getElementById('pe-mens-mes')?.value);
+  const { data } = await sb.from('movimientos_pe')
+    .select('*').eq('pe_id', peId).eq('anio', anio).eq('mes', mes).maybeSingle();
+  document.getElementById('pe-mens-utilidad').value = data?.utilidad || 0;
+  document.getElementById('pe-mens-aporte').value = data?.aporte_capital || 0;
+  document.getElementById('pe-mens-gastos').value = data?.gastos || 0;
+  document.getElementById('pe-mens-impuestos').value = data?.impuestos || 0;
+  document.getElementById('pe-mens-notas').value = data?.notas || '';
+  // Precargar comentarios (clase pe-coment, por data-field)
+  const com = data?.comentarios || {};
+  document.querySelectorAll('.pe-coment').forEach(inp => { inp.value = com[inp.dataset.field] || ''; });
 }
 
 async function guardarMovPE() {
@@ -5237,8 +5243,8 @@ async function loadRanking() {
     movByProp[m.propiedad_id].neto      += m.neto_usd || 0;
   });
 
-  // Enrich props with movimientos
-  rankData = (props || []).map(p => ({
+  // Enrich props with movimientos — solo propiedades de renta (tipo R)
+  rankData = (props || []).filter(p => p.tipo === 'R').map(p => ({
     ...p,
     _renta:     movByProp[p.id]?.renta || 0,
     _gastos:    movByProp[p.id]?.gastos || 0,
@@ -5489,7 +5495,7 @@ function renderPE() {
       <td class="num">$${fmt(r.valor_2025)}</td>
       <td class="num">$${fmt(r.valor_2026)}</td>
       <td class="num ${var2526 >= 0 ? 'positive':'negative'}">${var2526.toFixed(1)}%</td>
-      <td><button class="btn-secondary" style="padding:3px 8px;font-size:11px" onclick="editPE('${r.id}','${r.nombre}',${r.valor_2026||0},${r.distribucion||0})">Editar</button></td>
+      <td><button class="btn-secondary" style="padding:3px 8px;font-size:11px" onclick="editPE('${r.id}')">Editar</button></td>
     </tr>`;
   }).join('');
   
@@ -5508,13 +5514,24 @@ function renderPE() {
   </tr>`;
 }
 
-function editPE(id, nombre, valor, dist) {
+function editPE(id) {
   document.getElementById('pe-sel').value = id;
-  document.getElementById('pe-valor').value = valor;
-  document.getElementById('pe-dist').value = dist;
+  loadPEAnual();
   switchTab('pe','carga');
   document.querySelectorAll('#page-private_equity .tab-btn')[1].classList.add('active');
   document.querySelectorAll('#page-private_equity .tab-btn')[0].classList.remove('active');
+}
+
+function loadPEAnual() {
+  const id = document.getElementById('pe-sel').value;
+  const pe = (window._peData||[]).find(p => p.id === id);
+  if (!pe) return;
+  document.getElementById('pe-valor').value = pe.valor_2026 || 0;
+  document.getElementById('pe-dist').value = pe.distribucion || 0;
+  document.getElementById('pe-notas').value = pe.notas || '';
+  document.getElementById('pe-titular').value = pe.titular || 'JC';
+  document.getElementById('pe-pais').value = pe.pais || 'USA';
+  document.getElementById('pe-share').value = pe.share ? (pe.share*100) : 0;
 }
 
 async function guardarPE() {
@@ -5523,7 +5540,11 @@ async function guardarPE() {
   const valor = parseFloat(document.getElementById('pe-valor').value)||0;
   const dist = parseFloat(document.getElementById('pe-dist').value)||0;
   const notas = document.getElementById('pe-notas').value;
-  const { error } = await sb.from('private_equity').update({ valor_2026: valor, distribucion: dist, notas }).eq('id', id);
+  const titular = document.getElementById('pe-titular').value;
+  const pais = document.getElementById('pe-pais').value;
+  const share = (parseFloat(document.getElementById('pe-share').value)||0) / 100;
+  const { error } = await sb.from('private_equity')
+    .update({ valor_2026: valor, distribucion: dist, notas, titular, pais, share }).eq('id', id);
   if (error) return toast('Error: ' + error.message, 'error');
   toast('Private Equity actualizado ✓', 'success');
   await loadPE();
@@ -7743,12 +7764,8 @@ async function loadTarjetas() {
     sb.from('movimientos_tarjetas').select('*').eq('anio', anio),
   ]);
 
-  // Poblar el select de carga
-  const sel = document.getElementById('tar-carga-sel');
-  if (sel && sel.options.length <= 1) {
-    sel.innerHTML = '<option value="">Seleccionar...</option>' +
-      (tarjetas||[]).map(t => `<option value="${t.id}">${t.tarjeta} — ${t.cliente}</option>`).join('');
-  }
+  // Poblar el select de tarjetas (cards) en la carga
+  poblarTarjetaCards(tarjetas);
 
   if (!res) return;
 
@@ -7827,46 +7844,79 @@ async function loadTarjetas() {
   res.innerHTML = html;
 }
 
-async function loadTarjetaMov() {
-  const tid = document.getElementById('tar-carga-sel').value;
-  if (!tid) return;
-  const anio = parseInt(document.getElementById('tar-carga-anio').value);
-  const mes = parseInt(document.getElementById('tar-carga-mes').value);
-  const { data } = await sb.from('movimientos_tarjetas')
-    .select('*').eq('tarjeta_id', tid).eq('anio', anio).eq('mes', mes).maybeSingle();
-  document.getElementById('tar-monto-usd').value = data?.monto_usd || 0;
-  document.getElementById('tar-monto-ars').value = data?.monto_ars || 0;
-  document.getElementById('tar-notas').value = data?.notas || '';
-  setComentariosGen('mt', data?.comentarios);
-  tarPreview();
+// Poblar el select de tarjetas (cards distintas) — llamado desde loadTarjetas
+function poblarTarjetaCards(tarjetas) {
+  const sel = document.getElementById('tar-carga-card');
+  if (!sel || sel.options.length > 1) return;
+  const cards = [...new Set((tarjetas||[]).map(t => t.tarjeta))];
+  sel.innerHTML = '<option value="">Seleccionar...</option>' + cards.map(c => `<option value="${c}">${c}</option>`).join('');
 }
 
-function tarPreview() {
-  const usd = parseFloat(document.getElementById('tar-monto-usd').value)||0;
-  const ars = parseFloat(document.getElementById('tar-monto-ars').value)||0;
-  const mes = parseInt(document.getElementById('tar-carga-mes').value)||1;
-  const tc = (tcCache && tcCache.ars_usd) ? tcCache.ars_usd : 1220;
-  const total = usd + ars/tc;
-  document.getElementById('tar-carga-preview').innerHTML = `Total USD: $${fmt(total)} <span style="opacity:.7">(U$S ${fmt(usd)} + $${fmt(ars)} ÷ ${fmt(tc)})</span>`;
-}
-
-async function guardarMovTarjeta() {
-  const tarjeta_id = document.getElementById('tar-carga-sel').value;
-  if (!tarjeta_id) return toast('Seleccioná una tarjeta', 'error');
+async function loadTarjetaCard() {
+  const card = document.getElementById('tar-carga-card').value;
+  const cont = document.getElementById('tar-carga-clientes');
+  const guardarBtn = document.getElementById('tar-carga-guardar');
+  if (!card) { cont.innerHTML = 'Seleccioná una tarjeta para cargar todos sus clientes.'; guardarBtn.style.display='none'; return; }
   const anio = parseInt(document.getElementById('tar-carga-anio').value);
   const mes = parseInt(document.getElementById('tar-carga-mes').value);
-  const monto_usd = parseFloat(document.getElementById('tar-monto-usd').value)||0;
-  const monto_ars = parseFloat(document.getElementById('tar-monto-ars').value)||0;
+
+  const { data: tarjetas } = await sb.from('tarjetas').select('*').eq('tarjeta', card).eq('activo', true).order('cliente');
+  const ids = (tarjetas||[]).map(t => t.id);
+  const { data: movs } = await sb.from('movimientos_tarjetas').select('*').in('tarjeta_id', ids).eq('anio', anio).eq('mes', mes);
+  const movMap = {};
+  (movs||[]).forEach(m => { movMap[m.tarjeta_id] = m; });
+
   const tc = (tcCache && tcCache.ars_usd) ? tcCache.ars_usd : 1220;
-  const total_usd = monto_usd + monto_ars/tc;
-  const { error } = await sb.from('movimientos_tarjetas').upsert({
-    tarjeta_id, anio, mes, monto_usd, monto_ars, total_usd,
-    notas: document.getElementById('tar-notas').value,
-    comentarios: getComentariosGen('mt'),
-    created_by: currentUser?.id,
-  }, { onConflict: 'tarjeta_id,anio,mes' });
+
+  let html = `<div class="table-wrap"><table style="font-size:12px">
+    <thead><tr><th>Cliente</th><th class="num">Monto U$S</th><th class="num">Monto $ (pesos)</th><th class="num">Total USD</th><th>💬 Comentario</th></tr></thead>
+    <tbody>`;
+  (tarjetas||[]).forEach(t => {
+    const m = movMap[t.id] || {};
+    const com = (m.comentarios && m.comentarios.monto) || '';
+    html += `<tr data-tid="${t.id}">
+      <td class="bold">${t.cliente}</td>
+      <td><input class="fld tar-usd" type="number" value="${m.monto_usd||0}" style="width:110px;padding:5px 7px" oninput="tarRowTotal(this)"></td>
+      <td><input class="fld tar-ars" type="number" value="${m.monto_ars||0}" style="width:120px;padding:5px 7px" oninput="tarRowTotal(this)"></td>
+      <td class="num bold tar-rowtot" style="color:var(--gold)">$${fmt((m.monto_usd||0)+(m.monto_ars||0)/tc)}</td>
+      <td><input class="fld tar-com" type="text" value="${com.replace(/"/g,'&quot;')}" placeholder="(opcional)" style="width:160px;padding:5px 7px"></td>
+    </tr>`;
+  });
+  html += `</tbody></table></div>
+    <p style="color:var(--text3);font-size:11px;margin-top:8px">Los pesos se convierten con el TC ${fmt(tc)}. El comentario aparece como esquina dorada en Información.</p>`;
+  cont.innerHTML = html;
+  guardarBtn.style.display = 'block';
+}
+
+function tarRowTotal(inp) {
+  const tr = inp.closest('tr');
+  const usd = parseFloat(tr.querySelector('.tar-usd').value)||0;
+  const ars = parseFloat(tr.querySelector('.tar-ars').value)||0;
+  const tc = (tcCache && tcCache.ars_usd) ? tcCache.ars_usd : 1220;
+  tr.querySelector('.tar-rowtot').textContent = '$' + fmt(usd + ars/tc);
+}
+
+async function guardarTarjetaCard() {
+  const anio = parseInt(document.getElementById('tar-carga-anio').value);
+  const mes = parseInt(document.getElementById('tar-carga-mes').value);
+  const tc = (tcCache && tcCache.ars_usd) ? tcCache.ars_usd : 1220;
+  const rows = document.querySelectorAll('#tar-carga-clientes tr[data-tid]');
+  const payload = [];
+  rows.forEach(tr => {
+    const tid = tr.dataset.tid;
+    const usd = parseFloat(tr.querySelector('.tar-usd').value)||0;
+    const ars = parseFloat(tr.querySelector('.tar-ars').value)||0;
+    const com = tr.querySelector('.tar-com').value || '';
+    payload.push({
+      tarjeta_id: tid, anio, mes,
+      monto_usd: usd, monto_ars: ars, total_usd: usd + ars/tc,
+      comentarios: com ? { monto: com } : {},
+      created_by: currentUser?.id,
+    });
+  });
+  const { error } = await sb.from('movimientos_tarjetas').upsert(payload, { onConflict: 'tarjeta_id,anio,mes' });
   if (error) return toast('Error: ' + error.message, 'error');
-  toast('Tarjeta actualizada ✓', 'success');
+  toast('Tarjetas actualizadas ✓', 'success');
   await loadTarjetas();
 }
 
@@ -8066,7 +8116,7 @@ checkSession();
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260602-004';
+const APP_VERSION = '20260602-005';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
