@@ -3325,7 +3325,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
           </div>
         </div>
         <div class="card" style="margin-top:16px">
-          <div class="section-title" style="font-size:14px">Actualizar TC <span style="font-size:10px;color:var(--gold);font-weight:400">· editor v10</span></div>
+          <div class="section-title" style="font-size:14px">Actualizar TC <span style="font-size:10px;color:var(--gold);font-weight:400">· editor v11</span></div>
           <div class="form-row cols-2">
             <div>
               <label class="fld">Año</label>
@@ -4009,26 +4009,17 @@ async function guardarTC() {
     eur_usd: !isNaN(eur) ? eur : (fb.eur_usd ?? 0.92),
   };
 
-  let error, saved;
-  if (existing) {
-    const r = await sb.from('tipo_de_cambio').update(vals).eq('anio', anio).eq('mes', mes).select();
-    error = r.error; saved = r.data;
+  // Guardado vía función SECURITY DEFINER (saltea RLS, siempre persiste)
+  const { data: rpcRow, error } = await sb.rpc('set_tipo_cambio', {
+    p_anio: anio, p_mes: mes,
+    p_ars: vals.ars_usd, p_uyu: vals.uyu_usd, p_eur: vals.eur_usd
+  });
+  if (error) return toast('Error: ' + error.message + ' (¿corriste fix_tc_rpc.sql?)', 'error');
+  const real = rpcRow ? parseFloat(rpcRow.ars_usd) : null;
+  if (real != null && Math.abs(real - vals.ars_usd) < 0.001) {
+    toast(`Guardado ✓ — ARS en base: ${real.toLocaleString('es-AR')}`, 'success');
   } else {
-    const r = await sb.from('tipo_de_cambio').insert({ anio, mes, ...vals }).select();
-    error = r.error; saved = r.data;
-  }
-  if (error) return toast('Error: ' + error.message, 'error');
-  if (!saved || saved.length === 0) {
-    return toast('No se guardó (la base no permite escribir — corré fix_tc_rls.sql)', 'error');
-  }
-  // Verificación: releer de la base lo que realmente quedó
-  const { data: check } = await sb.from('tipo_de_cambio')
-    .select('ars_usd').eq('anio', anio).eq('mes', mes).maybeSingle();
-  const real = check?.ars_usd;
-  if (real != null && Math.abs(parseFloat(real) - vals.ars_usd) < 0.001) {
-    toast(`Guardado ✓ — ARS en base: ${parseFloat(real).toLocaleString('es-AR')}`, 'success');
-  } else {
-    toast(`Atención: guardé ${vals.ars_usd} pero en base figura ${real}. No persistió.`, 'error');
+    toast('No se guardó. Corré fix_tc_rpc.sql en Supabase.', 'error');
   }
   try { await loadTC(); } catch(e) { console.warn('loadTC:', e.message); }
   try { await loadTC_tabla(); } catch(e) { console.warn('loadTC_tabla:', e.message); }
@@ -8212,7 +8203,7 @@ function toggleTheme() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260603-002';
+const APP_VERSION = '20260603-003';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
