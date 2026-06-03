@@ -4,7 +4,7 @@
 // forzar actualización en todos los dispositivos
 // ============================================
 
-const CACHE_VERSION = '20260603-003'; // <-- actualizar en cada deploy
+const CACHE_VERSION = '20260603-004'; // <-- actualizar en cada deploy
 const CACHE_NAME = 'fo-cache-' + CACHE_VERSION;
 
 const PRECACHE = [
@@ -12,62 +12,66 @@ const PRECACHE = [
   '/Family-Office/index.html',
 ];
 
-// Install: cache recursos base
 self.addEventListener('install', e => {
-  self.skipWaiting(); // Activarse inmediatamente sin esperar
+  self.skipWaiting();
   e.waitUntil(
-    caches.open(CACHE_NAME).then(cache => cache.addAll(PRECACHE))
+    caches.open(CACHE_NAME).then(cache => cache.addAll(PRECACHE).catch(() => {}))
   );
 });
 
-// Activate: eliminar cachés viejos
 self.addEventListener('activate', e => {
   e.waitUntil(
     caches.keys().then(keys =>
       Promise.all(
-        keys
-          .filter(k => k.startsWith('fo-cache-') && k !== CACHE_NAME)
-          .map(k => caches.delete(k))
+        keys.filter(k => k.startsWith('fo-cache-') && k !== CACHE_NAME)
+            .map(k => caches.delete(k))
       )
-    ).then(() => self.clients.claim()) // Tomar control de todas las tabs abiertas
+    ).then(() => self.clients.claim())
   );
 });
 
-// Fetch: network-first para el HTML (siempre versión fresca),
-// cache-first para CDN (supabase, chart.js, fonts)
 self.addEventListener('fetch', e => {
-  const url = new URL(e.request.url);
+  const req = e.request;
+  let url;
+  try { url = new URL(req.url); } catch (err) { return; }
 
-  // Para el HTML principal: siempre intentar red primero
-  if (url.pathname === '/Family-Office/' || url.pathname === '/Family-Office/index.html') {
+  // 1) NUNCA interceptar escrituras ni llamadas a la API (Supabase u otras).
+  //    Van directo a la red, sin caché. Esto evita servir datos viejos.
+  if (req.method !== 'GET' || url.hostname.endsWith('supabase.co')) {
+    return;
+  }
+
+  // 2) HTML principal: network-first
+  if (url.origin === location.origin &&
+      (url.pathname.endsWith('/') || url.pathname.endsWith('index.html'))) {
     e.respondWith(
-      fetch(e.request).then(res => {
-        // Guardamos la versión fresca en caché
-        const resClone = res.clone();
-        caches.open(CACHE_NAME).then(cache => cache.put(e.request, resClone));
+      fetch(req).then(res => {
+        const clone = res.clone();
+        caches.open(CACHE_NAME).then(cache => cache.put(req, clone));
         return res;
-      }).catch(() => caches.match(e.request)) // Fallback a caché si no hay red
+      }).catch(() => caches.match(req))
     );
     return;
   }
 
-  // Para CDN externos: cache-first (no cambian)
-  if (url.origin !== location.origin) {
+  // 3) Librerías estáticas de CDN: cache-first
+  if (url.hostname.includes('jsdelivr') || url.hostname.includes('cdnjs') ||
+      url.hostname.includes('cloudflare') || url.hostname.includes('unpkg')) {
     e.respondWith(
-      caches.match(e.request).then(cached => {
-        if (cached) return cached;
-        return fetch(e.request).then(res => {
-          const resClone = res.clone();
-          caches.open(CACHE_NAME).then(cache => cache.put(e.request, resClone));
-          return res;
-        });
-      })
+      caches.match(req).then(cached => cached || fetch(req).then(res => {
+        const clone = res.clone();
+        caches.open(CACHE_NAME).then(cache => cache.put(req, clone));
+        return res;
+      }))
     );
     return;
   }
 
-  // Default: network-first
-  e.respondWith(
-    fetch(e.request).catch(() => caches.match(e.request))
-  );
+  // 4) Resto same-origin: network-first
+  if (url.origin === location.origin) {
+    e.respondWith(fetch(req).catch(() => caches.match(req)));
+    return;
+  }
+
+  // 5) Cualquier otra cosa: red directa
 });
