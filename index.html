@@ -4006,13 +4006,18 @@ async function guardarTC() {
     eur_usd: !isNaN(eur) ? eur : (fb.eur_usd ?? 0.92),
   };
 
-  let error;
+  let error, saved;
   if (existing) {
-    ({ error } = await sb.from('tipo_de_cambio').update(vals).eq('anio', anio).eq('mes', mes));
+    const r = await sb.from('tipo_de_cambio').update(vals).eq('anio', anio).eq('mes', mes).select();
+    error = r.error; saved = r.data;
   } else {
-    ({ error } = await sb.from('tipo_de_cambio').insert({ anio, mes, ...vals }));
+    const r = await sb.from('tipo_de_cambio').insert({ anio, mes, ...vals }).select();
+    error = r.error; saved = r.data;
   }
   if (error) return toast('Error: ' + error.message, 'error');
+  if (!saved || saved.length === 0) {
+    return toast('No se guardó (la base no permite escribir en tipo_de_cambio — falta correr fix_tc_rls.sql)', 'error');
+  }
   toast('Tipo de cambio actualizado ✓', 'success');
   await loadTC();
   await loadTC_tabla();
@@ -8196,7 +8201,7 @@ function toggleTheme() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260602-008';
+const APP_VERSION = '20260602-009';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
