@@ -2079,6 +2079,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
         <div class="tabs">
           <button class="tab-btn active" onclick="switchTab('gasto','tabla',this)">Vista Tabla</button>
           <button class="tab-btn" onclick="switchTab('gasto','anual2',this)">Vista Global</button>
+          <button class="tab-btn" onclick="switchTab('gasto','comparativo',this);loadComparativoAnual()">📊 Comparativo Anual</button>
           <button class="tab-btn" onclick="switchTab('gasto','detalle',this);loadDetalle()">📋 Detalle</button>
           <button class="tab-btn" onclick="switchTab('gasto','carga',this)">✏️ Carga</button>
         </div>
@@ -2252,6 +2253,18 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
             </div>
           </div>
           <div id="gastos-anual2-result"></div>
+        </div>
+
+        <div id="gasto-comparativo" class="tab-content">
+          <div class="section-title" style="margin-bottom:4px">Comparativo Anual por Propiedad</div>
+          <p style="color:var(--text3);font-size:12px;margin-bottom:14px">Renta, gastos, impuestos y neto (USD) de cada propiedad, año contra año.</p>
+          <div class="filters" style="margin-bottom:14px">
+            <button class="filter-btn active" onclick="setCompMetrica('neto_usd',this)">Neto</button>
+            <button class="filter-btn" onclick="setCompMetrica('renta_usd',this)">Renta</button>
+            <button class="filter-btn" onclick="setCompMetrica('gastos_usd',this)">Gastos</button>
+            <button class="filter-btn" onclick="setCompMetrica('impuestos_usd',this)">Impuestos</button>
+          </div>
+          <div id="gastos-comparativo-result"><div class="loader"><div class="spinner"></div></div></div>
         </div>
 
         <div id="gasto-carga" class="tab-content">
@@ -6807,6 +6820,66 @@ async function filtrarAnual2() {
 }
 
 // ============================================
+// COMPARATIVO ANUAL POR PROPIEDAD
+// ============================================
+let compMetrica = 'neto_usd';
+let _compData = null;
+
+function setCompMetrica(metrica, btn) {
+  compMetrica = metrica;
+  document.querySelectorAll('#gasto-comparativo .filter-btn').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  renderComparativoAnual();
+}
+
+async function loadComparativoAnual() {
+  const res = document.getElementById('gastos-comparativo-result');
+  if (res) res.innerHTML = '<div class="loader"><div class="spinner"></div></div>';
+  const { data, error } = await sb.from('resumen_anual_prop').select('*');
+  if (error) { if(res) res.innerHTML = `<div class="card" style="color:var(--text3);text-align:center;padding:32px">Corré resumen_anual_prop.sql primero</div>`; return; }
+  _compData = data || [];
+  renderComparativoAnual();
+}
+
+function renderComparativoAnual() {
+  const res = document.getElementById('gastos-comparativo-result');
+  if (!res || !_compData) return;
+  if (!_compData.length) { res.innerHTML = '<div class="card" style="color:var(--text3);text-align:center;padding:32px">Sin datos</div>'; return; }
+  const colPais = {ARG:'arg',USA:'usa',URU:'uru',UY:'uru',ESP:'esp',PAR:'par',PY:'par'};
+  const anios = [...new Set(_compData.map(r=>r.anio))].sort();
+  // Agrupar por propiedad (nro)
+  const byProp = {};
+  _compData.forEach(r => {
+    if (!byProp[r.nro]) byProp[r.nro] = { nro:r.nro, nombre:r.nombre, pais:r.pais, titular:r.titular, vals:{} };
+    byProp[r.nro].vals[r.anio] = r[compMetrica] || 0;
+    // mantener el nombre más reciente
+    if (r.anio === anios[anios.length-1] && r.nombre) byProp[r.nro].nombre = r.nombre;
+  });
+  const props = Object.values(byProp).sort((a,b)=>a.nro-b.nro);
+  const esNeto = compMetrica === 'neto_usd';
+  const label = {neto_usd:'Neto',renta_usd:'Renta',gastos_usd:'Gastos',impuestos_usd:'Impuestos'}[compMetrica];
+
+  let html = `<div class="card"><div class="table-wrap"><table style="font-size:11px">
+    <thead><tr><th>#</th><th>Propiedad</th><th>Tit.</th>${anios.map(a=>`<th class="num">${a}</th>`).join('')}</tr></thead>
+    <tbody>`;
+  const totByYear = {}; anios.forEach(a=>totByYear[a]=0);
+  props.forEach(p => {
+    html += `<tr class="row-${colPais[p.pais]||'arg'}">
+      <td style="color:var(--text3);font-size:10px">${p.nro}</td>
+      <td style="font-weight:500">${p.nombre}</td>
+      <td style="color:var(--text3);font-size:10px">${p.titular}</td>
+      ${anios.map(a=>{const v=p.vals[a]; if(v!==undefined)totByYear[a]+=v; const cls=esNeto?(v>=0?'positive':'negative'):''; return `<td class="num ${cls}" style="font-size:10px">${v!==undefined&&v!==0?'$'+fmt(v):'—'}</td>`;}).join('')}
+    </tr>`;
+  });
+  html += `<tr style="background:var(--bg3);border-top:2px solid var(--border2)">
+    <td colspan="3" class="bold" style="color:var(--gold)">TOTAL ${label}</td>
+    ${anios.map(a=>`<td class="num bold" style="color:var(--gold)">$${fmt(totByYear[a])}</td>`).join('')}
+  </tr>`;
+  html += `</tbody></table></div></div>`;
+  res.innerHTML = html;
+}
+
+// ============================================
 // VISTA TABLA - todas las propiedades, filas=conceptos, cols=meses
 // ============================================
 async function verGastosTabla() {
@@ -8265,7 +8338,7 @@ function toggleTheme() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260603-006';
+const APP_VERSION = '20260603-007';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
