@@ -6708,14 +6708,19 @@ async function guardarMovProp2() {
     if (val) base['mp_'+dbField] = val;
   });
 
-  // Recalculate totals from merged base
-  base.total_renta_usd=toUSD((base.renta||0)+(base.otro_ingreso||0), monedaRenta);
-  base.total_gastos_usd=toUSD([base.gas,base.luz,base.cable,base.telefono,base.expensas,
-    base.jardinero,base.limpieza,base.mantenimiento,base.deposito,base.comision,
-    base.seguros,base.administracion,base.otros_gastos].reduce((a,b)=>a+(b||0),0), monedaGastos);
-  base.total_impuestos_usd=toUSD([base.arba_abl,base.municipalidad_tigre,base.property_tax,
-    base.tributo_domiciliario,base.impuesto_primarias,base.contribucion_inmobiliaria,
-    base.saneamiento,base.ascensor,base.otros_impuestos].reduce((a,b)=>a+(b||0),0), monedaImp);
+  // Recalculate totals — CADA CONCEPTO con su propia moneda
+  // (USD se suma directo; pesos/UYU/EUR se dividen por el TC del mes)
+  const cvField = (val, field, sectionMoneda) => {
+    const m = getMn('mn-' + field) || base['moneda_' + field] || sectionMoneda || 'USD';
+    return convUSD(val || 0, m, anio, mes);
+  };
+  base.total_renta_usd = cvField(base.renta,'renta',monedaRenta) + cvField(base.otro_ingreso,'otro_ingreso',monedaRenta);
+  base.total_gastos_usd = ['gas','luz','cable','telefono','expensas','jardinero','limpieza',
+    'mantenimiento','deposito','comision','seguros','administracion','otros_gastos']
+    .reduce((a,f) => a + cvField(base[f],f,monedaGastos), 0);
+  base.total_impuestos_usd = ['arba_abl','municipalidad_tigre','property_tax','tributo_domiciliario',
+    'impuesto_primarias','contribucion_inmobiliaria','saneamiento','ascensor','otros_impuestos']
+    .reduce((a,f) => a + cvField(base[f],f,monedaImp), 0);
   base.neto_usd=base.total_renta_usd-base.total_gastos_usd-base.total_impuestos_usd;
 
   const { error } = await sb.from('movimientos_propiedades')
@@ -8338,7 +8343,7 @@ function toggleTheme() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260603-007';
+const APP_VERSION = '20260603-008';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
