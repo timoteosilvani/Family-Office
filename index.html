@@ -4137,7 +4137,7 @@ function makeLegend(containerId, labels, colors, values, total) {
 async function loadDashboard() {
   const [{ data: props }, { data: bancosMovsRaw }, { data: pe }, { data: autos }, { data: bancosCat }] = await Promise.all([
     sb.from('propiedades').select('pais, valor_2026, titular, tipo').eq('activa', true).eq('vendida', false),
-    sb.from('movimientos_bancos').select('neto_usd, banco_id').eq('anio', 2026).eq('mes', 4),
+    sb.from('movimientos_bancos').select('neto_usd, banco_id').eq('anio', 2026).eq('mes', MES_REF_BANCOS),
     sb.from('private_equity').select('titular, pais, valor_2026').eq('activo', true),
     sb.from('autos').select('titular, pais, valor_2026').eq('activo', true),
     sb.from('bancos').select('id, pais'),
@@ -5450,7 +5450,7 @@ let bancosData = [], bancosMovData = [];
 async function loadBancos() {
   const [{ data: bancos }, { data: movs }] = await Promise.all([
     sb.from('bancos').select('*').eq('activo', true).order('nro'),
-    sb.from('movimientos_bancos').select('*').eq('anio', 2026).eq('mes', 4),
+    sb.from('movimientos_bancos').select('*').eq('anio', 2026).eq('mes', MES_REF_BANCOS),
   ]);
   bancosData = bancos || [];
   bancosMovData = movs || [];
@@ -5977,7 +5977,7 @@ async function recalcPatrimonioActual() {
   try {
     const [{ data: props }, { data: bancosMovs }, { data: pe }, { data: autos }, { data: bancos }] = await Promise.all([
       sb.from('propiedades').select('titular, valor_2026').eq('activa', true).eq('vendida', false),
-      sb.from('movimientos_bancos').select('neto_usd, banco_id').eq('anio', 2026).eq('mes', 4),
+      sb.from('movimientos_bancos').select('neto_usd, banco_id').eq('anio', 2026).eq('mes', MES_REF_BANCOS),
       sb.from('private_equity').select('titular, valor_2026').eq('activo', true),
       sb.from('autos').select('titular, valor_2026').eq('activo', true),
       sb.from('bancos').select('id, titular, pais'),
@@ -8343,7 +8343,10 @@ function toggleTheme() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260603-008';
+const APP_VERSION = '20260605-009';
+// Mes de referencia para el snapshot "actual" de Bancos en Dashboard/Patrimonio.
+// = ultimo mes real cargado (Jun=6). Coincide con el snapshot del COMPLETO.
+const MES_REF_BANCOS = 6;
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
