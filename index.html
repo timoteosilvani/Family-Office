@@ -7747,75 +7747,85 @@ async function loadBancosEvolucion() {
   }
 
   // ===== CUADRO CONSOLIDADO (depende SOLO de Evolucion) =====
-  const cons = {}; // mes -> {inv,cash,sub,cred,neto}
-  MM.forEach(m => cons[m] = {inv:0,cash:0,sub:0,cred:0,neto:0});
+  const cons = {}; MM.forEach(m => cons[m] = {inv:0,cash:0,sub:0,cred:0,neto:0});
   active.forEach(b => {
     const mv = movMap[b.id] || {};
-    MM.forEach(m => {
-      if (!mv[m]) return;
-      const u = bancoMovUSD(mv[m]);
-      cons[m].inv += u.inv; cons[m].cash += u.cash; cons[m].sub += u.sub; cons[m].cred += u.cred; cons[m].neto += u.neto;
-    });
+    MM.forEach(m => { if (!mv[m]) return; const u = bancoMovUSD(mv[m]);
+      cons[m].inv+=u.inv; cons[m].cash+=u.cash; cons[m].sub+=u.sub; cons[m].cred+=u.cred; cons[m].neto+=u.neto; });
   });
-  const cell = v => `<td class="num" style="font-size:11px">${v ? '$'+fmt(v) : '—'}</td>`;
-  let consHtml = `<div class="card" style="margin-bottom:16px;border:1px solid var(--gold)">
+  const cC = (v,cls) => `<td class="num ${cls||''}" style="font-size:11px">${v?'$'+fmt(v):'—'}</td>`;
+  let html = `<div class="card" style="margin-bottom:16px;border:1px solid var(--gold)">
     <div class="bold" style="color:var(--gold);margin-bottom:8px">Consolidado mensual — Evolución (suma de todos los bancos)</div>
-    <p style="color:var(--text3);font-size:11px;margin-bottom:10px">Este cuadro depende solo de Evolución. El Neto debe coincidir, en el último mes cargado, con el TOTAL de la pestaña Información.</p>
+    <p style="color:var(--text3);font-size:11px;margin-bottom:10px">Depende solo de Evolución. El NETO, en el último mes cargado, debe coincidir con el TOTAL de Información.</p>
     <div class="table-wrap"><table style="font-size:11px"><thead><tr><th>Concepto</th>${MM.map(m=>`<th class="num">${meses[m]}</th>`).join('')}</tr></thead><tbody>
-      <tr><td>Inv. Account</td>${MM.map(m=>cell(cons[m].inv)).join('')}</tr>
-      <tr><td>Cash</td>${MM.map(m=>cell(cons[m].cash)).join('')}</tr>
-      <tr><td style="color:var(--text2)">Subtotal (Inv+Cash)</td>${MM.map(m=>cell(cons[m].sub)).join('')}</tr>
-      <tr><td class="negative">Crédito</td>${MM.map(m=>`<td class="num negative" style="font-size:11px">${cons[m].cred?'$'+fmt(cons[m].cred):'—'}</td>`).join('')}</tr>
+      <tr><td>Inv. Account</td>${MM.map(m=>cC(cons[m].inv)).join('')}</tr>
+      <tr><td>Cash</td>${MM.map(m=>cC(cons[m].cash)).join('')}</tr>
+      <tr><td style="color:var(--text2)">Subtotal (Inv+Cash)</td>${MM.map(m=>cC(cons[m].sub)).join('')}</tr>
+      <tr><td class="negative">Crédito</td>${MM.map(m=>cC(cons[m].cred,'negative')).join('')}</tr>
       <tr style="border-top:2px solid var(--border2)"><td class="bold" style="color:var(--gold)">NETO USD</td>${MM.map(m=>`<td class="num bold" style="font-size:11px;color:var(--gold)">${cons[m].neto?'$'+fmt(cons[m].neto):'—'}</td>`).join('')}</tr>
     </tbody></table></div>
   </div>`;
 
-  // ===== POR BANCO =====
-  let html = consHtml;
+  // ===== POR BANCO (bloques por moneda, orden ANEXO: Inv, Cash, Subtotal, Credito, Neto) =====
+  const CUR = [
+    {code:'USD', sym:'$',   inv:'invest_account_usd', cash:'cash_usd', cred:'credit_usd', desg:true},
+    {code:'ARS', sym:'$',   inv:'invest_account_ars', cash:'cash_ars', cred:'credit_ars'},
+    {code:'UYU', sym:'$U ', inv:'invest_account_uyu', cash:'cash_uyu', cred:'credit_uyu'},
+    {code:'EUR', sym:'€',   inv:'invest_account_eur', cash:'cash_eur', cred:'credit_eur'},
+  ];
+
   active.forEach(b => {
     const mv = movMap[b.id] || {};
     if (!MM.some(m => mv[m]?.neto_usd != null)) return;
     const sub = b.subcuentas || {};
+    const hasAny = f => MM.some(m => Math.abs(mv[m]?.[f]||0) > 0.005);
 
-    // determinar monedas nativas presentes
-    const has = (f) => MM.some(m => Math.abs(mv[m]?.[f]||0) > 0.005);
-    const hasARS = ['invest_account_ars','cash_ars','credit_ars'].some(has);
-    const hasUYU = ['invest_account_uyu','cash_uyu','credit_uyu'].some(has);
-    const hasEUR = ['invest_account_eur','cash_eur','credit_eur'].some(has);
+    // monedas presentes
+    let present = CUR.filter(c => [c.inv,c.cash,c.cred].some(hasAny));
+    if (!present.length) present = [CUR[0]]; // fallback USD
 
-    // filas: [label, getterFn, cls, opts]
-    const rowsDef = [];
-    const fld = f => (m => mv[m]?.[f] ?? null);
-    rowsDef.push(['Inv. Account USD', fld('invest_account_usd'), '', {}]);
-    rowsDef.push(['Cash USD', fld('cash_usd'), '', {}]);
-    // sub-cuentas de cash (desglose)
-    const cashKeys = sub.cash || [];
-    cashKeys.forEach(k => rowsDef.push([`· Cash ${k}`, (m => mv[m]?.desglose?.cash?.[k] ?? null), 'subrow', {}]));
-    rowsDef.push(['Crédito USD', fld('credit_usd'), 'negative', {}]);
-    if (hasARS) {
-      rowsDef.push(['Inv. Account ARS', fld('invest_account_ars'), 'natrow', {}]);
-      rowsDef.push(['Cash ARS', fld('cash_ars'), 'natrow', {}]);
-      if (has('credit_ars')) rowsDef.push(['Crédito ARS', fld('credit_ars'), 'natrow negative', {}]);
-    }
-    if (hasUYU) {
-      rowsDef.push(['Inv. Account UYU', fld('invest_account_uyu'), 'natrow', {}]);
-      rowsDef.push(['Cash UYU', fld('cash_uyu'), 'natrow', {}]);
-      if (has('credit_uyu')) rowsDef.push(['Crédito UYU', fld('credit_uyu'), 'natrow negative', {}]);
-    }
-    if (hasEUR) {
-      rowsDef.push(['Inv. Account EUR', fld('invest_account_eur'), 'natrow', {}]);
-      rowsDef.push(['Cash EUR', fld('cash_eur'), 'natrow', {}]);
-      if (has('credit_eur')) rowsDef.push(['Crédito EUR', fld('credit_eur'), 'natrow negative', {}]);
-    }
-    // Subtotal (Inv+Cash) USD-equiv
-    rowsDef.push(['Subtotal (Inv+Cash) USD', (m => mv[m] ? bancoMovUSD(mv[m]).sub : null), 'subtot', {}]);
-    rowsDef.push(['Neto USD', fld('neto_usd'), 'bold', {neto:true}]);
+    let bodyRows = '';
+    const numCell = (v, sym, cls, extra) =>
+      `<td class="num ${cls||''}" style="font-size:11px;${extra||''}">${v==null?'—':(sym==='€'?'€':'$')+(sym==='$U '?'U ':'')+fmt(v)}</td>`;
 
-    const natFmt = (label, v) => {
-      if (v == null) return '—';
-      const isEUR = label.includes('EUR');
-      return (isEUR ? '€' : '$') + fmt(v);
-    };
+    present.forEach((c, ci) => {
+      // header de moneda solo si hay mas de una
+      if (present.length > 1) {
+        bodyRows += `<tr><td colspan="13" style="font-size:10px;letter-spacing:1px;color:var(--text3);padding-top:8px;border-top:1px dashed var(--border)">${c.code}</td></tr>`;
+      }
+      const getv = f => (m => mv[m]?.[f] ?? null);
+      const inv = getv(c.inv), cash = getv(c.cash), cred = getv(c.cred);
+      const subF = m => { const i=mv[m]?.[c.inv], h=mv[m]?.[c.cash]; return (i==null&&h==null)?null:((i||0)+(h||0)); };
+      // Inv
+      bodyRows += `<tr><td style="font-size:11px">Inv. Account ${c.code}</td>${MM.map(m=>numCell(inv(m),c.sym)).join('')}</tr>`;
+      // Cash + desglose
+      bodyRows += `<tr><td style="font-size:11px">Cash ${c.code}</td>${MM.map(m=>numCell(cash(m),c.sym)).join('')}</tr>`;
+      if (c.desg && sub.cash && sub.cash.length) {
+        sub.cash.forEach(k => {
+          bodyRows += `<tr><td style="font-size:11px;padding-left:18px;color:var(--text3)">· Cash ${k}</td>${MM.map(m=>numCell(mv[m]?.desglose?.cash?.[k] ?? null, c.sym, '', 'color:var(--text3)')).join('')}</tr>`;
+        });
+      }
+      // Subtotal (Inv+Cash)
+      bodyRows += `<tr><td style="font-size:11px;color:var(--text2)">Subtotal (Inv+Cash) ${c.code}</td>${MM.map(m=>numCell(subF(m),c.sym,'','color:var(--text2)')).join('')}</tr>`;
+      // Credito
+      bodyRows += `<tr><td class="negative" style="font-size:11px">Crédito ${c.code}</td>${MM.map(m=>numCell(cred(m),c.sym,'negative')).join('')}</tr>`;
+      // Neto de la moneda
+      const netoF = m => { const s=subF(m), cr=mv[m]?.[c.cred]; if (s==null && cr==null) return null; return (s||0)-(cr||0); };
+      const esNetoFinal = (present.length === 1 && c.code === 'USD');
+      bodyRows += `<tr ${esNetoFinal?'style="border-top:2px solid var(--border2)"':''}><td class="bold" style="font-size:11px;${esNetoFinal?'color:var(--gold)':''}">Neto ${c.code}${esNetoFinal?' <span style=\"font-size:9px;color:var(--text3);font-weight:400\">(doble-click p/comentar)</span>':''}</td>${MM.map(m=>{
+        const v=netoF(m); const com = esNetoFinal ? (mv[m]?.comentarios?.neto_usd||'') : '';
+        return `<td class="num bold ${com?'coment-tooltip has-coment':''}" style="font-size:11px;${esNetoFinal?'color:var(--gold);cursor:pointer':''};position:relative" ${esNetoFinal?`ondblclick="comentarNetoBanco('${b.id}', ${m}, ${anio})"`:''}>${v==null?'—':(c.sym==='€'?'€':'$')+fmt(v)}${com?`<span class="coment-pop">💬 ${com}</span>`:''}</td>`;
+      }).join('')}</tr>`;
+    });
+
+    // NETO USD consolidado (si hay mas de una moneda o la unica no es USD)
+    const showCons = present.length > 1 || present[0].code !== 'USD';
+    if (showCons) {
+      bodyRows += `<tr style="border-top:2px solid var(--gold)"><td class="bold" style="font-size:11px;color:var(--gold)">NETO USD (consolidado) <span style="font-size:9px;color:var(--text3);font-weight:400">(doble-click p/comentar)</span></td>${MM.map(m=>{
+        const v = mv[m]?.neto_usd ?? null; const com = mv[m]?.comentarios?.neto_usd||'';
+        return `<td class="num bold ${com?'coment-tooltip has-coment':''}" style="font-size:11px;color:var(--gold);cursor:pointer;position:relative" ondblclick="comentarNetoBanco('${b.id}', ${m}, ${anio})">${v==null?'—':'$'+fmt(v)}${com?`<span class="coment-pop">💬 ${com}</span>`:''}</td>`;
+      }).join('')}</tr>`;
+    }
 
     html += `<div class="card" style="margin-bottom:12px;border-left:3px solid var(--${colPais[b.pais]||'arg'})">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
@@ -7823,22 +7833,7 @@ async function loadBancosEvolucion() {
           <span class="badge badge-${colPais[b.pais]||'arg'}" style="margin-left:8px">${b.pais}</span>
           <span style="color:var(--text3);font-size:11px;margin-left:6px">${b.titular}</span></div>
       </div>
-      <div class="table-wrap"><table style="font-size:11px"><thead><tr><th>Concepto</th>${MM.map(m=>`<th class="num">${meses[m]}</th>`).join('')}</tr></thead><tbody>
-        ${rowsDef.map(([label, getter, cls, opts]) => {
-          const esNeto = !!opts.neto;
-          const nat = cls.includes('natrow');
-          const styleTd = `font-size:11px;${cls.includes('subrow')||cls.includes('subtot')?'color:var(--text2);':''}${cls.includes('natrow')?'color:var(--text3);font-style:italic;':''}`;
-          return `<tr>
-            <td class="${cls}" style="font-size:11px;${cls.includes('subrow')?'padding-left:18px;color:var(--text3)':''}${cls.includes('subtot')?'color:var(--text2)':''}${cls.includes('natrow')?'color:var(--text3);font-style:italic':''}">${label}${esNeto?' <span style="font-size:9px;color:var(--text3);font-weight:400">(doble-click p/comentar)</span>':''}</td>
-            ${MM.map(m => {
-              const v = getter(m);
-              const c = esNeto ? (mv[m]?.comentarios?.neto_usd||'') : '';
-              const disp = v == null ? '—' : (nat ? natFmt(label, v) : '$'+fmt(v));
-              return `<td class="num ${cls} ${c?'coment-tooltip has-coment':''}" style="${styleTd}position:relative;${esNeto?'cursor:pointer':''}" ${esNeto?`ondblclick="comentarNetoBanco('${b.id}', ${m}, ${anio})"`:''}>${disp}${c?`<span class="coment-pop">💬 ${c}</span>`:''}</td>`;
-            }).join('')}
-          </tr>`;
-        }).join('')}
-      </tbody></table></div>
+      <div class="table-wrap"><table style="font-size:11px"><thead><tr><th>Concepto</th>${MM.map(m=>`<th class="num">${meses[m]}</th>`).join('')}</tr></thead><tbody>${bodyRows}</tbody></table></div>
     </div>`;
   });
 
@@ -8503,7 +8498,7 @@ function toggleTheme() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260605-009';
+const APP_VERSION = '20260605-010';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
