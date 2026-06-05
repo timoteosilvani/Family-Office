@@ -1519,12 +1519,13 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
                     <th onclick="sortBancos('pais')" style="cursor:pointer">País <span id="srt-b-pais"></span></th>
                     <th class="num" onclick="sortBancos('_inv')" style="cursor:pointer">Inv. Account <span id="srt-b-_inv"></span></th>
                     <th class="num" onclick="sortBancos('_cash')" style="cursor:pointer">Cash <span id="srt-b-_cash"></span></th>
+                    <th class="num">Subtotal</th>
                     <th class="num">Crédito</th>
                     <th class="num" onclick="sortBancos('_neto')" style="cursor:pointer">Neto USD <span id="srt-b-_neto"></span></th>
                   </tr>
                 </thead>
                 <tbody id="tbody-bancos">
-                  <tr><td colspan="8"><div class="loader"><div class="spinner"></div></div></td></tr>
+                  <tr><td colspan="9"><div class="loader"><div class="spinner"></div></div></td></tr>
                 </tbody>
               </table>
             </div>
@@ -1618,6 +1619,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
                   <input class="fld" type="number" id="mb-credit-usd" value="0">
                 </div>
               </div>
+              <div id="mb-cash-desglose" style="display:none;margin-top:8px"></div>
               <!-- ARS fields - solo para bancos ARG -->
               <div id="banco-ars-fields" style="display:none">
                 <div class="form-row cols-3">
@@ -1633,6 +1635,22 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
                     <label class="fld">Crédito ARS</label>
                     <input class="fld" type="number" id="mb-credit-ars" value="0">
                   </div>
+                </div>
+              </div>
+              <!-- UYU fields - solo para bancos URU -->
+              <div id="banco-uyu-fields" style="display:none">
+                <div class="form-row cols-3">
+                  <div><label class="fld">Invest. Account UYU</label><input class="fld" type="number" id="mb-inv-uyu" value="0"></div>
+                  <div><label class="fld">Cash UYU</label><input class="fld" type="number" id="mb-cash-uyu" value="0"></div>
+                  <div><label class="fld">Crédito UYU</label><input class="fld" type="number" id="mb-credit-uyu" value="0"></div>
+                </div>
+              </div>
+              <!-- EUR fields - solo para bancos ESP -->
+              <div id="banco-eur-fields" style="display:none">
+                <div class="form-row cols-3">
+                  <div><label class="fld">Invest. Account EUR</label><input class="fld" type="number" id="mb-inv-eur" value="0"></div>
+                  <div><label class="fld">Cash EUR</label><input class="fld" type="number" id="mb-cash-eur" value="0"></div>
+                  <div><label class="fld">Crédito EUR</label><input class="fld" type="number" id="mb-credit-eur" value="0"></div>
                 </div>
               </div>
               <div class="form-row cols-1">
@@ -4011,6 +4029,22 @@ function convUSD(val, moneda, anio, mes) {
   return val;
 }
 
+// ---- Bancos: conversion de un movimiento a USD-equivalente (TC del mes del mov) ----
+function bancoMovUSD(m) {
+  if (!m) return { inv:0, cash:0, cred:0, sub:0, neto:0 };
+  const a = m.anio, me = m.mes;
+  const inv  = (m.invest_account_usd||0) + convUSD(m.invest_account_ars,'ARS',a,me) + convUSD(m.invest_account_uyu,'UYU',a,me) + convUSD(m.invest_account_eur,'EUR',a,me);
+  const cash = (m.cash_usd||0)           + convUSD(m.cash_ars,'ARS',a,me)           + convUSD(m.cash_uyu,'UYU',a,me)           + convUSD(m.cash_eur,'EUR',a,me);
+  const cred = (m.credit_usd||0)         + convUSD(m.credit_ars,'ARS',a,me)         + convUSD(m.credit_uyu,'UYU',a,me)         + convUSD(m.credit_eur,'EUR',a,me);
+  return { inv, cash, cred, sub: inv+cash, neto: inv+cash-cred };
+}
+// Devuelve el ultimo mes cargado de cada banco: { banco_id: movimiento }
+function latestMovByBanco(movs) {
+  const map = {};
+  (movs||[]).forEach(m => { if (!map[m.banco_id] || m.mes > map[m.banco_id].mes) map[m.banco_id] = m; });
+  return map;
+}
+
 async function loadTC_tabla() {
   let data = null;
   try {
@@ -4137,7 +4171,7 @@ function makeLegend(containerId, labels, colors, values, total) {
 async function loadDashboard() {
   const [{ data: props }, { data: bancosMovsRaw }, { data: pe }, { data: autos }, { data: bancosCat }] = await Promise.all([
     sb.from('propiedades').select('pais, valor_2026, titular, tipo').eq('activa', true).eq('vendida', false),
-    sb.from('movimientos_bancos').select('neto_usd, banco_id').eq('anio', 2026).eq('mes', MES_REF_BANCOS),
+    sb.from('movimientos_bancos').select('neto_usd, banco_id, mes').eq('anio', 2026),
     sb.from('private_equity').select('titular, pais, valor_2026').eq('activo', true),
     sb.from('autos').select('titular, pais, valor_2026').eq('activo', true),
     sb.from('bancos').select('id, pais'),
@@ -4147,9 +4181,12 @@ async function loadDashboard() {
   const bancosPaisMap = {};
   bancosCat?.forEach(b => bancosPaisMap[b.id] = b.pais);
 
+  // Bancos: usar el ultimo mes cargado de cada banco
+  const bancosMovs = Object.values(latestMovByBanco(bancosMovsRaw));
+
   // Totales por tipo de activo
   const totalProp = props?.reduce((a,b)=>a+(b.valor_2026||0),0) || 0;
-  const totalBanco = bancosMovsRaw?.reduce((a,b)=>a+(b.neto_usd||0),0) || 0;
+  const totalBanco = bancosMovs?.reduce((a,b)=>a+(b.neto_usd||0),0) || 0;
   const totalPE = pe?.reduce((a,b)=>a+(b.valor_2026||0),0) || 0;
   const totalAutos = autos?.reduce((a,b)=>a+(b.valor_2026||0),0) || 0;
   const total = totalProp + totalBanco + totalPE + totalAutos;
@@ -4157,7 +4194,7 @@ async function loadDashboard() {
   // Totales por país (TODOS los activos)
   const byPais = { ARG: 0, USA: 0, URU: 0, ESP: 0 };
   props?.forEach(p => byPais[p.pais] = (byPais[p.pais]||0) + (p.valor_2026||0));
-  bancosMovsRaw?.forEach(m => {
+  bancosMovs?.forEach(m => {
     const pais = bancosPaisMap[m.banco_id] || 'USA';
     byPais[pais] = (byPais[pais]||0) + (m.neto_usd||0);
   });
@@ -5450,10 +5487,12 @@ let bancosData = [], bancosMovData = [];
 async function loadBancos() {
   const [{ data: bancos }, { data: movs }] = await Promise.all([
     sb.from('bancos').select('*').eq('activo', true).order('nro'),
-    sb.from('movimientos_bancos').select('*').eq('anio', 2026).eq('mes', MES_REF_BANCOS),
+    sb.from('movimientos_bancos').select('*').eq('anio', 2026).order('mes'),
   ]);
   bancosData = bancos || [];
-  bancosMovData = movs || [];
+  // Informacion toma el ULTIMO mes cargado de cada banco (dinamico)
+  window._bancosMovLatest = latestMovByBanco(movs);
+  bancosMovData = Object.values(window._bancosMovLatest);
   renderBancos('all');
 
   const bancoSel = document.getElementById('carga-banco-sel');
@@ -5470,16 +5509,17 @@ function renderBancos(paisFiltro) {
 
   let rows = filtro === 'all' ? [...bancosData] : bancosData.filter(b => b.pais === filtro);
 
-  // Build movimientos map
-  const movMap = {};
-  (bancosMovData||[]).forEach(m => { movMap[m.banco_id] = m; });
+  // Build movimientos map: ultimo mes cargado por banco
+  const movMap = window._bancosMovLatest || {};
+  const usdMap = {};
+  Object.keys(movMap).forEach(id => usdMap[id] = bancoMovUSD(movMap[id]));
 
   // Apply sort
   rows = rows.sort((a, b) => {
     let va, vb;
-    if (bancosSortCol === '_inv')  { va = movMap[a.id]?.invest_account_usd||0; vb = movMap[b.id]?.invest_account_usd||0; }
-    else if (bancosSortCol === '_cash') { va = movMap[a.id]?.cash_usd||0; vb = movMap[b.id]?.cash_usd||0; }
-    else if (bancosSortCol === '_neto') { va = movMap[a.id]?.neto_usd||0; vb = movMap[b.id]?.neto_usd||0; }
+    if (bancosSortCol === '_inv')  { va = usdMap[a.id]?.inv||0;  vb = usdMap[b.id]?.inv||0; }
+    else if (bancosSortCol === '_cash') { va = usdMap[a.id]?.cash||0; vb = usdMap[b.id]?.cash||0; }
+    else if (bancosSortCol === '_neto') { va = usdMap[a.id]?.neto||0; vb = usdMap[b.id]?.neto||0; }
     else { va = a[bancosSortCol]; vb = b[bancosSortCol]; }
     if (va === null || va === undefined) va = typeof vb === 'string' ? '' : 0;
     if (vb === null || vb === undefined) vb = typeof va === 'string' ? '' : 0;
@@ -5488,31 +5528,36 @@ function renderBancos(paisFiltro) {
   });
 
   const colPais = { ARG:'arg', USA:'usa', URU:'uru', ESP:'esp', PAR:'par', PY:'par' };
+  const mesesAbr = ['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
   const tbody = document.getElementById('tbody-bancos');
 
   tbody.innerHTML = rows.map(b => {
-    const mov = movMap[b.id];
+    const u = usdMap[b.id]; const mv = movMap[b.id];
+    const mesTxt = mv ? `<span style="color:var(--text3);font-size:10px"> ${mesesAbr[mv.mes]}</span>` : '';
     return `<tr class="row-${colPais[b.pais]||'arg'}">
       <td style="color:var(--text3)">${b.nro||'—'}</td>
-      <td class="bold">${b.nombre}</td>
+      <td class="bold">${b.nombre}${mesTxt}</td>
       <td>${b.titular}</td>
       <td><span class="badge badge-${colPais[b.pais]||'arg'}">${b.pais}</span></td>
-      <td class="num">$${fmt(mov?.invest_account_usd||0)}</td>
-      <td class="num">$${fmt(mov?.cash_usd||0)}</td>
-      <td class="num negative">$${fmt(mov?.credit_usd||0)}</td>
-      <td class="num bold">$${fmt(mov?.neto_usd||0)}</td>
+      <td class="num">$${fmt(u?.inv||0)}</td>
+      <td class="num">$${fmt(u?.cash||0)}</td>
+      <td class="num" style="color:var(--text2)">$${fmt(u?.sub||0)}</td>
+      <td class="num negative">$${fmt(u?.cred||0)}</td>
+      <td class="num bold">$${fmt(u?.neto||0)}</td>
     </tr>`;
   }).join('') || '';
 
-  // Totals
-  const tInv  = rows.reduce((a,b) => a+(movMap[b.id]?.invest_account_usd||0), 0);
-  const tCash = rows.reduce((a,b) => a+(movMap[b.id]?.cash_usd||0), 0);
-  const tCred = rows.reduce((a,b) => a+(movMap[b.id]?.credit_usd||0), 0);
-  const tNeto = rows.reduce((a,b) => a+(movMap[b.id]?.neto_usd||0), 0);
+  // Totals (Neto = Inv + Cash - Credito de ESTE cuadro, recalculado por fila)
+  const tInv  = rows.reduce((a,b) => a+(usdMap[b.id]?.inv||0), 0);
+  const tCash = rows.reduce((a,b) => a+(usdMap[b.id]?.cash||0), 0);
+  const tSub  = rows.reduce((a,b) => a+(usdMap[b.id]?.sub||0), 0);
+  const tCred = rows.reduce((a,b) => a+(usdMap[b.id]?.cred||0), 0);
+  const tNeto = rows.reduce((a,b) => a+(usdMap[b.id]?.neto||0), 0);
   tbody.innerHTML += `<tr style="background:var(--bg3);border-top:2px solid var(--border2)">
-    <td colspan="4" class="bold" style="color:var(--gold)">TOTAL</td>
+    <td colspan="4" class="bold" style="color:var(--gold)">TOTAL (último mes por banco)</td>
     <td class="num bold" style="color:var(--gold)">$${fmt(tInv)}</td>
     <td class="num bold" style="color:var(--gold)">$${fmt(tCash)}</td>
+    <td class="num bold" style="color:var(--text2)">$${fmt(tSub)}</td>
     <td class="num negative bold">$${fmt(tCred)}</td>
     <td class="num bold" style="color:var(--gold)">$${fmt(tNeto)}</td>
   </tr>`;
@@ -5522,6 +5567,13 @@ function filtroBanco(val, btn) {
   document.querySelectorAll('#banco-info .filter-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
   renderBancos(val);
+}
+
+function sumCashDesglose() {
+  const subs = [...document.querySelectorAll('[id^="mb-cash-sub-"]')];
+  const s = subs.reduce((a,el)=>a+(parseFloat(el.value)||0),0);
+  const main = document.getElementById('mb-cash-usd');
+  if (main) main.value = Math.round(s*100)/100;
 }
 
 async function cargarMovBanco() {
@@ -5538,10 +5590,32 @@ async function cargarMovBanco() {
   const indB = document.getElementById('carga-banco-indicador');
   if (indB) indB.textContent = `Editando: ${bancoNombre} — ${mesesB[mes]} ${anio}`;
 
-  // Show/hide ARS fields based on bank country
-  const bancoObj = (window._bancosCache||[]).find(b => b.id === bancoId);
-  const arsFields = document.getElementById('banco-ars-fields');
-  if (arsFields) arsFields.style.display = bancoObj?.pais === 'ARG' ? 'block' : 'none';
+  const bancoObj = (bancosData||window._bancosCache||[]).find(b => b.id === bancoId);
+  const pais = bancoObj?.pais;
+  const setDisp = (id, show) => { const el = document.getElementById(id); if (el) el.style.display = show ? 'block' : 'none'; };
+  setDisp('banco-ars-fields', pais === 'ARG');
+  setDisp('banco-uyu-fields', pais === 'URU');
+  setDisp('banco-eur-fields', pais === 'ESP');
+
+  // reset todos los campos
+  ['mb-inv-usd','mb-cash-usd','mb-credit-usd','mb-inv-ars','mb-cash-ars','mb-credit-ars',
+   'mb-inv-uyu','mb-cash-uyu','mb-credit-uyu','mb-inv-eur','mb-cash-eur','mb-credit-eur']
+    .forEach(id => { const el = document.getElementById(id); if (el) el.value = 0; });
+
+  // sub-cuentas de cash (desglose)
+  const sub = bancoObj?.subcuentas || {};
+  const dwrap = document.getElementById('mb-cash-desglose');
+  const cashInput = document.getElementById('mb-cash-usd');
+  if (sub.cash && sub.cash.length) {
+    dwrap.style.display = 'block';
+    dwrap.innerHTML = '<label class="fld" style="color:var(--text3)">Desglose Cash USD (se suman automáticamente)</label><div class="form-row cols-3">' +
+      sub.cash.map(k => `<div><label class="fld" style="font-size:10px">Cuenta ${k}</label><input class="fld" type="number" id="mb-cash-sub-${k}" value="0" oninput="sumCashDesglose()"></div>`).join('') +
+      '</div>';
+    if (cashInput) { cashInput.readOnly = true; cashInput.style.opacity = 0.6; }
+  } else {
+    dwrap.style.display = 'none'; dwrap.innerHTML = '';
+    if (cashInput) { cashInput.readOnly = false; cashInput.style.opacity = 1; }
+  }
 
   form.style.display = 'block';
   injectComentariosGen([['inv-usd','invest_account_usd'],['cash-usd','cash_usd'],['credit-usd','credit_usd']], 'mb');
@@ -5554,25 +5628,60 @@ async function cargarMovBanco() {
     document.getElementById('mb-inv-ars').value = data.invest_account_ars || 0;
     document.getElementById('mb-cash-ars').value = data.cash_ars || 0;
     document.getElementById('mb-credit-ars').value = data.credit_ars || 0;
+    document.getElementById('mb-inv-uyu').value = data.invest_account_uyu || 0;
+    document.getElementById('mb-cash-uyu').value = data.cash_uyu || 0;
+    document.getElementById('mb-credit-uyu').value = data.credit_uyu || 0;
+    document.getElementById('mb-inv-eur').value = data.invest_account_eur || 0;
+    document.getElementById('mb-cash-eur').value = data.cash_eur || 0;
+    document.getElementById('mb-credit-eur').value = data.credit_eur || 0;
     document.getElementById('mb-notas').value = data.notas || '';
+    if (sub.cash && sub.cash.length) {
+      const cd = data.desglose?.cash || {};
+      sub.cash.forEach(k => { const el = document.getElementById('mb-cash-sub-'+k); if (el) el.value = cd[k] || 0; });
+      sumCashDesglose();
+    }
   }
 }
 
 async function guardarMovBanco() {
   const form = document.getElementById('form-mov-banco');
   const anioB = parseInt(form.dataset.anio), mesB = parseInt(form.dataset.mes);
-  const tc = tcFor(anioB, mesB).ars_usd || 1220;
-  const g = id => parseFloat(document.getElementById(id).value)||0;
-  const inv_usd = g('mb-inv-usd'), cash_usd = g('mb-cash-usd'), credit_usd = g('mb-credit-usd');
+  const bancoObj = (bancosData||window._bancosCache||[]).find(b => b.id === form.dataset.bancoId);
+  const g = id => parseFloat(document.getElementById(id)?.value)||0;
+
+  const inv_usd = g('mb-inv-usd'), credit_usd = g('mb-credit-usd');
   const inv_ars = g('mb-inv-ars'), cash_ars = g('mb-cash-ars'), credit_ars = g('mb-credit-ars');
-  const total = inv_usd + cash_usd + (inv_ars/tc) + (cash_ars/tc);
-  const neto = total - credit_usd - (credit_ars/tc);
+  const inv_uyu = g('mb-inv-uyu'), cash_uyu = g('mb-cash-uyu'), credit_uyu = g('mb-credit-uyu');
+  const inv_eur = g('mb-inv-eur'), cash_eur = g('mb-cash-eur'), credit_eur = g('mb-credit-eur');
+
+  // cash_usd: si hay sub-cuentas, sumar el desglose
+  const sub = bancoObj?.subcuentas || {};
+  let desglose = {};
+  let cash_usd;
+  if (sub.cash && sub.cash.length) {
+    const cd = {}; sub.cash.forEach(k => cd[k] = g('mb-cash-sub-'+k));
+    desglose.cash = cd;
+    cash_usd = sub.cash.reduce((a,k)=>a+cd[k], 0);
+  } else {
+    cash_usd = g('mb-cash-usd');
+  }
+
+  // Conversion a USD por moneda con el TC del mes del movimiento
+  const inv  = inv_usd  + convUSD(inv_ars,'ARS',anioB,mesB)  + convUSD(inv_uyu,'UYU',anioB,mesB)  + convUSD(inv_eur,'EUR',anioB,mesB);
+  const cash = cash_usd + convUSD(cash_ars,'ARS',anioB,mesB) + convUSD(cash_uyu,'UYU',anioB,mesB) + convUSD(cash_eur,'EUR',anioB,mesB);
+  const cred = credit_usd + convUSD(credit_ars,'ARS',anioB,mesB) + convUSD(credit_uyu,'UYU',anioB,mesB) + convUSD(credit_eur,'EUR',anioB,mesB);
+  const total = inv + cash;
+  const neto = total - cred;
+
   const { error } = await sb.from('movimientos_bancos').upsert({
     banco_id: form.dataset.bancoId,
     anio: anioB, mes: mesB,
     invest_account_usd: inv_usd, cash_usd, credit_usd,
     invest_account_ars: inv_ars, cash_ars, credit_ars,
+    invest_account_uyu: inv_uyu, cash_uyu, credit_uyu,
+    invest_account_eur: inv_eur, cash_eur, credit_eur,
     total_usd: total, neto_usd: neto,
+    desglose,
     notas: document.getElementById('mb-notas').value,
     comentarios: getComentariosGen('mb'),
     created_by: currentUser?.id,
@@ -5580,6 +5689,7 @@ async function guardarMovBanco() {
   if (error) return toast('Error: ' + error.message, 'error');
   toast('Banco actualizado ✓', 'success');
   await loadBancos();
+  await loadBancosEvolucion();
 }
 
 // ============================================
@@ -5977,7 +6087,7 @@ async function recalcPatrimonioActual() {
   try {
     const [{ data: props }, { data: bancosMovs }, { data: pe }, { data: autos }, { data: bancos }] = await Promise.all([
       sb.from('propiedades').select('titular, valor_2026').eq('activa', true).eq('vendida', false),
-      sb.from('movimientos_bancos').select('neto_usd, banco_id').eq('anio', 2026).eq('mes', MES_REF_BANCOS),
+      sb.from('movimientos_bancos').select('neto_usd, banco_id, mes').eq('anio', 2026),
       sb.from('private_equity').select('titular, valor_2026').eq('activo', true),
       sb.from('autos').select('titular, valor_2026').eq('activo', true),
       sb.from('bancos').select('id, titular, pais'),
@@ -5985,12 +6095,13 @@ async function recalcPatrimonioActual() {
     
     const bancosTitMap = {};
     bancos?.forEach(b => bancosTitMap[b.id] = b.titular);
-    
+    const bancosMovsLatest = Object.values(latestMovByBanco(bancosMovs));
+
     const byTit = {};
     const ensureTit = t => { if (!byTit[t]) byTit[t] = { propiedades:0, banco:0, private_equity:0, autos:0 }; };
     
     props?.forEach(p => { ensureTit(p.titular); byTit[p.titular].propiedades += p.valor_2026||0; });
-    bancosMovs?.forEach(m => { 
+    bancosMovsLatest?.forEach(m => { 
       const t = bancosTitMap[m.banco_id]; 
       if (t) { ensureTit(t); byTit[t].banco += m.neto_usd||0; }
     });
@@ -7620,65 +7731,114 @@ async function loadBancosEvolucion() {
 
   const colPais = {ARG:'arg',USA:'usa',URU:'uru',ESP:'esp',PAR:'par',PY:'par'};
   const meses = ['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  const MM = [1,2,3,4,5,6,7,8,9,10,11,12];
 
-  // Filter bancos
   let filtered = (bancos||[]);
   if (titFiltro) filtered = filtered.filter(b => b.titular === titFiltro);
   if (paisFiltro) filtered = filtered.filter(b => b.pais === paisFiltro);
 
-  // Index movs by banco_id and mes
   const movMap = {};
-  (movs||[]).forEach(m => {
-    if (!movMap[m.banco_id]) movMap[m.banco_id] = {};
-    movMap[m.banco_id][m.mes] = m;
-  });
+  (movs||[]).forEach(m => { (movMap[m.banco_id] ||= {})[m.mes] = m; });
 
-  // Only show bancos with at least one month of data
   const active = filtered.filter(b => movMap[b.id] && Object.keys(movMap[b.id]).length > 0);
-
   if (!active.length) {
     res.innerHTML = '<div class="card" style="color:var(--text3);text-align:center;padding:32px">Sin datos de movimientos para los filtros seleccionados</div>';
     return;
   }
 
-  let html = '';
+  // ===== CUADRO CONSOLIDADO (depende SOLO de Evolucion) =====
+  const cons = {}; // mes -> {inv,cash,sub,cred,neto}
+  MM.forEach(m => cons[m] = {inv:0,cash:0,sub:0,cred:0,neto:0});
   active.forEach(b => {
     const mv = movMap[b.id] || {};
-    const netoByMes = [1,2,3,4,5,6,7,8,9,10,11,12].map(m => mv[m]?.neto_usd||null);
-    const hasData = netoByMes.some(v => v !== null);
-    if (!hasData) return;
+    MM.forEach(m => {
+      if (!mv[m]) return;
+      const u = bancoMovUSD(mv[m]);
+      cons[m].inv += u.inv; cons[m].cash += u.cash; cons[m].sub += u.sub; cons[m].cred += u.cred; cons[m].neto += u.neto;
+    });
+  });
+  const cell = v => `<td class="num" style="font-size:11px">${v ? '$'+fmt(v) : '—'}</td>`;
+  let consHtml = `<div class="card" style="margin-bottom:16px;border:1px solid var(--gold)">
+    <div class="bold" style="color:var(--gold);margin-bottom:8px">Consolidado mensual — Evolución (suma de todos los bancos)</div>
+    <p style="color:var(--text3);font-size:11px;margin-bottom:10px">Este cuadro depende solo de Evolución. El Neto debe coincidir, en el último mes cargado, con el TOTAL de la pestaña Información.</p>
+    <div class="table-wrap"><table style="font-size:11px"><thead><tr><th>Concepto</th>${MM.map(m=>`<th class="num">${meses[m]}</th>`).join('')}</tr></thead><tbody>
+      <tr><td>Inv. Account</td>${MM.map(m=>cell(cons[m].inv)).join('')}</tr>
+      <tr><td>Cash</td>${MM.map(m=>cell(cons[m].cash)).join('')}</tr>
+      <tr><td style="color:var(--text2)">Subtotal (Inv+Cash)</td>${MM.map(m=>cell(cons[m].sub)).join('')}</tr>
+      <tr><td class="negative">Crédito</td>${MM.map(m=>`<td class="num negative" style="font-size:11px">${cons[m].cred?'$'+fmt(cons[m].cred):'—'}</td>`).join('')}</tr>
+      <tr style="border-top:2px solid var(--border2)"><td class="bold" style="color:var(--gold)">NETO USD</td>${MM.map(m=>`<td class="num bold" style="font-size:11px;color:var(--gold)">${cons[m].neto?'$'+fmt(cons[m].neto):'—'}</td>`).join('')}</tr>
+    </tbody></table></div>
+  </div>`;
+
+  // ===== POR BANCO =====
+  let html = consHtml;
+  active.forEach(b => {
+    const mv = movMap[b.id] || {};
+    if (!MM.some(m => mv[m]?.neto_usd != null)) return;
+    const sub = b.subcuentas || {};
+
+    // determinar monedas nativas presentes
+    const has = (f) => MM.some(m => Math.abs(mv[m]?.[f]||0) > 0.005);
+    const hasARS = ['invest_account_ars','cash_ars','credit_ars'].some(has);
+    const hasUYU = ['invest_account_uyu','cash_uyu','credit_uyu'].some(has);
+    const hasEUR = ['invest_account_eur','cash_eur','credit_eur'].some(has);
+
+    // filas: [label, getterFn, cls, opts]
+    const rowsDef = [];
+    const fld = f => (m => mv[m]?.[f] ?? null);
+    rowsDef.push(['Inv. Account USD', fld('invest_account_usd'), '', {}]);
+    rowsDef.push(['Cash USD', fld('cash_usd'), '', {}]);
+    // sub-cuentas de cash (desglose)
+    const cashKeys = sub.cash || [];
+    cashKeys.forEach(k => rowsDef.push([`· Cash ${k}`, (m => mv[m]?.desglose?.cash?.[k] ?? null), 'subrow', {}]));
+    rowsDef.push(['Crédito USD', fld('credit_usd'), 'negative', {}]);
+    if (hasARS) {
+      rowsDef.push(['Inv. Account ARS', fld('invest_account_ars'), 'natrow', {}]);
+      rowsDef.push(['Cash ARS', fld('cash_ars'), 'natrow', {}]);
+      if (has('credit_ars')) rowsDef.push(['Crédito ARS', fld('credit_ars'), 'natrow negative', {}]);
+    }
+    if (hasUYU) {
+      rowsDef.push(['Inv. Account UYU', fld('invest_account_uyu'), 'natrow', {}]);
+      rowsDef.push(['Cash UYU', fld('cash_uyu'), 'natrow', {}]);
+      if (has('credit_uyu')) rowsDef.push(['Crédito UYU', fld('credit_uyu'), 'natrow negative', {}]);
+    }
+    if (hasEUR) {
+      rowsDef.push(['Inv. Account EUR', fld('invest_account_eur'), 'natrow', {}]);
+      rowsDef.push(['Cash EUR', fld('cash_eur'), 'natrow', {}]);
+      if (has('credit_eur')) rowsDef.push(['Crédito EUR', fld('credit_eur'), 'natrow negative', {}]);
+    }
+    // Subtotal (Inv+Cash) USD-equiv
+    rowsDef.push(['Subtotal (Inv+Cash) USD', (m => mv[m] ? bancoMovUSD(mv[m]).sub : null), 'subtot', {}]);
+    rowsDef.push(['Neto USD', fld('neto_usd'), 'bold', {neto:true}]);
+
+    const natFmt = (label, v) => {
+      if (v == null) return '—';
+      const isEUR = label.includes('EUR');
+      return (isEUR ? '€' : '$') + fmt(v);
+    };
 
     html += `<div class="card" style="margin-bottom:12px;border-left:3px solid var(--${colPais[b.pais]||'arg'})">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-        <div>
-          <span class="bold">${b.nombre}</span>
+        <div><span class="bold">${b.nombre}</span>
           <span class="badge badge-${colPais[b.pais]||'arg'}" style="margin-left:8px">${b.pais}</span>
-          <span style="color:var(--text3);font-size:11px;margin-left:6px">${b.titular}</span>
-        </div>
+          <span style="color:var(--text3);font-size:11px;margin-left:6px">${b.titular}</span></div>
       </div>
-      <div class="table-wrap">
-        <table style="font-size:11px">
-          <thead><tr>
-            <th>Concepto</th>
-            ${[1,2,3,4,5,6,7,8,9,10,11,12].map(m=>`<th class="num">${meses[m]}</th>`).join('')}
-          </tr></thead>
-          <tbody>
-            ${[
-              ['Inv. Account USD','invest_account_usd',''],
-              ['Cash USD','cash_usd',''],
-              ['Crédito USD','credit_usd','negative'],
-              ['Neto USD','neto_usd','bold'],
-            ].map(([label, field, cls]) => {
-              const esNeto = field === 'neto_usd';
-              const vals = [1,2,3,4,5,6,7,8,9,10,11,12].map(m => ({ v: mv[m]?.[field]||null, c: mv[m]?.comentarios?.[field]||'', mes: m }));
-              return `<tr>
-                <td class="${cls}" style="font-size:11px">${label}${esNeto?' <span style="font-size:9px;color:var(--text3);font-weight:400">(doble-click para comentar)</span>':''}</td>
-                ${vals.map(({v,c,mes}) => `<td class="num ${cls} ${c?'coment-tooltip has-coment':''}" style="font-size:11px;position:relative;${esNeto?'cursor:pointer':''}" ${esNeto?`ondblclick="comentarNetoBanco('${b.id}', ${mes}, ${anio})"`:''}>${v!==null?'$'+fmt(v):'—'}${c?`<span class="coment-pop">💬 ${c}</span>`:''}</td>`).join('')}
-              </tr>`;
+      <div class="table-wrap"><table style="font-size:11px"><thead><tr><th>Concepto</th>${MM.map(m=>`<th class="num">${meses[m]}</th>`).join('')}</tr></thead><tbody>
+        ${rowsDef.map(([label, getter, cls, opts]) => {
+          const esNeto = !!opts.neto;
+          const nat = cls.includes('natrow');
+          const styleTd = `font-size:11px;${cls.includes('subrow')||cls.includes('subtot')?'color:var(--text2);':''}${cls.includes('natrow')?'color:var(--text3);font-style:italic;':''}`;
+          return `<tr>
+            <td class="${cls}" style="font-size:11px;${cls.includes('subrow')?'padding-left:18px;color:var(--text3)':''}${cls.includes('subtot')?'color:var(--text2)':''}${cls.includes('natrow')?'color:var(--text3);font-style:italic':''}">${label}${esNeto?' <span style="font-size:9px;color:var(--text3);font-weight:400">(doble-click p/comentar)</span>':''}</td>
+            ${MM.map(m => {
+              const v = getter(m);
+              const c = esNeto ? (mv[m]?.comentarios?.neto_usd||'') : '';
+              const disp = v == null ? '—' : (nat ? natFmt(label, v) : '$'+fmt(v));
+              return `<td class="num ${cls} ${c?'coment-tooltip has-coment':''}" style="${styleTd}position:relative;${esNeto?'cursor:pointer':''}" ${esNeto?`ondblclick="comentarNetoBanco('${b.id}', ${m}, ${anio})"`:''}>${disp}${c?`<span class="coment-pop">💬 ${c}</span>`:''}</td>`;
             }).join('')}
-          </tbody>
-        </table>
-      </div>
+          </tr>`;
+        }).join('')}
+      </tbody></table></div>
     </div>`;
   });
 
@@ -8344,9 +8504,6 @@ function toggleTheme() {
 // SERVICE WORKER REGISTRATION
 // ============================================
 const APP_VERSION = '20260605-009';
-// Mes de referencia para el snapshot "actual" de Bancos en Dashboard/Patrimonio.
-// = ultimo mes real cargado (Jun=6). Coincide con el snapshot del COMPLETO.
-const MES_REF_BANCOS = 6;
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
