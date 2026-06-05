@@ -4171,22 +4171,24 @@ function makeLegend(containerId, labels, colors, values, total) {
 async function loadDashboard() {
   const [{ data: props }, { data: bancosMovsRaw }, { data: pe }, { data: autos }, { data: bancosCat }] = await Promise.all([
     sb.from('propiedades').select('pais, valor_2026, titular, tipo').eq('activa', true).eq('vendida', false),
-    sb.from('movimientos_bancos').select('neto_usd, banco_id, mes').eq('anio', 2026),
+    sb.from('movimientos_bancos').select('*').eq('anio', 2026),
     sb.from('private_equity').select('titular, pais, valor_2026').eq('activo', true),
     sb.from('autos').select('titular, pais, valor_2026').eq('activo', true),
-    sb.from('bancos').select('id, pais'),
+    sb.from('bancos').select('id, pais, activo'),
   ]);
 
-  // Map banco_id -> pais
+  // Map banco_id -> pais (+ set de activos)
   const bancosPaisMap = {};
-  bancosCat?.forEach(b => bancosPaisMap[b.id] = b.pais);
+  const activeBancoIds = new Set();
+  bancosCat?.forEach(b => { bancosPaisMap[b.id] = b.pais; if (b.activo !== false) activeBancoIds.add(b.id); });
 
-  // Bancos: usar el ultimo mes cargado de cada banco
-  const bancosMovs = Object.values(latestMovByBanco(bancosMovsRaw));
+  // Bancos: ultimo mes de cada banco ACTIVO, recalculado igual que Informacion (inv+cash-credito)
+  const bancosMovs = Object.values(latestMovByBanco((bancosMovsRaw||[]).filter(m => activeBancoIds.has(m.banco_id))));
+  const bancoNetoMap = {}; bancosMovs.forEach(m => bancoNetoMap[m.banco_id] = bancoMovUSD(m).neto);
 
   // Totales por tipo de activo
   const totalProp = props?.reduce((a,b)=>a+(b.valor_2026||0),0) || 0;
-  const totalBanco = bancosMovs?.reduce((a,b)=>a+(b.neto_usd||0),0) || 0;
+  const totalBanco = bancosMovs.reduce((a,m)=>a+(bancoNetoMap[m.banco_id]||0), 0);
   const totalPE = pe?.reduce((a,b)=>a+(b.valor_2026||0),0) || 0;
   const totalAutos = autos?.reduce((a,b)=>a+(b.valor_2026||0),0) || 0;
   const total = totalProp + totalBanco + totalPE + totalAutos;
@@ -4194,9 +4196,9 @@ async function loadDashboard() {
   // Totales por país (TODOS los activos)
   const byPais = { ARG: 0, USA: 0, URU: 0, ESP: 0 };
   props?.forEach(p => byPais[p.pais] = (byPais[p.pais]||0) + (p.valor_2026||0));
-  bancosMovs?.forEach(m => {
+  bancosMovs.forEach(m => {
     const pais = bancosPaisMap[m.banco_id] || 'USA';
-    byPais[pais] = (byPais[pais]||0) + (m.neto_usd||0);
+    byPais[pais] = (byPais[pais]||0) + (bancoNetoMap[m.banco_id]||0);
   });
   pe?.forEach(p => { if(p.pais && byPais[p.pais]!==undefined) byPais[p.pais] = (byPais[p.pais]||0) + (p.valor_2026||0); });
   autos?.forEach(a => { if(a.pais && byPais[a.pais]!==undefined) byPais[a.pais] = (byPais[a.pais]||0) + (a.valor_2026||0); });
@@ -4311,6 +4313,7 @@ let patData = [];
 let patTipoActivo = 'total';
 
 async function loadPatrimonio() {
+  await recalcPatrimonioActual();
   const { data } = await sb.from('patrimonio_historico').select('*').order('titular').order('anio');
   patData = data || [];
   renderPatrimonioPivot();
@@ -6087,15 +6090,15 @@ async function recalcPatrimonioActual() {
   try {
     const [{ data: props }, { data: bancosMovs }, { data: pe }, { data: autos }, { data: bancos }] = await Promise.all([
       sb.from('propiedades').select('titular, valor_2026').eq('activa', true).eq('vendida', false),
-      sb.from('movimientos_bancos').select('neto_usd, banco_id, mes').eq('anio', 2026),
+      sb.from('movimientos_bancos').select('*').eq('anio', 2026),
       sb.from('private_equity').select('titular, valor_2026').eq('activo', true),
       sb.from('autos').select('titular, valor_2026').eq('activo', true),
-      sb.from('bancos').select('id, titular, pais'),
+      sb.from('bancos').select('id, titular, pais, activo'),
     ]);
     
-    const bancosTitMap = {};
-    bancos?.forEach(b => bancosTitMap[b.id] = b.titular);
-    const bancosMovsLatest = Object.values(latestMovByBanco(bancosMovs));
+    const bancosTitMap = {}; const activeB = new Set();
+    bancos?.forEach(b => { bancosTitMap[b.id] = b.titular; if (b.activo !== false) activeB.add(b.id); });
+    const bancosMovsLatest = Object.values(latestMovByBanco((bancosMovs||[]).filter(m => activeB.has(m.banco_id))));
 
     const byTit = {};
     const ensureTit = t => { if (!byTit[t]) byTit[t] = { propiedades:0, banco:0, private_equity:0, autos:0 }; };
@@ -6103,7 +6106,7 @@ async function recalcPatrimonioActual() {
     props?.forEach(p => { ensureTit(p.titular); byTit[p.titular].propiedades += p.valor_2026||0; });
     bancosMovsLatest?.forEach(m => { 
       const t = bancosTitMap[m.banco_id]; 
-      if (t) { ensureTit(t); byTit[t].banco += m.neto_usd||0; }
+      if (t) { ensureTit(t); byTit[t].banco += bancoMovUSD(m).neto; }
     });
     pe?.forEach(p => { ensureTit(p.titular); byTit[p.titular].private_equity += p.valor_2026||0; });
     autos?.forEach(a => { ensureTit(a.titular); byTit[a.titular].autos += a.valor_2026||0; });
@@ -8498,7 +8501,7 @@ function toggleTheme() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260605-010';
+const APP_VERSION = '20260605-011';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
