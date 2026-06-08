@@ -4774,10 +4774,9 @@ async function loadPEEvolucion() {
   const peId = document.getElementById('pe-ev-sel')?.value || '';
   const anio = parseInt(document.getElementById('pe-ev-anio')?.value || 2026);
   const titFiltro = document.getElementById('pe-ev-titular')?.value || '';
-  const MESES = [1,2,3,4,5,6,7,8,9,10,11,12];
-  const MESES_N = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  const MM = [1,2,3,4,5,6,7,8,9,10,11,12];
+  const MN = ['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
 
-  // Populate PE select if empty
   const sel = document.getElementById('pe-ev-sel');
   if (sel && sel.options.length <= 1 && window._peData) {
     sel.innerHTML = '<option value="">Todas</option>' +
@@ -4815,31 +4814,43 @@ async function loadPEEvolucion() {
       return;
     }
 
+    const mMapOf = pe => { const o={}; movs.filter(m=>m.pe_id===pe.id).forEach(m=>o[m.mes]=m); return o; };
+    const gp = (mm,m) => (mm[m]?.gastos||0)+(mm[m]?.impuestos||0);
+
+    // ===== CONSOLIDADO (arriba, solo Evolucion) =====
+    const sumF = (field) => MM.map(m => filtered.reduce((a,pe)=>{const mm=mMapOf(pe);return a+(mm[m]?.[field]||0);},0));
+    const sumG = () => MM.map(m => filtered.reduce((a,pe)=>{const mm=mMapOf(pe);return a+gp(mm,m);},0));
+    const utilV = sumF('utilidad'), aporV = sumF('aporte_capital'), gasV = sumG();
+    const netoV = MM.map((m,i)=>utilV[i]-gasV[i]);
+    const rowC = (label,vals,color,cls) => { const t=vals.reduce((a,b)=>a+b,0);
+      return `<tr><td style="color:${color}">${label}</td><td class="num bold ${cls||''}" style="color:${t?color:'var(--border2)'}">${t?'$'+fmt(t):'—'}</td>${vals.map(v=>`<td class="num ${cls||''}">${v?'$'+fmt(v):'—'}</td>`).join('')}</tr>`; };
+    let html = `<div class="card" style="border:1px solid var(--gold);margin-bottom:16px">
+      <div class="bold" style="color:var(--gold);margin-bottom:8px">Consolidado mensual — Evolución (todas las inversiones)</div>
+      <p style="color:var(--text3);font-size:11px;margin-bottom:10px">Depende solo de Evolución. Nota: el detalle de PE 2026 se carga como cierre anual (Dic).</p>
+      <div class="table-wrap"><table style="font-size:11px">
+        <thead><tr><th>Concepto</th><th class="num" style="color:var(--gold)">Total</th>${MM.map(m=>`<th class="num">${MN[m]}</th>`).join('')}</tr></thead>
+        <tbody>
+          ${rowC('💰 Utilidad',utilV,'var(--esp)','positive')}
+          ${rowC('➕ Aporte Capital',aporV,'var(--gold)','')}
+          ${rowC('🔴 Gastos + Imp.',gasV,'var(--usa)','negative')}
+          <tr style="border-top:2px solid var(--border2)"><td class="bold" style="color:var(--gold)">NETO</td><td class="num bold" style="color:${totNeto>=0?'var(--esp)':'var(--usa)'}">$${fmt(totNeto)}</td>${netoV.map(v=>`<td class="num bold" style="color:${!v?'var(--border2)':v>=0?'var(--esp)':'var(--usa)'}">${v?'$'+fmt(v):'—'}</td>`).join('')}</tr>
+        </tbody>
+      </table></div>
+    </div>`;
+
+    // ===== POR INVERSION (Total primera columna) =====
     const colName = {ARG:'var(--arg)',USA:'var(--usa)',URU:'var(--uru)',ESP:'var(--esp)',PAR:'var(--gold)',PY:'var(--gold)'};
-    let html = '';
     filtered.forEach(pe => {
-      const mMap = {};
-      movs.filter(m => m.pe_id === pe.id).forEach(m => { mMap[m.mes] = m; });
-      const hasData = Object.keys(mMap).length > 0;
+      const mm = mMapOf(pe);
+      const hasData = Object.keys(mm).length > 0;
       const colStr = {ARG:'arg',USA:'usa',URU:'uru',ESP:'esp',PAR:'par',PY:'par'}[pe.pais||'']||'arg';
       const nameCol = colName[pe.pais] || 'var(--text)';
-
-      const cell = (field, color) => MESES.map(mes => {
-        const v = mMap[mes]?.[field] || null;
-        const c = mMap[mes]?.comentarios?.[field] || '';
-        return `<td class="num ${c?'coment-tooltip has-coment':''}" style="font-size:10px;color:${v?color:'var(--border2)'};position:relative">${v?'$'+fmt(v):'—'}${c?`<span class="coment-pop">💬 ${c}</span>`:''}</td>`;
-      }).join('');
-      const gastosCell = MESES.map(mes => {
-        const v = (mMap[mes]?.gastos||0)+(mMap[mes]?.impuestos||0);
-        const cg = mMap[mes]?.comentarios?.gastos||''; const ci = mMap[mes]?.comentarios?.impuestos||'';
-        const c = [cg,ci].filter(Boolean).join(' | ');
-        return `<td class="num ${c?'coment-tooltip has-coment':''}" style="font-size:10px;color:${v?'var(--usa)':'var(--border2)'};position:relative">${v?'$'+fmt(v):'—'}${c?`<span class="coment-pop">💬 ${c}</span>`:''}</td>`;
-      }).join('');
-
-      const tUtil = MESES.reduce((a,m)=>a+(mMap[m]?.utilidad||0),0);
-      const tAporte = MESES.reduce((a,m)=>a+(mMap[m]?.aporte_capital||0),0);
-      const tGastos = MESES.reduce((a,m)=>a+(mMap[m]?.gastos||0)+(mMap[m]?.impuestos||0),0);
+      const tUtil = MM.reduce((a,m)=>a+(mm[m]?.utilidad||0),0);
+      const tAporte = MM.reduce((a,m)=>a+(mm[m]?.aporte_capital||0),0);
+      const tGastos = MM.reduce((a,m)=>a+gp(mm,m),0);
       const tNeto = tUtil - tGastos;
+      const cellF = (field,color) => MM.map(m=>{const v=mm[m]?.[field]||null;const c=mm[m]?.comentarios?.[field]||'';return `<td class="num ${c?'coment-tooltip has-coment':''}" style="font-size:10px;color:${v?color:'var(--border2)'};position:relative">${v?'$'+fmt(v):'—'}${c?`<span class="coment-pop">💬 ${c}</span>`:''}</td>`;}).join('');
+      const cellG = () => MM.map(m=>{const v=gp(mm,m);return `<td class="num" style="font-size:10px;color:${v?'var(--usa)':'var(--border2)'}">${v?'$'+fmt(v):'—'}</td>`;}).join('');
 
       html += `<div class="card" style="margin-bottom:14px;border-left:3px solid var(--${colStr})">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
@@ -4849,15 +4860,15 @@ async function loadPEEvolucion() {
           ${!hasData?'<span style="font-size:10px;color:var(--text3);margin-left:4px">(sin movimientos cargados)</span>':''}
         </div>
         <div class="table-wrap"><table style="font-size:11px">
-          <thead><tr><th style="min-width:120px">Concepto</th>${MESES.map(m=>`<th class="num">${MESES_N[m-1]}</th>`).join('')}<th class="num">Total</th></tr></thead>
+          <thead><tr><th style="min-width:120px">Concepto</th><th class="num">Total</th>${MM.map(m=>`<th class="num">${MN[m]}</th>`).join('')}</tr></thead>
           <tbody>
-            <tr><td style="color:var(--esp)">💰 Utilidad</td>${cell('utilidad','var(--esp)')}<td class="num bold positive">${tUtil?'$'+fmt(tUtil):'—'}</td></tr>
-            <tr><td style="color:var(--gold)">➕ Aporte Capital</td>${cell('aporte_capital','var(--gold)')}<td class="num bold" style="color:var(--gold)">${tAporte?'$'+fmt(tAporte):'—'}</td></tr>
-            <tr><td style="color:var(--usa)">🔴 Gastos + Imp.</td>${gastosCell}<td class="num bold negative">${tGastos?'$'+fmt(tGastos):'—'}</td></tr>
+            <tr><td style="color:var(--esp)">💰 Utilidad</td><td class="num bold positive">${tUtil?'$'+fmt(tUtil):'—'}</td>${cellF('utilidad','var(--esp)')}</tr>
+            <tr><td style="color:var(--gold)">➕ Aporte Capital</td><td class="num bold" style="color:var(--gold)">${tAporte?'$'+fmt(tAporte):'—'}</td>${cellF('aporte_capital','var(--gold)')}</tr>
+            <tr><td style="color:var(--usa)">🔴 Gastos + Imp.</td><td class="num bold negative">${tGastos?'$'+fmt(tGastos):'—'}</td>${cellG()}</tr>
             <tr style="border-top:1px solid var(--border2)">
-              <td class="bold">TOTAL</td>
-              ${MESES.map(mes=>{const hasM=mMap[mes];const v=(mMap[mes]?.utilidad||0)-(mMap[mes]?.gastos||0)-(mMap[mes]?.impuestos||0);return `<td class="num bold" style="font-size:10px;color:${!hasM?'var(--border2)':v>=0?'var(--esp)':'var(--usa)'}">${!hasM?'—':'$'+fmt(v)}</td>`;}).join('')}
+              <td class="bold">NETO</td>
               <td class="num bold" style="color:${tNeto>=0?'var(--esp)':'var(--usa)'}">$${fmt(tNeto)}</td>
+              ${MM.map(m=>{const hasM=mm[m];const v=(mm[m]?.utilidad||0)-gp(mm,m);return `<td class="num bold" style="font-size:10px;color:${!hasM?'var(--border2)':v>=0?'var(--esp)':'var(--usa)'}">${!hasM?'—':'$'+fmt(v)}</td>`;}).join('')}
             </tr>
           </tbody>
         </table></div>
@@ -7860,56 +7871,66 @@ async function loadAutosEvolucion() {
 
   const colPais = {ARG:'arg',USA:'usa',URU:'uru',ESP:'esp',PAR:'par',PY:'par'};
   const meses = ['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  const MM = [1,2,3,4,5,6,7,8,9,10,11,12];
 
   let filtered = (autos||[]);
   if (titFiltro) filtered = filtered.filter(a => a.titular === titFiltro);
 
   const gasMap = {};
-  (gastos||[]).forEach(g => {
-    if (!gasMap[g.auto_id]) gasMap[g.auto_id] = {};
-    gasMap[g.auto_id][g.mes] = g;
-  });
-
+  (gastos||[]).forEach(g => { (gasMap[g.auto_id] ||= {})[g.mes] = g; });
   const active = filtered.filter(a => gasMap[a.id] && Object.keys(gasMap[a.id]).length > 0);
   if (!active.length) {
     res.innerHTML = '<div class="card" style="color:var(--text3);text-align:center;padding:32px">Sin gastos cargados para el período seleccionado</div>';
     return;
   }
 
-  let html = '';
+  const CONCEPTOS = [['Patente','patente'],['Seguro','seguro'],['Service','service'],['Arreglos','arreglos'],['Otros','otros_gastos']];
+
+  // ===== CONSOLIDADO (arriba, solo Evolucion) =====
+  let html = `<div class="card" style="border:1px solid var(--gold);margin-bottom:16px">
+    <div class="bold" style="color:var(--gold);margin-bottom:8px">Consolidado mensual — Evolución (gastos de todos los autos)</div>
+    <p style="color:var(--text3);font-size:11px;margin-bottom:10px">Depende solo de Evolución. El TOTAL debe coincidir con la suma de Gastos de Información.</p>
+    <div class="table-wrap"><table style="font-size:11px">
+      <thead><tr><th>Concepto</th><th class="num" style="color:var(--gold)">Total</th>${MM.map(m=>`<th class="num">${meses[m]}</th>`).join('')}</tr></thead>
+      <tbody>
+        ${CONCEPTOS.map(([label,field])=>{
+          const vals = MM.map(m=>active.reduce((a,x)=>a+(gasMap[x.id]?.[m]?.[field]||0),0));
+          const tot = vals.reduce((a,b)=>a+b,0);
+          return `<tr><td>${label}</td><td class="num bold" style="color:${tot?'var(--text2)':'var(--border2)'}">${tot>0?'$'+fmt(tot):'—'}</td>${vals.map(v=>`<td class="num">${v>0?'$'+fmt(v):'—'}</td>`).join('')}</tr>`;
+        }).join('')}
+        <tr style="border-top:2px solid var(--border2)">
+          <td class="bold" style="color:var(--gold)">TOTAL USD</td>
+          <td class="num bold negative">${(()=>{const g=active.reduce((a,x)=>a+MM.reduce((b,m)=>b+(gasMap[x.id]?.[m]?.total_usd||0),0),0);return g>0?'$'+fmt(g):'—';})()}</td>
+          ${MM.map(m=>{const v=active.reduce((a,x)=>a+(gasMap[x.id]?.[m]?.total_usd||0),0);return`<td class="num bold negative">${v>0?'$'+fmt(v):'—'}</td>`;}).join('')}
+        </tr>
+      </tbody>
+    </table></div>
+  </div>`;
+
+  // ===== POR AUTO (Total primera columna) =====
   active.forEach(a => {
     const mv = gasMap[a.id] || {};
-    const CONCEPTOS = [
-      ['Patente','patente'],['Seguro','seguro'],['Service','service'],
-      ['Arreglos','arreglos'],['Otros','otros_gastos'],['TOTAL USD','total_usd'],
-    ];
-
+    const totUSD = MM.reduce((s,m)=>s+(mv[m]?.total_usd||0),0);
     html += `<div class="card" style="margin-bottom:12px;border-left:3px solid var(--${colPais[a.pais]||'arg'})">
       <div style="margin-bottom:10px">
         <span class="bold">${a.nombre}</span>
         <span style="color:var(--text3);font-size:11px;margin-left:8px">${a.titular} · ${a.anio_modelo||''}</span>
       </div>
-      <div class="table-wrap">
-        <table style="font-size:11px">
-          <thead><tr>
-            <th>Concepto</th>
-            ${[1,2,3,4,5,6,7,8,9,10,11,12].map(m=>`<th class="num">${meses[m]}</th>`).join('')}
-            <th class="num">Total</th>
-          </tr></thead>
-          <tbody>
-            ${CONCEPTOS.map(([label, field]) => {
-              const vals = [1,2,3,4,5,6,7,8,9,10,11,12].map(m => ({ v: mv[m]?.[field]||0, c: mv[m]?.comentarios?.[field]||'' }));
-              const tot = vals.reduce((a,b)=>a+b.v,0);
-              const isTotal = field === 'total_usd';
-              return `<tr ${isTotal?'style="border-top:1px solid var(--border2)"':''}>
-                <td class="${isTotal?'bold':''}" style="font-size:11px">${label}</td>
-                ${vals.map(({v,c}) => `<td class="num ${isTotal?'negative bold':''} ${c?'coment-tooltip has-coment':''}" style="font-size:11px;position:relative">${v>0?fmt(v):'—'}${c?`<span class="coment-pop">💬 ${c}</span>`:''}</td>`).join('')}
-                <td class="num ${isTotal?'negative bold':''}">${tot>0?'$'+fmt(tot):'—'}</td>
-              </tr>`;
-            }).join('')}
-          </tbody>
-        </table>
-      </div>
+      <div class="table-wrap"><table style="font-size:11px">
+        <thead><tr><th>Concepto</th><th class="num">Total</th>${MM.map(m=>`<th class="num">${meses[m]}</th>`).join('')}</tr></thead>
+        <tbody>
+          ${CONCEPTOS.map(([label, field]) => {
+            const vals = MM.map(m => ({ v: mv[m]?.[field]||0, c: mv[m]?.comentarios?.[field]||'' }));
+            const tot = vals.reduce((a,b)=>a+b.v,0);
+            return `<tr><td style="font-size:11px">${label}</td><td class="num bold" style="font-size:11px;color:${tot?'var(--text2)':'var(--border2)'}">${tot>0?'$'+fmt(tot):'—'}</td>${vals.map(({v,c})=>`<td class="num ${c?'coment-tooltip has-coment':''}" style="font-size:11px;color:${v?'var(--text)':'var(--border2)'};position:relative">${v>0?'$'+fmt(v):'—'}${c?`<span class="coment-pop">💬 ${c}</span>`:''}</td>`).join('')}</tr>`;
+          }).join('')}
+          <tr style="border-top:1px solid var(--border2)">
+            <td class="bold" style="font-size:11px">TOTAL USD</td>
+            <td class="num bold negative" style="font-size:11px">${totUSD>0?'$'+fmt(totUSD):'—'}</td>
+            ${MM.map(m=>{const v=mv[m]?.total_usd||0;return`<td class="num bold negative" style="font-size:11px">${v>0?'$'+fmt(v):'—'}</td>`;}).join('')}
+          </tr>
+        </tbody>
+      </table></div>
     </div>`;
   });
   res.innerHTML = html;
@@ -8479,7 +8500,7 @@ function toggleTheme() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260605-012';
+const APP_VERSION = '20260605-013';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
