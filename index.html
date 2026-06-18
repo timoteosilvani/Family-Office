@@ -3670,9 +3670,10 @@ function poblarVerComo(){
     tits.map(t=>`<option value="${t}">Ver como ${t}</option>`).join('');
   sel.value = verComo || '';
 }
-function setVerComo(t){
+async function setVerComo(t){
   verComo = t || null;
   document.body.classList.toggle('vista-cliente', !!verComo);
+  try { await populateAllSelects(); } catch(e){}
   const act = document.querySelector('.page.active');
   const pg = act ? act.id.replace('page-','') : 'dashboard';
   if (typeof loadDashboard==='function' && pg!=='dashboard') loadDashboard();
@@ -3909,9 +3910,9 @@ async function initApp() {
 
 async function populateAllSelects() {
   const [{ data: props }, { data: bancos }, { data: pe }] = await Promise.all([
-    sb.from('propiedades').select('id,nombre,titular,pais,nro').eq('activa',true).eq('vendida',false).order('nro'),
-    sb.from('bancos').select('id,nombre,titular,pais').eq('activo',true).order('nro'),
-    sb.from('private_equity').select('id,nombre,titular').eq('activo',true).order('nro'),
+    aplicarFiltroTit(sb.from('propiedades').select('id,nombre,titular,pais,nro').eq('activa',true).eq('vendida',false).order('nro')),
+    aplicarFiltroTit(sb.from('bancos').select('id,nombre,titular,pais').eq('activo',true).order('nro')),
+    aplicarFiltroTit(sb.from('private_equity').select('id,nombre,titular').eq('activo',true).order('nro')),
   ]);
 
   // Props select
@@ -4528,7 +4529,7 @@ function renderHistorialProps(filtro) {
   const colPais = {ARG:'arg',USA:'usa',URU:'uru',ESP:'esp',PAR:'par',PY:'par'};
   const YEARS = [2017,2018,2019,2020,2021,2022,2023,2024,2025,2026];
 
-  let data = PROP_HIST_DATA;
+  let data = verComo ? PROP_HIST_DATA.filter(p => p.titular === verComo) : PROP_HIST_DATA;
   if (filtro === 'vendidas') data = data.filter(p => p.vendida);
   else if (filtro && filtro !== 'all') data = data.filter(p => p.pais === filtro && !p.vendida);
   else if (filtro === 'all') data = data.filter(p => !p.vendida);
@@ -5450,7 +5451,7 @@ async function loadRanking() {
   const anioActual = now.getFullYear();
 
   const [{ data: props }, { data: movs }] = await Promise.all([
-    sb.from('propiedades').select('*').eq('activa', true).eq('vendida', false),
+    aplicarFiltroTit(sb.from('propiedades').select('*').eq('activa', true).eq('vendida', false)),
     sb.from('movimientos_propiedades').select('*').eq('anio', anioActual),
   ]);
 
@@ -7015,7 +7016,7 @@ function setCompMetrica(metrica, btn) {
 async function loadComparativoAnual() {
   const res = document.getElementById('gastos-comparativo-result');
   if (res) res.innerHTML = '<div class="loader"><div class="spinner"></div></div>';
-  const { data, error } = await sb.from('resumen_anual_prop').select('*');
+  const { data, error } = await aplicarFiltroTit(sb.from('resumen_anual_prop').select('*'));
   if (error) { if(res) res.innerHTML = `<div class="card" style="color:var(--text3);text-align:center;padding:32px">Corré resumen_anual_prop.sql primero</div>`; return; }
   _compData = data || [];
   renderComparativoAnual();
@@ -8550,7 +8551,7 @@ function toggleTheme() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260618-016';
+const APP_VERSION = '20260618-017';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
