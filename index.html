@@ -329,17 +329,21 @@ body {
 .topbar-right { display: flex; align-items: center; gap: 12px; }
 .ver-como { background: var(--bg3); border:1px solid var(--border2); border-radius:20px; padding:6px 12px; font-size:12px; color:var(--text); outline:none; cursor:pointer; }
 body.rol-cliente .ver-como { display:none; }
-body.rol-cliente [data-page="tipo_cambio"],
-body.rol-cliente [data-page="deudas"],
-body.rol-cliente [data-page="alertas"],
-body.rol-cliente [data-page="gastos"],
-body.rol-cliente [data-page="organigramas"],
-body.rol-cliente [data-page="tarjetas"],
-body.rol-cliente [onclick^="edit"],
-body.rol-cliente [onclick*="Nuevo"],
-body.rol-cliente [onclick*="modal-"],
-body.rol-cliente [onclick*="'carga'"],
-body.rol-cliente .tc-edit-btn { display:none !important; }
+body.vista-cliente [data-page="tipo_cambio"],
+body.vista-cliente [data-page="deudas"],
+body.vista-cliente [data-page="alertas"],
+body.vista-cliente [data-page="gastos"],
+body.vista-cliente [data-page="organigramas"],
+body.vista-cliente [data-page="tarjetas"],
+body.vista-cliente .nav-mas,
+body.vista-cliente #dash-card-titular,
+body.vista-cliente #soc-info .filters,
+body.vista-cliente div:has(> select#soc-evol-tit),
+body.vista-cliente [onclick^="edit"],
+body.vista-cliente [onclick*="Nuevo"],
+body.vista-cliente [onclick*="modal-"],
+body.vista-cliente [onclick*="'carga'"],
+body.vista-cliente .tc-edit-btn { display:none !important; }
 
 .content {
   padding: 20px 24px;
@@ -884,7 +888,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
         Tarjetas
       </div>
 
-      <div class="nav-section-label">Más</div>
+      <div class="nav-section-label nav-mas">Más</div>
       <div class="nav-item" onclick="navTo('organigramas')" data-page="organigramas">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="5" r="3"/><line x1="12" y1="8" x2="12" y2="12"/><rect x="2" y="15" width="6" height="6" rx="1"/><rect x="9" y="15" width="6" height="6" rx="1"/><rect x="16" y="15" width="6" height="6" rx="1"/><line x1="5" y1="15" x2="5" y2="12"/><line x1="12" y1="15" x2="12" y2="12"/><line x1="19" y1="15" x2="19" y2="12"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         Organigramas
@@ -991,7 +995,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
 
         <!-- Gráfico titulares + tabla -->
         <div class="grid-2">
-          <div class="card">
+          <div class="card" id="dash-card-titular">
             <div class="section-title" style="margin-bottom:16px">Por Titular — Propiedades USD</div>
             <div style="position:relative;height:220px">
               <canvas id="chart-titulares"></canvas>
@@ -3655,6 +3659,7 @@ async function iniciarSesionRol(){
   const esCliente = miPerfil.rol === 'cliente' && !!miPerfil.titular;
   document.body.classList.toggle('rol-cliente', esCliente);
   verComo = esCliente ? miPerfil.titular : null;
+  document.body.classList.toggle('vista-cliente', !!verComo);
   poblarVerComo();
   initApp();
 }
@@ -3667,6 +3672,7 @@ function poblarVerComo(){
 }
 function setVerComo(t){
   verComo = t || null;
+  document.body.classList.toggle('vista-cliente', !!verComo);
   const act = document.querySelector('.page.active');
   const pg = act ? act.id.replace('page-','') : 'dashboard';
   if (typeof loadDashboard==='function' && pg!=='dashboard') loadDashboard();
@@ -6913,7 +6919,7 @@ async function filtrarAnual2() {
 
   // Load ALL active props + their movimientos for the year
   const [{ data: allProps }, { data: movs }] = await Promise.all([
-    sb.from('propiedades').select('id,nombre,pais,titular,nro').eq('activa',true).eq('vendida',false).order('nro'),
+    aplicarFiltroTit(sb.from('propiedades').select('id,nombre,pais,titular,nro').eq('activa',true).eq('vendida',false).order('nro')),
     sb.from('movimientos_propiedades').select('*').eq('anio', anio),
   ]);
 
@@ -7066,7 +7072,7 @@ async function verGastosTabla() {
 
   try {
   const [{ data: allProps, error: e1 }, { data: allMovs, error: e2 }] = await Promise.all([
-    sb.from('propiedades').select('id,nombre,pais,titular,nro').eq('activa',true).eq('vendida',false).order('nro'),
+    aplicarFiltroTit(sb.from('propiedades').select('id,nombre,pais,titular,nro').eq('activa',true).eq('vendida',false).order('nro')),
     sb.from('movimientos_propiedades').select('*').eq('anio', anio),
   ]);
   if (e1 || e2) { if(res) res.innerHTML = `<div class="card" style="color:var(--usa);padding:20px">Error: ${e1?.message||e2?.message}</div>`; return; }
@@ -7184,7 +7190,7 @@ async function loadDetalle() {
   const paisFiltro = document.getElementById('det-pais')?.value || '';
 
   const [{ data: allProps }, { data: movs }] = await Promise.all([
-    sb.from('propiedades').select('id,nombre,pais,titular').eq('activa',true).eq('vendida',false),
+    aplicarFiltroTit(sb.from('propiedades').select('id,nombre,pais,titular').eq('activa',true).eq('vendida',false)),
     sb.from('movimientos_propiedades').select('*').eq('anio', anio),
   ]);
 
@@ -8544,7 +8550,7 @@ function toggleTheme() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260618-015';
+const APP_VERSION = '20260618-016';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
