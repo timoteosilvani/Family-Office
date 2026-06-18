@@ -327,6 +327,19 @@ body {
 }
 .topbar-subtitle { font-size: 11px; color: var(--text3); margin-top: 1px; }
 .topbar-right { display: flex; align-items: center; gap: 12px; }
+.ver-como { background: var(--bg3); border:1px solid var(--border2); border-radius:20px; padding:6px 12px; font-size:12px; color:var(--text); outline:none; cursor:pointer; }
+body.rol-cliente .ver-como { display:none; }
+body.rol-cliente [data-page="tipo_cambio"],
+body.rol-cliente [data-page="deudas"],
+body.rol-cliente [data-page="alertas"],
+body.rol-cliente [data-page="gastos"],
+body.rol-cliente [data-page="organigramas"],
+body.rol-cliente [data-page="tarjetas"],
+body.rol-cliente [onclick^="edit"],
+body.rol-cliente [onclick*="Nuevo"],
+body.rol-cliente [onclick*="modal-"],
+body.rol-cliente [onclick*="'carga'"],
+body.rol-cliente .tc-edit-btn { display:none !important; }
 
 .content {
   padding: 20px 24px;
@@ -914,6 +927,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
         <div class="topbar-subtitle" id="topbar-subtitle">Resumen global del portfolio</div>
       </div>
       <div class="topbar-right">
+        <select id="ver-como-sel" class="ver-como" onchange="setVerComo(this.value)" title="Ver como cliente"></select>
         <div style="position:relative">
           <input type="text" id="global-search" placeholder="🔍 Buscar..."
             style="background:var(--bg3);border:1px solid var(--border2);border-radius:20px;padding:6px 14px;font-size:12px;color:var(--text);width:180px;outline:none"
@@ -3630,6 +3644,34 @@ const sb = createClient(
 // AUTH
 // ============================================
 let currentUser = null;
+let miPerfil = null;          // {rol, titular}
+let verComo = null;           // titular que el admin elige ver (null = ver todo)
+function aplicarFiltroTit(q){ return verComo ? q.eq('titular', verComo) : q; }
+async function iniciarSesionRol(){
+  try {
+    const { data } = await sb.from('perfiles').select('rol,titular').eq('id', currentUser.id).maybeSingle();
+    miPerfil = data || { rol:'admin', titular:null };
+  } catch(e){ miPerfil = { rol:'admin', titular:null }; }
+  const esCliente = miPerfil.rol === 'cliente' && !!miPerfil.titular;
+  document.body.classList.toggle('rol-cliente', esCliente);
+  verComo = esCliente ? miPerfil.titular : null;
+  poblarVerComo();
+  initApp();
+}
+function poblarVerComo(){
+  const sel = document.getElementById('ver-como-sel'); if(!sel) return;
+  const tits = ['JC','FC','FCC','MFL','YAC','M','G'];
+  sel.innerHTML = '<option value="">\uD83D\uDC51 Admin (ver todo)</option>' +
+    tits.map(t=>`<option value="${t}">Ver como ${t}</option>`).join('');
+  sel.value = verComo || '';
+}
+function setVerComo(t){
+  verComo = t || null;
+  const act = document.querySelector('.page.active');
+  const pg = act ? act.id.replace('page-','') : 'dashboard';
+  if (typeof loadDashboard==='function' && pg!=='dashboard') loadDashboard();
+  navTo(pg);
+}
 let tcCache = {};
 
 async function checkSession() {
@@ -3761,7 +3803,7 @@ function showApp() {
   });
   const dashEl = document.getElementById('page-dashboard');
   if (dashEl) { dashEl.classList.add('active'); dashEl.style.cssText = 'display:block'; }
-  initApp();
+  iniciarSesionRol();
 }
 
 // ============================================
@@ -4172,11 +4214,11 @@ function makeLegend(containerId, labels, colors, values, total) {
 
 async function loadDashboard() {
   const [{ data: props }, { data: bancosMovsRaw }, { data: pe }, { data: autos }, { data: bancosCat }] = await Promise.all([
-    sb.from('propiedades').select('pais, valor_2026, titular, tipo').eq('activa', true).eq('vendida', false),
+    aplicarFiltroTit(sb.from('propiedades').select('pais, valor_2026, titular, tipo').eq('activa', true).eq('vendida', false)),
     sb.from('movimientos_bancos').select('*').eq('anio', 2026),
-    sb.from('private_equity').select('titular, pais, valor_2026').eq('activo', true),
-    sb.from('autos').select('titular, pais, valor_2026').eq('activo', true),
-    sb.from('bancos').select('id, pais, activo'),
+    aplicarFiltroTit(sb.from('private_equity').select('titular, pais, valor_2026').eq('activo', true)),
+    aplicarFiltroTit(sb.from('autos').select('titular, pais, valor_2026').eq('activo', true)),
+    aplicarFiltroTit(sb.from('bancos').select('id, pais, activo')),
   ]);
 
   // Map banco_id -> pais (+ set de activos)
@@ -4315,8 +4357,8 @@ let patData = [];
 let patTipoActivo = 'total';
 
 async function loadPatrimonio() {
-  await recalcPatrimonioActual();
-  const { data } = await sb.from('patrimonio_historico').select('*').order('titular').order('anio');
+  if ((miPerfil?.rol||'admin')!=='cliente') { try { await recalcPatrimonioActual(); } catch(e){} }
+  const { data } = await aplicarFiltroTit(sb.from('patrimonio_historico').select('*').order('titular').order('anio'));
   patData = data || [];
   renderPatrimonioPivot();
   renderPatrimonioLinea();
@@ -5029,7 +5071,7 @@ function sortProps(col) {
 async function loadPropiedades() {
   const anio = new Date().getFullYear();
   const [{ data }, { data: movs }] = await Promise.all([
-    sb.from('propiedades').select('*').order('nro'),
+    aplicarFiltroTit(sb.from('propiedades').select('*').order('nro')),
     sb.from('movimientos_propiedades').select('propiedad_id,total_renta_usd,total_gastos_usd,total_impuestos_usd,neto_usd').eq('anio', anio),
   ]);
   propsData = data || [];
@@ -5502,7 +5544,7 @@ function filtroRanking(val, btn) {
 let bancosData = [], bancosMovData = [];
 async function loadBancos() {
   const [{ data: bancos }, { data: movs }] = await Promise.all([
-    sb.from('bancos').select('*').eq('activo', true).order('nro'),
+    aplicarFiltroTit(sb.from('bancos').select('*').eq('activo', true).order('nro')),
     sb.from('movimientos_bancos').select('*').eq('anio', 2026).order('mes'),
   ]);
   bancosData = bancos || [];
@@ -5712,7 +5754,7 @@ async function guardarMovBanco() {
 // PRIVATE EQUITY
 // ============================================
 async function loadPE() {
-  const { data } = await sb.from('private_equity').select('*').order('nro');
+  const { data } = await aplicarFiltroTit(sb.from('private_equity').select('*').order('nro'));
   window._peData = data || [];
   const sel = document.getElementById('pe-sel');
   sel.innerHTML = '<option value="">Seleccionar...</option>' +
@@ -5820,7 +5862,7 @@ async function guardarNuevaPE() {
 async function loadAutos() {
   const anio = new Date().getFullYear();
   const [{ data }, { data: gastosAutos }] = await Promise.all([
-    sb.from('autos').select('*').order('nro'),
+    aplicarFiltroTit(sb.from('autos').select('*').order('nro')),
     sb.from('movimientos_autos').select('auto_id,patente,seguro,service,otros_gastos,total_usd').eq('anio', anio),
   ]);
   const rows = data || [];
@@ -6102,11 +6144,11 @@ async function recalcPatrimonioActual() {
   // based on current values in all asset tables
   try {
     const [{ data: props }, { data: bancosMovs }, { data: pe }, { data: autos }, { data: bancos }] = await Promise.all([
-      sb.from('propiedades').select('titular, valor_2026').eq('activa', true).eq('vendida', false),
+      aplicarFiltroTit(sb.from('propiedades').select('titular, valor_2026').eq('activa', true).eq('vendida', false)),
       sb.from('movimientos_bancos').select('*').eq('anio', 2026),
-      sb.from('private_equity').select('titular, valor_2026').eq('activo', true),
-      sb.from('autos').select('titular, valor_2026').eq('activo', true),
-      sb.from('bancos').select('id, titular, pais, activo'),
+      aplicarFiltroTit(sb.from('private_equity').select('titular, valor_2026').eq('activo', true)),
+      aplicarFiltroTit(sb.from('autos').select('titular, valor_2026').eq('activo', true)),
+      aplicarFiltroTit(sb.from('bancos').select('id, titular, pais, activo')),
     ]);
     
     const bancosTitMap = {}; const activeB = new Set();
@@ -7741,7 +7783,7 @@ async function loadBancosEvolucion() {
   res.innerHTML = '<div class="loader"><div class="spinner"></div></div>';
 
   const [{ data: bancos }, { data: movs }] = await Promise.all([
-    sb.from('bancos').select('*').eq('activo', true).order('nro'),
+    aplicarFiltroTit(sb.from('bancos').select('*').eq('activo', true).order('nro')),
     sb.from('movimientos_bancos').select('*').eq('anio', anio).order('mes'),
   ]);
 
@@ -7867,7 +7909,7 @@ async function loadAutosEvolucion() {
   res.innerHTML = '<div class="loader"><div class="spinner"></div></div>';
 
   const [{ data: autos }, { data: gastos }] = await Promise.all([
-    sb.from('autos').select('*').eq('activo', true).order('nro'),
+    aplicarFiltroTit(sb.from('autos').select('*').eq('activo', true).order('nro')),
     sb.from('movimientos_autos').select('*').eq('anio', anio).order('mes'),
   ]);
 
@@ -7947,7 +7989,7 @@ async function loadSociedades() {
   let socs = [], movs = [];
   try {
     const [r1, r2] = await Promise.all([
-      sb.from('sociedades').select('*').eq('activa', true).order('nro'),
+      aplicarFiltroTit(sb.from('sociedades').select('*').eq('activa', true).order('nro')),
       sb.from('movimientos_sociedades').select('*').eq('anio', 2026),
     ]);
     socs = r1.data || [];
@@ -8027,7 +8069,7 @@ async function loadSocEvolucion() {
   res.innerHTML = '<div class="loader"><div class="spinner"></div></div>';
 
   const [{ data: socs }, { data: movs }] = await Promise.all([
-    sb.from('sociedades').select('*').eq('activa', true).order('nro'),
+    aplicarFiltroTit(sb.from('sociedades').select('*').eq('activa', true).order('nro')),
     sb.from('movimientos_sociedades').select('*').eq('anio', anio).order('mes'),
   ]);
 
@@ -8502,7 +8544,7 @@ function toggleTheme() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260605-014';
+const APP_VERSION = '20260618-015';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
