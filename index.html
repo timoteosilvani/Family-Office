@@ -304,6 +304,7 @@ body {
 .main {
   margin-left: var(--sidebar-w);
   flex: 1;
+  min-width: 0;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
@@ -489,7 +490,7 @@ body.vista-cliente .tc-edit-btn { display:none !important; }
 .kpi-accent.gold { background: var(--gold); }
 
 /* Tabla */
-.table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; max-width: 100%; }
 .page { overflow-x: hidden; }
 .content { overflow-x: hidden; }
 
@@ -3666,7 +3667,7 @@ async function iniciarSesionRol(){
 function poblarVerComo(){
   const sel = document.getElementById('ver-como-sel'); if(!sel) return;
   const tits = ['JC','FC','FCC','MFL','YAC','M','G'];
-  sel.innerHTML = '<option value="">\uD83D\uDC51 Admin (ver todo)</option>' +
+  sel.innerHTML = '<option value="">Admin</option>' +
     tits.map(t=>`<option value="${t}">Ver como ${t}</option>`).join('');
   sel.value = verComo || '';
 }
@@ -7345,6 +7346,7 @@ async function loadAlquileres() {
       .order('fecha_fin', { ascending: true, nullsFirst: false });
 
     contratosData = contratos || [];
+    if (verComo) contratosData = contratosData.filter(c => c.propiedad?.titular === verComo);
 
     // Fetch which contracts have uploaded files (check storage folders)
     window._contratoFiles = {};
@@ -8281,7 +8283,7 @@ async function loadTarjetaCard() {
   const tc = tcFor(anio, mes).ars_usd || 1220;
 
   let html = `<div class="table-wrap"><table style="font-size:12px">
-    <thead><tr><th>Cliente</th><th class="num">Monto U$S</th><th class="num">Monto $ (pesos)</th><th class="num">Total USD</th><th>💬 Comentario</th></tr></thead>
+    <thead><tr><th>Cliente</th><th>Monto U$S</th><th>Monto $ (pesos)</th><th class="num">Total USD</th><th>💬 Comentario</th></tr></thead>
     <tbody>`;
   (tarjetas||[]).forEach(t => {
     const m = movMap[t.id] || {};
@@ -8551,7 +8553,7 @@ function toggleTheme() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260618-017';
+const APP_VERSION = '20260618-018';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
