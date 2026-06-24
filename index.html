@@ -997,7 +997,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
         <!-- Gráfico titulares + tabla -->
         <div class="grid-2">
           <div class="card" id="dash-card-titular">
-            <div class="section-title" style="margin-bottom:16px">Por Titular — Propiedades USD</div>
+            <div class="section-title" style="margin-bottom:16px">Patrimonio por Titular (USD)</div>
             <div style="position:relative;height:220px">
               <canvas id="chart-titulares"></canvas>
             </div>
@@ -4226,13 +4226,14 @@ async function loadDashboard() {
     sb.from('movimientos_bancos').select('*').eq('anio', 2026),
     aplicarFiltroTit(sb.from('private_equity').select('titular, pais, valor_2026').eq('activo', true)),
     aplicarFiltroTit(sb.from('autos').select('titular, pais, valor_2026').eq('activo', true)),
-    aplicarFiltroTit(sb.from('bancos').select('id, pais, activo')),
+    aplicarFiltroTit(sb.from('bancos').select('id, pais, activo, titular')),
   ]);
 
-  // Map banco_id -> pais (+ set de activos)
+  // Map banco_id -> pais / titular (+ set de activos)
   const bancosPaisMap = {};
+  const bancosTitMap = {};
   const activeBancoIds = new Set();
-  bancosCat?.forEach(b => { bancosPaisMap[b.id] = b.pais; if (b.activo !== false) activeBancoIds.add(b.id); });
+  bancosCat?.forEach(b => { bancosPaisMap[b.id] = b.pais; bancosTitMap[b.id] = b.titular; if (b.activo !== false) activeBancoIds.add(b.id); });
 
   // Bancos: ultimo mes de cada banco ACTIVO, recalculado igual que Informacion (inv+cash-credito)
   const bancosMovs = Object.values(latestMovByBanco((bancosMovsRaw||[]).filter(m => activeBancoIds.has(m.banco_id))));
@@ -4315,9 +4316,10 @@ async function loadDashboard() {
       </div>
     </div>`).join('');
 
-  // Bar titulares
+  // Bar titulares (patrimonio total por titular: props + bancos + PE + autos)
   const byTit = {};
   props?.forEach(p => { byTit[p.titular] = (byTit[p.titular]||0) + (p.valor_2026||0); });
+  bancosMovs.forEach(m => { const t = bancosTitMap[m.banco_id]; if (t) byTit[t] = (byTit[t]||0) + (bancoNetoMap[m.banco_id]||0); });
   pe?.forEach(p => { byTit[p.titular] = (byTit[p.titular]||0) + (p.valor_2026||0); });
   autos?.forEach(a => { byTit[a.titular] = (byTit[a.titular]||0) + (a.valor_2026||0); });
   const titSorted = Object.entries(byTit).sort((a,b)=>b[1]-a[1]);
@@ -8553,7 +8555,7 @@ function toggleTheme() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260618-018';
+const APP_VERSION = '20260624-019';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
