@@ -6200,8 +6200,13 @@ async function recalcPatrimonioActual() {
     for (const row of upserts) {
       await sb.from('patrimonio_historico').upsert(row, { onConflict: 'titular,anio' });
     }
-    // La "H" nunca debe quedar como fila propia: se reparte en FC/YAC/FCC.
-    await sb.from('patrimonio_historico').delete().eq('titular', 'H');
+    // Borrar filas 2026 de titulares que ya no tienen activos (ej. JC) y la 'H':
+    // no deben figurar a su nombre. Su historia (años previos) se conserva.
+    const vivos = Object.keys(byTit);
+    if (vivos.length) {
+      await sb.from('patrimonio_historico').delete().eq('anio', 2026)
+        .not('titular', 'in', '(' + vivos.join(',') + ')');
+    }
     console.log('Patrimonio 2026 recalculado ✓');
   } catch(e) {
     console.warn('recalcPatrimonioActual error:', e.message);
@@ -8567,7 +8572,7 @@ function toggleTheme() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260624-021';
+const APP_VERSION = '20260624-023';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
