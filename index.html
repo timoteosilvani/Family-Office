@@ -3652,6 +3652,14 @@ let currentUser = null;
 let miPerfil = null;          // {rol, titular}
 let verComo = null;           // titular que el admin elige ver (null = ver todo)
 function aplicarFiltroTit(q){ return verComo ? q.eq('titular', verComo) : q; }
+
+// "H" = activo compartido en partes iguales entre estos titulares (Opcion B).
+// Una sola fila por activo (titular='H'); el reparto se hace al agregar por titular.
+const H_SHARE = ['FC','YAC','FCC'];
+function splitTitular(titular, valor){
+  if (titular === 'H') return H_SHARE.map(t => ({ titular: t, valor: (valor||0) / H_SHARE.length }));
+  return [{ titular, valor: valor||0 }];
+}
 async function iniciarSesionRol(){
   try {
     const { data } = await sb.from('perfiles').select('rol,titular').eq('id', currentUser.id).maybeSingle();
@@ -4316,12 +4324,13 @@ async function loadDashboard() {
       </div>
     </div>`).join('');
 
-  // Bar titulares (patrimonio total por titular: props + bancos + PE + autos)
+  // Bar titulares (patrimonio total por titular: props + bancos + PE + autos; reparte la "H")
   const byTit = {};
-  props?.forEach(p => { byTit[p.titular] = (byTit[p.titular]||0) + (p.valor_2026||0); });
-  bancosMovs.forEach(m => { const t = bancosTitMap[m.banco_id]; if (t) byTit[t] = (byTit[t]||0) + (bancoNetoMap[m.banco_id]||0); });
-  pe?.forEach(p => { byTit[p.titular] = (byTit[p.titular]||0) + (p.valor_2026||0); });
-  autos?.forEach(a => { byTit[a.titular] = (byTit[a.titular]||0) + (a.valor_2026||0); });
+  const addTit = (titular, valor) => splitTitular(titular, valor).forEach(s => { byTit[s.titular] = (byTit[s.titular]||0) + s.valor; });
+  props?.forEach(p => addTit(p.titular, p.valor_2026||0));
+  bancosMovs.forEach(m => { const t = bancosTitMap[m.banco_id]; if (t) addTit(t, bancoNetoMap[m.banco_id]||0); });
+  pe?.forEach(p => addTit(p.titular, p.valor_2026||0));
+  autos?.forEach(a => addTit(a.titular, a.valor_2026||0));
   const titSorted = Object.entries(byTit).sort((a,b)=>b[1]-a[1]);
   chartTitulares = destroyChart(chartTitulares);
   const ctxT = document.getElementById('chart-titulares')?.getContext('2d');
@@ -4369,7 +4378,7 @@ let patTipoActivo = 'total';
 async function loadPatrimonio() {
   if ((miPerfil?.rol||'admin')!=='cliente') { try { await recalcPatrimonioActual(); } catch(e){} }
   const { data } = await aplicarFiltroTit(sb.from('patrimonio_historico').select('*').order('titular').order('anio'));
-  patData = data || [];
+  patData = (data || []).filter(r => r.titular !== 'H'); // H se reparte en FC/YAC/FCC; nunca como fila/serie propia
   renderPatrimonioPivot();
   renderPatrimonioLinea();
 }
@@ -6167,14 +6176,15 @@ async function recalcPatrimonioActual() {
 
     const byTit = {};
     const ensureTit = t => { if (!byTit[t]) byTit[t] = { propiedades:0, banco:0, private_equity:0, autos:0 }; };
+    const addCat = (titular, cat, valor) => splitTitular(titular, valor).forEach(s => { ensureTit(s.titular); byTit[s.titular][cat] += s.valor; });
     
-    props?.forEach(p => { ensureTit(p.titular); byTit[p.titular].propiedades += p.valor_2026||0; });
+    props?.forEach(p => addCat(p.titular, 'propiedades', p.valor_2026||0));
     bancosMovsLatest?.forEach(m => { 
       const t = bancosTitMap[m.banco_id]; 
-      if (t) { ensureTit(t); byTit[t].banco += bancoMovUSD(m).neto; }
+      if (t) addCat(t, 'banco', bancoMovUSD(m).neto);
     });
-    pe?.forEach(p => { ensureTit(p.titular); byTit[p.titular].private_equity += p.valor_2026||0; });
-    autos?.forEach(a => { ensureTit(a.titular); byTit[a.titular].autos += a.valor_2026||0; });
+    pe?.forEach(p => addCat(p.titular, 'private_equity', p.valor_2026||0));
+    autos?.forEach(a => addCat(a.titular, 'autos', a.valor_2026||0));
     
     // Upsert into patrimonio_historico for year 2026
     const upserts = Object.entries(byTit).map(([titular, vals]) => ({
@@ -6190,6 +6200,8 @@ async function recalcPatrimonioActual() {
     for (const row of upserts) {
       await sb.from('patrimonio_historico').upsert(row, { onConflict: 'titular,anio' });
     }
+    // La "H" nunca debe quedar como fila propia: se reparte en FC/YAC/FCC.
+    await sb.from('patrimonio_historico').delete().eq('titular', 'H');
     console.log('Patrimonio 2026 recalculado ✓');
   } catch(e) {
     console.warn('recalcPatrimonioActual error:', e.message);
@@ -8555,7 +8567,7 @@ function toggleTheme() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260624-019';
+const APP_VERSION = '20260624-021';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
