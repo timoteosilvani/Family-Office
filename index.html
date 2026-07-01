@@ -4889,7 +4889,7 @@ async function loadPEEvolucion() {
       return `<tr><td style="color:${color}">${label}</td><td class="num bold ${cls||''}" style="color:${t?color:'var(--border2)'}">${t?'$'+fmt(t):'—'}</td>${vals.map(v=>`<td class="num ${cls||''}">${v?'$'+fmt(v):'—'}</td>`).join('')}</tr>`; };
     let html = `<div class="card" style="border:1px solid var(--gold);margin-bottom:16px">
       <div class="bold" style="color:var(--gold);margin-bottom:8px">Consolidado mensual — Evolución (todas las inversiones)</div>
-      <p style="color:var(--text3);font-size:11px;margin-bottom:10px">Depende solo de Evolución. Nota: el detalle de PE 2026 se carga como cierre anual (Dic).</p>
+      <p style="color:var(--text3);font-size:11px;margin-bottom:10px">Depende solo de Evolución.</p>
       <div class="table-wrap"><table style="font-size:11px">
         <thead><tr><th>Concepto</th><th class="num" style="color:var(--gold)">Total</th>${MM.map(m=>`<th class="num">${MN[m]}</th>`).join('')}</tr></thead>
         <tbody>
@@ -8572,7 +8572,7 @@ function toggleTheme() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260624-023';
+const APP_VERSION = '20260701-024';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
