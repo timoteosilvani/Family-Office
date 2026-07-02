@@ -1524,6 +1524,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
           <button class="tab-btn active" onclick="switchTab('banco','info',this)">Información</button>
           <button class="tab-btn" onclick="switchTab('banco','evolucion',this)">Evolución Mensual</button>
           <button class="tab-btn" onclick="switchTab('banco','carga',this)">Carga</button>
+          <button class="tab-btn" onclick="switchTab('banco','aportes',this)">Aportes</button>
         </div>
 
         <div id="banco-info" class="tab-content active">
@@ -1690,9 +1691,26 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
             </div>
           </div>
         </div>
-      </div>
 
-      <!-- ======== PRIVATE EQUITY ======== -->
+        <div id="banco-aportes" class="tab-content">
+          <div style="display:inline-block;background:var(--gold-soft);border:1px solid var(--gold);color:var(--gold);border-radius:20px;padding:4px 14px;font-size:11px;font-weight:600;letter-spacing:0.5px;margin-bottom:14px">💰 APORTES Y MOVIMIENTOS DE CAPITAL</div>
+          <p style="color:var(--text3);font-size:12px;margin-bottom:16px">Registrá incorporaciones, aportes y retiros por cuenta, con fecha. Se usan para separar el rendimiento genuino de los movimientos de capital (método Dietz) en los informes.</p>
+          <div class="card" style="margin-bottom:20px">
+            <div class="grid-2">
+              <div><label class="fld">Cuenta</label><select class="fld" id="ap-banco"></select></div>
+              <div><label class="fld">Fecha</label><input class="fld" type="date" id="ap-fecha"></div>
+              <div><label class="fld">Tipo</label><select class="fld" id="ap-tipo"><option value="incorporacion">Incorporación</option><option value="aporte">Aporte</option><option value="retiro">Retiro</option></select></div>
+              <div><label class="fld">Monto (USD)</label><input class="fld" type="number" id="ap-monto" value="0"></div>
+              <div style="grid-column:1/-1"><label class="fld">Notas</label><input class="fld" id="ap-notas"></div>
+            </div>
+            <div style="display:flex;justify-content:flex-end;margin-top:12px">
+              <button class="btn-primary" style="width:auto;padding:10px 24px" onclick="guardarAporte()">Registrar</button>
+            </div>
+          </div>
+          <div class="section-title" style="margin-bottom:12px">Movimientos registrados</div>
+          <div id="aportes-lista"><div class="loader"><div class="spinner"></div></div></div>
+        </div>
+      </div>
       <div id="page-private_equity" class="page">
         <div class="tabs">
           <button class="tab-btn active" onclick="switchTab('pe','info',this)">Información</button>
@@ -4016,7 +4034,7 @@ async function loadPage(page, skipInit) {
     case 'patrimonio': await loadPatrimonio(); break;
     case 'propiedades': await loadPropiedades(); await loadAlquileres(); it('propiedades'); break;
     case 'ranking': await loadRanking(); break;
-    case 'bancos': await loadBancos(); await loadBancosEvolucion(); it('bancos'); break;
+    case 'bancos': await loadBancos(); await loadBancosEvolucion(); try{ await loadAportes(); }catch(e){ console.warn('aportes:', e.message); } it('bancos'); break;
     case 'private_equity': await loadPE(); await loadPEEvolucion(); it('private_equity'); break;
     case 'autos': 
       await loadAutos(); 
@@ -5781,6 +5799,56 @@ async function cargarMovBanco() {
       sumCashDesglose();
     }
   }
+}
+
+let _apBancosNombre = {};
+async function loadAportes() {
+  const sel = document.getElementById('ap-banco');
+  const { data: bcs } = await aplicarFiltroTit(sb.from('bancos').select('id,nombre,titular').eq('activo',true).order('nro'));
+  _apBancosNombre = {}; (bcs||[]).forEach(b => _apBancosNombre[b.id] = b.nombre);
+  if (sel) sel.innerHTML = (bcs||[]).map(b => `<option value="${b.id}">${b.nombre} (${b.titular})</option>`).join('');
+  const cont = document.getElementById('aportes-lista');
+  if (!cont) return;
+  const { data, error } = await sb.from('aportes_bancos').select('*').order('fecha', { ascending: true });
+  if (error) { cont.innerHTML = `<p style="color:var(--usa);font-size:13px">No se pudo leer aportes (${error.message}). ¿Creaste la tabla <code>aportes_bancos</code>?</p>`; return; }
+  const rows = data || [];
+  if (!rows.length) { cont.innerHTML = '<p style="color:var(--text3);font-size:13px">Sin movimientos de capital registrados todavía.</p>'; return; }
+  const tipoLbl = { incorporacion:'Incorporación', aporte:'Aporte', retiro:'Retiro' };
+  const neg = t => t === 'retiro';
+  cont.innerHTML = `<div class="table-wrap"><table>
+    <thead><tr><th>Cuenta</th><th>Fecha</th><th>Tipo</th><th class="num">Monto</th><th class="notas-comentario-column"></th></tr></thead>
+    <tbody>${rows.map(r => `<tr>
+      <td>${_apBancosNombre[r.banco_id] || '—'}</td>
+      <td>${r.fecha}</td>
+      <td>${tipoLbl[r.tipo] || r.tipo}${r.notas ? ` · <span style="color:var(--text3);font-size:11px">${r.notas}</span>` : ''}</td>
+      <td class="num" style="color:${neg(r.tipo) ? 'var(--usa)' : 'var(--esp)'}">${neg(r.tipo) ? '-' : '+'} $${fmt(Math.abs(r.monto||0))}</td>
+      <td class="num"><button class="btn-secondary" style="padding:3px 9px;font-size:11px" onclick="borrarAporte('${r.id}')">✕</button></td>
+    </tr>`).join('')}</tbody></table></div>`;
+}
+
+async function guardarAporte() {
+  const banco_id = document.getElementById('ap-banco').value;
+  const fecha = document.getElementById('ap-fecha').value;
+  const tipo = document.getElementById('ap-tipo').value;
+  const monto = parseFloat(document.getElementById('ap-monto').value) || 0;
+  if (!banco_id || !fecha || !monto) return toast('Completá cuenta, fecha y monto', 'error');
+  const { error } = await sb.from('aportes_bancos').insert({
+    banco_id, fecha, tipo, monto: Math.abs(monto),
+    notas: document.getElementById('ap-notas').value || null, created_by: currentUser?.id,
+  });
+  if (error) return toast('Error: ' + error.message, 'error');
+  toast('Movimiento registrado ✓', 'success');
+  document.getElementById('ap-monto').value = 0;
+  document.getElementById('ap-notas').value = '';
+  await loadAportes();
+}
+
+async function borrarAporte(id) {
+  if (!confirm('¿Borrar este movimiento de capital?')) return;
+  const { error } = await sb.from('aportes_bancos').delete().eq('id', id);
+  if (error) return toast('Error: ' + error.message, 'error');
+  toast('Borrado ✓', 'success');
+  await loadAportes();
 }
 
 async function guardarMovBanco() {
@@ -8636,7 +8704,7 @@ function toggleTheme() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260701-027';
+const APP_VERSION = '20260701-028';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
