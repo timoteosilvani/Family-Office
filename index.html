@@ -1011,6 +1011,12 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
             <div id="tabla-activos" style="margin-top:16px"></div>
           </div>
         </div>
+
+        <!-- Matriz País × Clase -->
+        <div class="card">
+          <div class="section-title" style="margin-bottom:16px">Patrimonio por País y Clase de Activo (USD)</div>
+          <div id="tabla-matriz-pc"></div>
+        </div>
       </div>
 
       <!-- ======== PATRIMONIO HISTÓRICO ======== -->
@@ -4367,6 +4373,31 @@ async function loadDashboard() {
       <div style="text-align:center"><div style="color:var(--gold);font-size:18px;font-weight:300">$${fmt(renta)}</div><div style="color:var(--text3)">Renta</div></div>
       <div style="text-align:center"><div style="color:var(--text2);font-size:18px;font-weight:300">$${fmt(noRenta)}</div><div style="color:var(--text3)">No Renta</div></div>
     </div>`;
+
+  // ===== Matriz País × Clase =====
+  const clasesM = [
+    { k:'Propiedades',    color:'#c9a84c', vals:{ARG:0,USA:0,URU:0,ESP:0} },
+    { k:'Bancos',         color:'#2980b9', vals:{ARG:0,USA:0,URU:0,ESP:0} },
+    { k:'Private Equity', color:'#c0392b', vals:{ARG:0,USA:0,URU:0,ESP:0} },
+    { k:'Autos',          color:'#27ae60', vals:{ARG:0,USA:0,URU:0,ESP:0} },
+  ];
+  props?.forEach(p => { if (clasesM[0].vals[p.pais]!==undefined) clasesM[0].vals[p.pais] += (p.valor_2026||0); });
+  bancosMovs.forEach(m => { const pa = bancosPaisMap[m.banco_id]; if (clasesM[1].vals[pa]!==undefined) clasesM[1].vals[pa] += (bancoNetoMap[m.banco_id]||0); });
+  pe?.forEach(p => { if (clasesM[2].vals[p.pais]!==undefined) clasesM[2].vals[p.pais] += (p.valor_2026||0); });
+  autos?.forEach(a => { if (clasesM[3].vals[a.pais]!==undefined) clasesM[3].vals[a.pais] += (a.valor_2026||0); });
+  const paisesM = ['ARG','USA','URU','ESP'];
+  const paisNomM = { ARG:'Argentina', USA:'USA', URU:'Uruguay', ESP:'España' };
+  const colTotM = { ARG:0,USA:0,URU:0,ESP:0 };
+  clasesM.forEach(c => paisesM.forEach(pa => colTotM[pa] += c.vals[pa]));
+  const grandM = paisesM.reduce((a,pa)=>a+colTotM[pa],0);
+  const cellM = v => v ? '$'+fmt(v) : '<span style="color:var(--text3)">—</span>';
+  const matEl = document.getElementById('tabla-matriz-pc');
+  if (matEl) matEl.innerHTML = `<div class="table-wrap"><table>
+    <thead><tr><th>Clase</th>${paisesM.map(pa=>`<th class="num">${paisNomM[pa]}</th>`).join('')}<th class="num">Total</th></tr></thead>
+    <tbody>${clasesM.map(c => { const rt = paisesM.reduce((a,pa)=>a+c.vals[pa],0); return `
+      <tr><td class="bold"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${c.color};margin-right:8px"></span>${c.k}</td>${paisesM.map(pa=>`<td class="num">${cellM(c.vals[pa])}</td>`).join('')}<td class="num bold">$${fmt(rt)}</td></tr>`; }).join('')}
+      <tr style="border-top:2px solid var(--border2)"><td class="bold" style="color:var(--gold)">TOTAL</td>${paisesM.map(pa=>`<td class="num bold">$${fmt(colTotM[pa])}</td>`).join('')}<td class="num bold" style="color:var(--gold)">$${fmt(grandM)}</td></tr>
+    </tbody></table></div>`;
 }
 
 // ============================================
@@ -8572,7 +8603,7 @@ function toggleTheme() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260701-024';
+const APP_VERSION = '20260701-025';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
