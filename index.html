@@ -3481,6 +3481,8 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
       <div class="form-row cols-3">
         <div><label class="fld">Fecha Compra</label><input class="fld" type="date" id="np-fecha-compra"></div>
         <div><label class="fld">Valor Compra (USD)</label><input class="fld" type="number" id="np-valor-compra"></div>
+        <div><label class="fld">Fecha Venta</label><input class="fld" type="date" id="np-fecha-venta"></div>
+        <div><label class="fld">Valor Venta (USD)</label><input class="fld" type="number" id="np-valor-venta"></div>
         <div><label class="fld">Inversión (USD)</label><input class="fld" type="number" id="np-inversion" value="0"></div>
       </div>
       <div class="form-row cols-2">
@@ -5253,6 +5255,8 @@ async function guardarNuevaPropiedad() {
     direccion: document.getElementById('np-direccion').value,
     fecha_compra: document.getElementById('np-fecha-compra').value || null,
     valor_compra: parseFloat(document.getElementById('np-valor-compra').value)||0,
+    fecha_venta: document.getElementById('np-fecha-venta').value || null,
+    valor_venta: parseFloat(document.getElementById('np-valor-venta').value)||null,
     inversion: parseFloat(document.getElementById('np-inversion').value)||0,
     valor_2025: parseFloat(document.getElementById('np-val25').value)||0,
     valor_2026: parseFloat(document.getElementById('np-val26').value)||0,
@@ -5506,6 +5510,8 @@ async function verFichaPropiedad(id) {
       <div class="field"><label>País</label><p>${prop.pais}</p></div>
       <div class="field"><label>Fecha de Compra</label><p>${prop.fecha_compra||'—'}</p></div>
       <div class="field"><label>Valor de Compra</label><p>USD ${fmt(prop.valor_compra)}</p></div>
+      <div class="field"><label>Fecha de Venta</label><p>${prop.fecha_venta||'—'}</p></div>
+      <div class="field"><label>Valor de Venta</label><p>${prop.valor_venta?('USD '+fmt(prop.valor_venta)):'—'}</p></div>
       <div class="field"><label>Inversión Adicional</label><p>USD ${fmt(prop.inversion)}</p></div>
       <div class="field"><label>Superficie</label><p>${prop.m2||'—'} m²</p></div>
       <div class="field"><label>Inquilino Actual</label><p>${prop.inquilino_actual||'—'}</p></div>
@@ -5815,15 +5821,28 @@ async function loadAportes() {
   if (!rows.length) { cont.innerHTML = '<p style="color:var(--text3);font-size:13px">Sin movimientos de capital registrados todavía.</p>'; return; }
   const tipoLbl = { incorporacion:'Incorporación', aporte:'Aporte', retiro:'Retiro' };
   const neg = t => t === 'retiro';
-  cont.innerHTML = `<div class="table-wrap"><table>
-    <thead><tr><th>Cuenta</th><th>Fecha</th><th>Tipo</th><th class="num">Monto</th><th class="notas-comentario-column"></th></tr></thead>
-    <tbody>${rows.map(r => `<tr>
-      <td>${_apBancosNombre[r.banco_id] || '—'}</td>
-      <td>${r.fecha}</td>
-      <td>${tipoLbl[r.tipo] || r.tipo}${r.notas ? ` · <span style="color:var(--text3);font-size:11px">${r.notas}</span>` : ''}</td>
-      <td class="num" style="color:${neg(r.tipo) ? 'var(--usa)' : 'var(--esp)'}">${neg(r.tipo) ? '-' : '+'} $${fmt(Math.abs(r.monto||0))}</td>
-      <td class="num"><button class="btn-secondary" style="padding:3px 9px;font-size:11px" onclick="borrarAporte('${r.id}')">✕</button></td>
-    </tr>`).join('')}</tbody></table></div>`;
+  // Agrupar por cuenta: un cuadro por banco (solo los que tienen movimientos), sin mezclar
+  const byBank = {};
+  rows.forEach(r => { (byBank[r.banco_id] = byBank[r.banco_id] || []).push(r); });
+  cont.innerHTML = Object.keys(byBank).map(bid => {
+    const aps = byBank[bid];
+    const neto = aps.reduce((a,r) => a + (neg(r.tipo) ? -1 : 1) * Math.abs(r.monto||0), 0);
+    return `<div class="card" style="margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <div class="section-title" style="margin:0;font-size:14px">${_apBancosNombre[bid] || '—'}</div>
+        <div style="font-size:12px;color:var(--text3)">Neto aportado: <b style="color:${neto<0?'var(--usa)':'var(--esp)'}">$${fmt(neto)}</b></div>
+      </div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Fecha</th><th>Tipo</th><th class="num">Monto</th><th></th></tr></thead>
+        <tbody>${aps.map(r => `<tr>
+          <td>${r.fecha}</td>
+          <td>${tipoLbl[r.tipo] || r.tipo}${r.notas ? ` · <span style="color:var(--text3);font-size:11px">${r.notas}</span>` : ''}</td>
+          <td class="num" style="color:${neg(r.tipo) ? 'var(--usa)' : 'var(--esp)'}">${neg(r.tipo) ? '-' : '+'} $${fmt(Math.abs(r.monto||0))}</td>
+          <td class="num"><button class="btn-secondary" style="padding:3px 9px;font-size:11px" onclick="borrarAporte('${r.id}')">✕</button></td>
+        </tr>`).join('')}</tbody>
+      </table></div>
+    </div>`;
+  }).join('');
 }
 
 async function guardarAporte() {
@@ -8704,7 +8723,7 @@ function toggleTheme() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260701-028';
+const APP_VERSION = '20260701-029';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
