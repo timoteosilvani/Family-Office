@@ -855,6 +855,10 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
         Propiedades
       </div>
+      <div class="nav-item" onclick="navTo('gastos')" data-page="gastos">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+        Gastos
+      </div>
       <div class="nav-item" onclick="navTo('ranking')" data-page="ranking">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
         Prop. Ranking
@@ -870,10 +874,6 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
       <div class="nav-item" onclick="navTo('autos')" data-page="autos">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
         Autos
-      </div>
-      <div class="nav-item" onclick="navTo('gastos')" data-page="gastos">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
-        Gastos
       </div>
       <div class="nav-item" onclick="navTo('deudas')" data-page="deudas">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
@@ -4009,39 +4009,48 @@ async function populateAllSelects() {
   } catch(e) { console.warn('sociedades select:', e.message); }
 }
 
-async function loadPage(page) {
+async function loadPage(page, skipInit) {
+  const it = (id) => { if (!skipInit) initFirstTab(id); };
   switch(page) {
     case 'dashboard': await loadDashboard(); break;
     case 'patrimonio': await loadPatrimonio(); break;
-    case 'propiedades': await loadPropiedades(); await loadAlquileres(); initFirstTab('propiedades'); break;
+    case 'propiedades': await loadPropiedades(); await loadAlquileres(); it('propiedades'); break;
     case 'ranking': await loadRanking(); break;
-    case 'bancos': await loadBancos(); await loadBancosEvolucion(); initFirstTab('bancos'); break;
-    case 'private_equity': await loadPE(); await loadPEEvolucion(); initFirstTab('private_equity'); break;
+    case 'bancos': await loadBancos(); await loadBancosEvolucion(); it('bancos'); break;
+    case 'private_equity': await loadPE(); await loadPEEvolucion(); it('private_equity'); break;
     case 'autos': 
       await loadAutos(); 
       await loadAutosEvolucion();
-      initFirstTab('autos');
+      it('autos');
       break;
     case 'deudas': await loadDeudas(); break;
     case 'organigramas': 
       try { renderOrganigramas(); } catch(e) { console.warn('org error:', e.message); }
-      initFirstTab('organigramas');
+      it('organigramas');
       break;
     case 'tipo_cambio': await loadTC_tabla(); break;
     case 'gastos': 
       await loadGastos();
-      initFirstTab('gastos');
+      it('gastos');
       break;
     case 'alertas': await loadAlertas(); break;
     case 'sociedades': 
       await loadSociedades();
-      initFirstTab('sociedades');
+      it('sociedades');
       break;
     case 'tarjetas':
       await loadTarjetas();
-      initFirstTab('tarjetas');
+      it('tarjetas');
       break;
   }
+}
+
+// Refresca la vista de la pagina activa SIN resetear la solapa (para reflejar altas/ediciones al instante)
+async function refrescarVistaActual() {
+  const act = document.querySelector('.page.active');
+  if (!act) return;
+  const page = act.id.replace('page-','');
+  try { await loadPage(page, true); } catch(e) { console.warn('refrescarVistaActual:', e.message); }
 }
 
 // ============================================
@@ -4051,7 +4060,7 @@ async function loadTC() {
   const now = new Date();
   const { data } = await sb.from('tipo_de_cambio')
     .select('*')
-    .eq('anio', 2026)
+    .eq('anio', now.getFullYear())
     .eq('mes', now.getMonth() + 1)
     .maybeSingle();
   if (data) {
@@ -4917,7 +4926,7 @@ async function loadPEEvolucion() {
     const totUtil = movs.reduce((a,m) => a+(m.utilidad||0), 0);
     const totAporte = movs.reduce((a,m) => a+(m.aporte_capital||0), 0);
     const totGastos = movs.reduce((a,m) => a+(m.gastos||0)+(m.impuestos||0), 0);
-    const totNeto = totUtil - totGastos;
+    const totNeto = totUtil - totAporte - totGastos;
     const ge = id => document.getElementById(id);
     if (ge('pe-ev-utilidad')) ge('pe-ev-utilidad').textContent = '$' + fmt(totUtil);
     if (ge('pe-ev-aportes')) ge('pe-ev-aportes').textContent = '$' + fmt(totAporte);
@@ -4937,7 +4946,7 @@ async function loadPEEvolucion() {
     const sumF = (field) => MM.map(m => filtered.reduce((a,pe)=>{const mm=mMapOf(pe);return a+(mm[m]?.[field]||0);},0));
     const sumG = () => MM.map(m => filtered.reduce((a,pe)=>{const mm=mMapOf(pe);return a+gp(mm,m);},0));
     const utilV = sumF('utilidad'), aporV = sumF('aporte_capital'), gasV = sumG();
-    const netoV = MM.map((m,i)=>utilV[i]-gasV[i]);
+    const netoV = MM.map((m,i)=>utilV[i]-aporV[i]-gasV[i]);
     const rowC = (label,vals,color,cls) => { const t=vals.reduce((a,b)=>a+b,0);
       return `<tr><td style="color:${color}">${label}</td><td class="num bold ${cls||''}" style="color:${t?color:'var(--border2)'}">${t?'$'+fmt(t):'—'}</td>${vals.map(v=>`<td class="num ${cls||''}">${v?'$'+fmt(v):'—'}</td>`).join('')}</tr>`; };
     let html = `<div class="card" style="border:1px solid var(--gold);margin-bottom:16px">
@@ -4964,7 +4973,7 @@ async function loadPEEvolucion() {
       const tUtil = MM.reduce((a,m)=>a+(mm[m]?.utilidad||0),0);
       const tAporte = MM.reduce((a,m)=>a+(mm[m]?.aporte_capital||0),0);
       const tGastos = MM.reduce((a,m)=>a+gp(mm,m),0);
-      const tNeto = tUtil - tGastos;
+      const tNeto = tUtil - tAporte - tGastos;
       const cellF = (field,color) => MM.map(m=>{const v=mm[m]?.[field]||null;const c=mm[m]?.comentarios?.[field]||'';return `<td class="num ${c?'coment-tooltip has-coment':''}" style="font-size:10px;color:${v?color:'var(--border2)'};position:relative">${v?'$'+fmt(v):'—'}${c?`<span class="coment-pop">💬 ${c}</span>`:''}</td>`;}).join('');
       const cellG = () => MM.map(m=>{const v=gp(mm,m);return `<td class="num" style="font-size:10px;color:${v?'var(--usa)':'var(--border2)'}">${v?'$'+fmt(v):'—'}</td>`;}).join('');
 
@@ -5406,6 +5415,7 @@ async function guardarMovProp() {
 
   await recalcPatrimonioFromMovs(propId, anio);
   toast('Guardado ✓ — otros datos del mes conservados', 'success');
+  await refrescarVistaActual();
 }
 
 async function recalcPatrimonioFromMovs(propId, anio) {
@@ -6287,7 +6297,7 @@ function pct(part, total) {
 }
 
 function openModal(id) { document.getElementById(id).classList.add('open'); }
-function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); refrescarVistaActual(); }
 
 // Cerrar modal al click fuera
 document.querySelectorAll('.modal-overlay').forEach(m => {
@@ -8559,6 +8569,7 @@ async function guardarMovAuto() {
   }, { onConflict: 'auto_id,anio,mes' });
   if (error) return toast('Error: ' + error.message, 'error');
   toast('Gasto de auto guardado ✓', 'success');
+  await refrescarVistaActual();
 }
 
 // ============================================
@@ -8625,7 +8636,7 @@ function toggleTheme() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260701-026';
+const APP_VERSION = '20260701-027';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
