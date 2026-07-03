@@ -5964,13 +5964,24 @@ async function generarReporte() {
     });
     bancos.forEach(b => { const mi = inicial[b.id]; if (mi) bancosCierre += Number(bancoMovUSD(mi).neto)||0; });
   }
-  // Renta neta de propiedades del semestre (ene-jun)
+  // Renta neta de propiedades: semestre (ene-jun 2026) + detalle acumulado por propiedad
   let rentaNeta = 0;
   const propIds = props.map(p=>p.id);
   const shareById = {}; props.forEach(p => shareById[p.id] = share(p));
+  const propDet = {}; propIds.forEach(id => propDet[id] = { rentaSem:0, gastosSem:0, netoSem:0, netoAcum:0 });
   if (propIds.length) {
-    const { data: mp } = await sb.from('movimientos_propiedades').select('*').eq('anio',2026).in('propiedad_id', propIds);
-    (mp||[]).forEach(m => { if (m.mes>=1 && m.mes<=6) rentaNeta += (Number(m.neto_usd)||0) * (shareById[m.propiedad_id]||1); });
+    const { data: mp } = await sb.from('movimientos_propiedades').select('*').in('propiedad_id', propIds);
+    (mp||[]).forEach(m => {
+      const sh = shareById[m.propiedad_id]||1; const d = propDet[m.propiedad_id]; if (!d) return;
+      const neto = (Number(m.neto_usd)||0)*sh;
+      d.netoAcum += neto;
+      if (Number(m.anio)===2026 && m.mes>=1 && m.mes<=6) {
+        rentaNeta += neto;
+        d.rentaSem += (Number(m.total_renta_usd)||0)*sh;
+        d.gastosSem += ((Number(m.total_gastos_usd)||0)+(Number(m.total_impuestos_usd)||0))*sh;
+        d.netoSem += neto;
+      }
+    });
   }
 
   const sum = (arr,f) => arr.reduce((a,r)=>a + (Number(r[f])||0)*share(r), 0);
@@ -6003,6 +6014,11 @@ async function generarReporte() {
   const pct = v => patrimonioActual>0 ? (v/patrimonioActual*100).toFixed(1)+'%' : '—';
   const paisNom = {ARG:'Argentina',USA:'Estados Unidos',URU:'Uruguay',ESP:'España'};
   const cliNom = (REP_CLIENTES.find(c=>c.code===tit)||{}).nombre || tit;
+  const paisB = pp => `<span class="badge badge-${({ARG:'arg',USA:'usa',URU:'uru',ESP:'esp'})[pp]||'arg'}">${pp}</span>`;
+  const propsRenta = props.filter(p => propDet[p.id] && (propDet[p.id].rentaSem>0 || propDet[p.id].gastosSem>0));
+  const totRentaSem = propsRenta.reduce((a,p)=>a+propDet[p.id].rentaSem,0);
+  const totGastosSem = propsRenta.reduce((a,p)=>a+propDet[p.id].gastosSem,0);
+  const totNetoSem = propsRenta.reduce((a,p)=>a+propDet[p.id].netoSem,0);
 
   cont.innerHTML = `
     <div style="background:var(--gold-soft);border:1px solid var(--gold);border-radius:10px;padding:12px 16px;margin-bottom:20px">
@@ -6049,7 +6065,31 @@ async function generarReporte() {
       </tbody></table></div>
       <p style="color:var(--text3);font-size:11px;margin-top:10px">Las cuentas operativas (marcadas en Bancos) cuentan en el patrimonio pero se excluyen del rendimiento: su variación viene de rentas y transferencias, no de ganancia financiera.</p>` : ''}
     </div>
-    <p style="color:var(--text3);font-size:11px;margin-top:16px">Acumulado = patrimonio actual − capital invertido. Rendimiento por método Dietz sobre las cuentas de inversión. El detalle por activo (propiedades) y el export a PDF se agregan en las próximas fases.</p>`;
+    <div class="card" style="margin-top:20px">
+      <div class="section-title" style="font-size:14px;margin-bottom:12px">Propiedades · resultado del semestre (S1 2026)</div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Propiedad</th><th class="num">V. compra</th><th class="num">V. actual</th><th class="num">Renta</th><th class="num">Gastos</th><th class="num">Renta neta</th><th class="num">Rent. sem.</th></tr></thead>
+        <tbody>
+        ${propsRenta.map(p=>{ const d=propDet[p.id]; const sh=share(p); const vi=(Number(p.valor_2025)||Number(p.valor_2026)||0)*sh; const rs=vi>0?(d.netoSem/vi*100):0;
+          return `<tr><td>${p.nombre}</td><td class="num">$${fmt((Number(p.valor_compra)||0)*sh)}</td><td class="num">$${fmt((Number(p.valor_2026)||0)*sh)}</td><td class="num">$${fmt(d.rentaSem)}</td><td class="num negative">$${fmt(d.gastosSem)}</td><td class="num" style="color:${d.netoSem>=0?'var(--esp)':'var(--usa)'}">${d.netoSem>=0?'+':''}$${fmt(d.netoSem)}</td><td class="num">${rs.toFixed(2)}%</td></tr>`;
+        }).join('') || '<tr><td colspan="7" style="color:var(--text3)">Sin movimientos de alquiler en el semestre</td></tr>'}
+        <tr style="font-weight:600;border-top:2px solid var(--border)"><td>Total</td><td></td><td></td><td class="num">$${fmt(totRentaSem)}</td><td class="num negative">$${fmt(totGastosSem)}</td><td class="num" style="color:${totNetoSem>=0?'var(--esp)':'var(--usa)'}">${totNetoSem>=0?'+':''}$${fmt(totNetoSem)}</td><td></td></tr>
+        </tbody></table></div>
+      <p style="color:var(--text3);font-size:11px;margin-top:8px">Rentabilidad semestral = renta neta del semestre sobre el valor de inicio del período.</p>
+    </div>
+
+    <div class="card" style="margin-top:20px">
+      <div class="section-title" style="font-size:14px;margin-bottom:12px">Cartera completa · acumulado desde la compra</div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>País / Propiedad</th><th class="num">F. compra</th><th class="num">V. compra</th><th class="num">V. actual</th><th class="num">Renta neta acum.</th><th class="num">Valoriz.</th><th class="num">Neto econ.</th></tr></thead>
+        <tbody>
+        ${props.slice().sort((a,b)=>(a.pais||'').localeCompare(b.pais||'')).map(p=>{ const sh=share(p); const vc=(Number(p.valor_compra)||0)*sh; const va=(Number(p.valor_2026)||0)*sh; const d=propDet[p.id]||{netoAcum:0}; const valoriz=va-vc; const netoEcon=valoriz+d.netoAcum; const valPct=vc>0?((va/vc-1)*100):0;
+          return `<tr><td>${paisB(p.pais)} ${p.nombre}</td><td class="num" style="font-size:11px">${p.fecha_compra||'—'}</td><td class="num">$${fmt(vc)}</td><td class="num">$${fmt(va)}</td><td class="num" style="color:${d.netoAcum>=0?'var(--esp)':'var(--usa)'}">${d.netoAcum>=0?'+':''}$${fmt(d.netoAcum)}</td><td class="num" style="color:${valoriz>=0?'var(--esp)':'var(--usa)'}">${valPct>=0?'+':''}${valPct.toFixed(1)}%</td><td class="num" style="color:${netoEcon>=0?'var(--esp)':'var(--usa)'}">${netoEcon>=0?'+':''}$${fmt(netoEcon)}</td></tr>`;
+        }).join('')}
+        </tbody></table></div>
+      <p style="color:var(--text3);font-size:11px;margin-top:8px">Neto económico = valorización + renta neta acumulada. La renta neta acumulada refleja los años cargados en la app.</p>
+    </div>
+    <p style="color:var(--text3);font-size:11px;margin-top:16px">Acumulado = patrimonio actual − capital invertido. Rendimiento por método Dietz sobre las cuentas de inversión. Próxima fase: export a PDF con un botón.</p>`;
 }
 
 async function guardarMovBanco() {
@@ -8905,7 +8945,7 @@ function toggleTheme() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260702-035';
+const APP_VERSION = '20260702-036';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
