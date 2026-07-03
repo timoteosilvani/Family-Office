@@ -5720,7 +5720,7 @@ function renderBancos(paisFiltro) {
     const mesTxt = mv ? `<span style="color:var(--text3);font-size:10px"> ${mesesAbr[mv.mes]}</span>` : '';
     return `<tr class="row-${colPais[b.pais]||'arg'}">
       <td style="color:var(--text3)">${b.nro||'—'}</td>
-      <td class="bold">${b.nombre}${mesTxt}</td>
+      <td class="bold">${b.nombre}${mesTxt} <span onclick="toggleOperativa('${b.id}',${b.es_operativa?'true':'false'})" title="Click para cambiar: Inversión / Operativa" style="cursor:pointer;font-size:9px;font-weight:600;border-radius:4px;padding:1px 5px;margin-left:4px;${b.es_operativa?'background:var(--gold-soft);color:var(--gold);border:1px solid var(--gold)':'background:var(--bg2);color:var(--text3);border:1px solid var(--border)'}">${b.es_operativa?'⚙ OPERATIVA':'💼 INVERSIÓN'}</span></td>
       <td>${b.titular}</td>
       <td><span class="badge badge-${colPais[b.pais]||'arg'}">${b.pais}</span></td>
       <td class="num">$${fmt(u?.inv||0)}</td>
@@ -5888,6 +5888,13 @@ async function borrarAporte(id) {
   if (error) return toast('Error: ' + error.message, 'error');
   toast('Borrado ✓', 'success');
   await loadAportes();
+}
+
+async function toggleOperativa(id, actual) {
+  const { error } = await sb.from('bancos').update({ es_operativa: !actual }).eq('id', id);
+  if (error) return toast('Error: ' + error.message + (String(error.message).includes('column') ? ' — ¿creaste la columna es_operativa?' : ''), 'error');
+  toast(!actual ? 'Marcada como operativa ✓' : 'Marcada como inversión ✓', 'success');
+  await loadBancos();
 }
 
 // ============ REPORTES (Fase 1) ============
@@ -8845,7 +8852,7 @@ function toggleTheme() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260702-032';
+const APP_VERSION = '20260702-033';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
