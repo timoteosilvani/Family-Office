@@ -5908,7 +5908,7 @@ function exportarReportePDF() {
   if (!w) return toast('Permití las ventanas emergentes para exportar', 'error');
   w.document.write(`<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>Informe ${cliNom}</title>
   <style>
-    :root{--navy:#0F2A43;--green:#1F8A5B;--red:#B23A48;--teal:#2E9B8F;--border:#e2e2e0;--text:#1a1a1a;--text2:#444;--text3:#888;--esp:#1F8A5B;--usa:#B23A48;--gold:#8a6d3b;--gold-soft:#f5efe0;--bg2:#f7f7f5;--bg:#fff;}
+    :root{--navy:#0F2A43;--green:#2f9e63;--red:#c0605f;--teal:#2E9B8F;--border:#e4e7ec;--text:#1a1a1a;--text2:#444;--text3:#888;--esp:#2f9e63;--usa:#c0605f;--gold:#8a6d3b;--gold-soft:#f5efe0;--bg2:#f7f7f5;--bg:#fff;}
     *{box-sizing:border-box;} body{font-family:Helvetica,Arial,sans-serif;color:var(--text);margin:0;padding:34px;font-size:12px;line-height:1.4;}
     .card{border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:16px;page-break-inside:avoid;background:var(--bg);}
     .table-wrap{overflow:visible;} table{width:100%;border-collapse:collapse;font-size:11.5px;} th{color:var(--text3);font-size:10px;text-transform:uppercase;letter-spacing:.5px;font-weight:600;}
@@ -6047,10 +6047,10 @@ async function generarReporte() {
   ];
   const totInv = clases.reduce((a,c)=>a+c.inv,0), totCie = clases.reduce((a,c)=>a+c.cie,0);
 
-  const kpi = (label,val,sub,color) => `<div class="card" style="text-align:center;padding:18px">
-    <div style="font-size:10px;letter-spacing:1px;color:var(--text3);text-transform:uppercase;margin-bottom:6px">${label}</div>
-    <div style="font-size:23px;font-weight:600;color:${color||'var(--text)'}">$${fmt(val)}</div>
-    <div style="font-size:11px;color:var(--text3);margin-top:4px">${sub||''}</div></div>`;
+  const kpi = (label,val,sub,color) => `<div class="rep-kpi">
+    <div class="l">${label}</div>
+    <div class="v" style="color:${color||'var(--navy)'}">$${fmt(val)}</div>
+    <div class="s">${sub||''}</div></div>`;
   const pct = v => patrimonioActual>0 ? (v/patrimonioActual*100).toFixed(1)+'%' : '—';
   const paisNom = {ARG:'Argentina',USA:'Estados Unidos',URU:'Uruguay',ESP:'España'};
   const cliNom = (REP_CLIENTES.find(c=>c.code===tit)||{}).nombre || tit;
@@ -6059,12 +6059,33 @@ async function generarReporte() {
   const totRentaSem = propsRenta.reduce((a,p)=>a+propDet[p.id].rentaSem,0);
   const totGastosSem = propsRenta.reduce((a,p)=>a+propDet[p.id].gastosSem,0);
   const totNetoSem = propsRenta.reduce((a,p)=>a+propDet[p.id].netoSem,0);
+  const cartera = props.slice().sort((a,b)=>{ const ha=a.fecha_compra?0:1, hb=b.fecha_compra?0:1; return ha!==hb?ha-hb:(a.nro||0)-(b.nro||0); });
+  const totVC = props.reduce((s,p)=>s+(Number(p.valor_compra)||0)*share(p),0);
+  const totVV = props.reduce((s,p)=>s+(Number(p.valor_venta)||0)*share(p),0);
+  const totVA = props.reduce((s,p)=>s+(Number(p.valor_2026)||0)*share(p),0);
+  const totRN = props.reduce((s,p)=>s+((propDet[p.id]||{netoAcum:0}).netoAcum),0);
+  const totNE = (totVA-totVC)+totRN;
 
   cont.innerHTML = `
-    <div style="background:var(--gold-soft);border:1px solid var(--gold);border-radius:10px;padding:12px 16px;margin-bottom:20px">
-      <b style="color:var(--gold)">${cliNom}</b> <span style="color:var(--text3);font-size:12px">· Primer semestre 2026 · Cifras en USD</span>
+    <style>
+      .rep-doc{--esp:#2f9e63;--usa:#c0605f;--navy:#0f2a43;--gold:#8a6d3b;}
+      .rep-doc .section-title{color:var(--navy);font-weight:700;}
+      .rep-doc table th{color:var(--navy);border-bottom-color:#d8dee6;}
+      .rep-doc .card{border-color:#e4e7ec;}
+      .rep-doc .card,.rep-doc .rep-kpi{page-break-inside:avoid;break-inside:avoid;}
+      .rep-doc .rep-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:22px;}
+      .rep-doc .rep-kpi{border:1px solid #e4e7ec;border-top:3px solid var(--navy);border-radius:8px;padding:16px 12px;text-align:center;background:var(--bg);}
+      .rep-doc .rep-kpi .l{font-size:9.5px;letter-spacing:.8px;color:var(--text3);text-transform:uppercase;margin-bottom:8px;min-height:22px;}
+      .rep-doc .rep-kpi .v{font-size:21px;font-weight:700;}
+      .rep-doc .rep-kpi .s{font-size:10.5px;color:var(--text3);margin-top:5px;}
+      .rep-doc .rep-head{background:var(--navy);color:#fff;border-radius:10px;padding:15px 20px;margin-bottom:20px;display:flex;justify-content:space-between;align-items:center;}
+    </style>
+    <div class="rep-doc">
+    <div class="rep-head">
+      <div><div style="font-size:16px;font-weight:700">${cliNom}</div><div style="font-size:11px;opacity:.75">Informe Patrimonial · Primer semestre 2026 · Cifras en USD</div></div>
+      <div style="font-size:11px;opacity:.7;text-align:right">al 30/06/2026</div>
     </div>
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px;margin-bottom:22px">
+    <div class="rep-kpis">
       ${kpi('Capital invertido', capitalInvertido, 'aporte histórico')}
       ${kpi('Patrimonio actual', patrimonioActual, 'al 30/06/2026')}
       ${kpi('Resultado acumulado', acumulado, 'desde el ingreso', acumulado>=0?'var(--esp)':'var(--usa)')}
@@ -6122,15 +6143,17 @@ async function generarReporte() {
     <div class="card" style="margin-top:20px">
       <div class="section-title" style="font-size:14px;margin-bottom:12px">Cartera completa · acumulado desde la compra</div>
       <div class="table-wrap"><table>
-        <thead><tr><th>País / Propiedad</th><th class="num">F. compra</th><th class="num">V. compra</th><th class="num">V. actual</th><th class="num">Renta neta acum.</th><th class="num">Valoriz.</th><th class="num">Neto econ.</th></tr></thead>
+        <thead><tr><th>País / Propiedad</th><th class="num">F. compra</th><th class="num">V. compra</th><th class="num">V. venta</th><th class="num">V. actual</th><th class="num">Renta neta acum.</th><th class="num">Valoriz.</th><th class="num">Neto econ.</th></tr></thead>
         <tbody>
-        ${props.slice().sort((a,b)=>(a.pais||'').localeCompare(b.pais||'')).map(p=>{ const sh=share(p); const vc=(Number(p.valor_compra)||0)*sh; const va=(Number(p.valor_2026)||0)*sh; const d=propDet[p.id]||{netoAcum:0}; const valoriz=va-vc; const netoEcon=valoriz+d.netoAcum; const valPct=vc>0?((va/vc-1)*100):0;
-          return `<tr><td>${paisB(p.pais)} ${p.nombre}</td><td class="num" style="font-size:11px">${p.fecha_compra||'—'}</td><td class="num">$${fmt(vc)}</td><td class="num">$${fmt(va)}</td><td class="num" style="color:${d.netoAcum>=0?'var(--esp)':'var(--usa)'}">${d.netoAcum>=0?'+':''}$${fmt(d.netoAcum)}</td><td class="num" style="color:${valoriz>=0?'var(--esp)':'var(--usa)'}">${valPct>=0?'+':''}${valPct.toFixed(1)}%</td><td class="num" style="color:${netoEcon>=0?'var(--esp)':'var(--usa)'}">${netoEcon>=0?'+':''}$${fmt(netoEcon)}</td></tr>`;
+        ${cartera.map(p=>{ const sh=share(p); const vc=(Number(p.valor_compra)||0)*sh; const vv=(Number(p.valor_venta)||0)*sh; const va=(Number(p.valor_2026)||0)*sh; const d=propDet[p.id]||{netoAcum:0}; const valoriz=va-vc; const netoEcon=valoriz+d.netoAcum; const valPct=vc>0?((va/vc-1)*100):0;
+          return `<tr><td>${paisB(p.pais)} ${p.nombre}</td><td class="num" style="font-size:11px">${p.fecha_compra||'—'}</td><td class="num">$${fmt(vc)}</td><td class="num">${vv>0?'$'+fmt(vv):'—'}</td><td class="num">$${fmt(va)}</td><td class="num" style="color:${d.netoAcum>=0?'var(--esp)':'var(--usa)'}">${d.netoAcum!==0?(d.netoAcum>=0?'+':'')+'$'+fmt(d.netoAcum):'—'}</td><td class="num" style="color:${valoriz>=0?'var(--esp)':'var(--usa)'}">${vc>0?(valPct>=0?'+':'')+valPct.toFixed(1)+'%':'—'}</td><td class="num" style="color:${netoEcon>=0?'var(--esp)':'var(--usa)'}">${(vc>0||d.netoAcum!==0)?(netoEcon>=0?'+':'')+'$'+fmt(netoEcon):'—'}</td></tr>`;
         }).join('')}
+        <tr style="font-weight:700;border-top:2px solid var(--navy)"><td>Total</td><td></td><td class="num">$${fmt(totVC)}</td><td class="num">${totVV>0?'$'+fmt(totVV):'—'}</td><td class="num">$${fmt(totVA)}</td><td class="num" style="color:${totRN>=0?'var(--esp)':'var(--usa)'}">${totRN>=0?'+':''}$${fmt(totRN)}</td><td></td><td class="num" style="color:${totNE>=0?'var(--esp)':'var(--usa)'}">${totNE>=0?'+':''}$${fmt(totNE)}</td></tr>
         </tbody></table></div>
       <p style="color:var(--text3);font-size:11px;margin-top:8px">Neto económico = valorización + renta neta acumulada. Renta neta acumulada = histórico 2020-2025 + semestre en curso.</p>
     </div>
-    <p style="color:var(--text3);font-size:11px;margin-top:16px">Acumulado = patrimonio actual − capital invertido. Rendimiento por método Dietz sobre las cuentas de inversión. Próxima fase: export a PDF con un botón.</p>`;
+    <p style="color:var(--text3);font-size:11px;margin-top:16px">Acumulado = patrimonio actual − capital invertido. Rendimiento por método Dietz modificado sobre las cuentas de inversión.</p>
+    </div>`;
 }
 
 async function guardarMovBanco() {
@@ -8986,7 +9009,7 @@ function toggleTheme() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260702-039';
+const APP_VERSION = '20260702-040';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
