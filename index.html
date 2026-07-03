@@ -5909,12 +5909,12 @@ function exportarReportePDF() {
   w.document.write(`<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>Informe ${cliNom}</title>
   <style>
     :root{--navy:#0F2A43;--green:#2f9e63;--red:#c0605f;--teal:#2E9B8F;--border:#e4e7ec;--text:#1a1a1a;--text2:#444;--text3:#888;--esp:#2f9e63;--usa:#c0605f;--gold:#8a6d3b;--gold-soft:#f5efe0;--bg2:#f7f7f5;--bg:#fff;}
-    *{box-sizing:border-box;} body{font-family:Helvetica,Arial,sans-serif;color:var(--text);margin:0;padding:34px;font-size:12px;line-height:1.4;}
+    *{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact;} body{font-family:Helvetica,Arial,sans-serif;color:var(--text);margin:0;padding:34px;font-size:12px;line-height:1.4;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
     .card{border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:16px;page-break-inside:avoid;background:var(--bg);}
     .table-wrap{overflow:visible;} table{width:100%;border-collapse:collapse;font-size:11.5px;} th{color:var(--text3);font-size:10px;text-transform:uppercase;letter-spacing:.5px;font-weight:600;}
     th,td{padding:6px 8px;text-align:left;border-bottom:1px solid var(--border);} .num{text-align:right;font-variant-numeric:tabular-nums;} .negative{color:var(--usa);} .positive{color:var(--esp);}
     .section-title{font-weight:700;color:var(--navy);} .badge{font-size:9px;padding:1px 6px;border-radius:4px;background:var(--bg2);border:1px solid var(--border);}
-    .loader,.spinner{display:none!important;}
+    .loader,.spinner,.rep-head{display:none!important;}
     h1{color:var(--navy);font-size:24px;margin:0 0 4px;letter-spacing:-.3px;} .hdr{border-bottom:3px solid var(--navy);padding-bottom:14px;margin-bottom:22px;display:flex;justify-content:space-between;align-items:flex-end;}
     @page{margin:1.4cm;} @media print{body{padding:0;}}
   </style></head><body>
@@ -5972,11 +5972,12 @@ async function generarReporte() {
     ]);
     const latest = {}; (movR.data||[]).forEach(m => { if (!latest[m.banco_id] || m.mes > latest[m.banco_id].mes) latest[m.banco_id] = m; });
     const inicial = {}; (iniR.data||[]).forEach(m => inicial[m.banco_id] = m);
-    const apSem = {}, apTot = {};
+    const apSem = {}, apTot = {}, apList = {};
     (apsR.data||[]).forEach(a => {
       const signed = (a.tipo==='retiro'?-1:1) * Math.abs(Number(a.monto)||0);
       apTot[a.banco_id] = (apTot[a.banco_id]||0) + signed;
       if (a.fecha >= '2026-01-01' && a.fecha <= '2026-06-30') apSem[a.banco_id] = (apSem[a.banco_id]||0) + signed;
+      (apList[a.banco_id] = apList[a.banco_id]||[]).push(a);
     });
     bancos.forEach(b => {
       const m = latest[b.id]; if (!m) return;
@@ -5985,13 +5986,14 @@ async function generarReporte() {
       const vBeg = inicial[b.id] ? (Number(bancoMovUSD(inicial[b.id]).neto)||0) : 0;
       bancosCierre += vBeg;
       const varTot = vEnd - vBeg;
+      const aportesOrd = (apList[b.id]||[]).slice().sort((x,y)=>(x.fecha||'').localeCompare(y.fecha||''));
       if (!b.es_operativa) {
         aportesBancos += (apTot[b.id]||0);
         const rend = varTot - (apSem[b.id]||0);
         rendimientoBancos += rend;
-        bancosDietz.push({ nombre:b.nombre, oper:false, vBeg, vEnd, apSem:(apSem[b.id]||0), varTot, rend, movCap:(apSem[b.id]||0) });
+        bancosDietz.push({ nombre:b.nombre, oper:false, vBeg, vEnd, apSem:(apSem[b.id]||0), apTot:(apTot[b.id]||0), varTot, rend, movCap:(apSem[b.id]||0), aportes:aportesOrd });
       } else {
-        bancosDietz.push({ nombre:b.nombre, oper:true, vBeg, vEnd, apSem:0, varTot, rend:0, movCap:varTot });
+        bancosDietz.push({ nombre:b.nombre, oper:true, vBeg, vEnd, apSem:0, apTot:(apTot[b.id]||0), varTot, rend:0, movCap:varTot, aportes:aportesOrd });
       }
     });
   }
@@ -6022,6 +6024,14 @@ async function generarReporte() {
       const rhByNro = {}; (rh||[]).forEach(r => { rhByNro[r.nro] = (rhByNro[r.nro]||0) + (Number(r.renta_neta)||0); });
       props.forEach(p => { if (propDet[p.id] && rhByNro[p.nro]) propDet[p.id].netoAcum += rhByNro[p.nro] * share(p); });
     }
+  }
+
+  // PE: desglose por inversión (utilidad/aporte/gastos acumulados)
+  const peIds = pe.map(p=>p.id);
+  const peDet = {}; pe.forEach(p => peDet[p.id] = { util:0, aporte:0, gastos:0, imp:0 });
+  if (peIds.length) {
+    const { data: mpe } = await sb.from('movimientos_pe').select('*').in('pe_id', peIds);
+    (mpe||[]).forEach(m => { const d=peDet[m.pe_id]; if(!d) return; d.util+=(Number(m.utilidad)||0); d.aporte+=(Number(m.aporte_capital)||0); d.gastos+=(Number(m.gastos)||0); d.imp+=(Number(m.impuestos)||0); });
   }
 
   const sum = (arr,f) => arr.reduce((a,r)=>a + (Number(r[f])||0)*share(r), 0);
@@ -6152,6 +6162,35 @@ async function generarReporte() {
         </tbody></table></div>
       <p style="color:var(--text3);font-size:11px;margin-top:8px">Neto económico = valorización + renta neta acumulada. Renta neta acumulada = histórico 2020-2025 + semestre en curso.</p>
     </div>
+    ${bancosDietz.some(d=>d.aportes && d.aportes.length) ? `<div class="card" style="margin-top:20px">
+      <div class="section-title" style="font-size:14px;margin-bottom:12px">Bancos · detalle de aportes y movimientos de capital</div>
+      ${bancosDietz.filter(d=>d.aportes && d.aportes.length).map(d=>`
+        <div style="margin-bottom:14px">
+          <div style="font-weight:600;color:var(--navy);margin-bottom:6px;font-size:12px">${d.nombre}${d.oper?' <span style="font-size:9px;color:var(--text3)">(operativa)</span>':''}</div>
+          <div class="table-wrap"><table><thead><tr><th>Fecha</th><th>Tipo</th><th class="num">Monto</th></tr></thead><tbody>
+          ${d.aportes.map(a=>`<tr><td>${a.fecha}</td><td>${({incorporacion:'Incorporación',aporte:'Aporte',retiro:'Retiro'})[a.tipo]||a.tipo}${a.notas?' · <span style="color:var(--text3);font-size:11px">'+a.notas+'</span>':''}</td><td class="num" style="color:${a.tipo==='retiro'?'var(--usa)':'var(--esp)'}">${a.tipo==='retiro'?'-':'+'}$${fmt(Math.abs(Number(a.monto)||0))}</td></tr>`).join('')}
+          <tr style="font-weight:600;border-top:1px solid var(--border)"><td colspan="2">Total aportado</td><td class="num">${d.apTot>=0?'+':''}$${fmt(d.apTot)}</td></tr>
+          </tbody></table></div>
+        </div>`).join('')}
+    </div>` : ''}
+
+    ${bancosDietz.some(d=>!d.oper) ? `<div class="card" style="margin-top:20px">
+      <div class="section-title" style="font-size:14px;margin-bottom:12px">Rendimiento desde el ingreso · cuentas de inversión</div>
+      <div class="table-wrap"><table><thead><tr><th>Cuenta</th><th class="num">Total aportado</th><th class="num">Valor actual</th><th class="num">Rendimiento</th><th class="num">%</th></tr></thead><tbody>
+      ${bancosDietz.filter(d=>!d.oper).map(d=>{const ri=d.vEnd-d.apTot; const pi=d.apTot>0?(ri/d.apTot*100):0; return `<tr><td>${d.nombre}</td><td class="num">$${fmt(d.apTot)}</td><td class="num">$${fmt(d.vEnd)}</td><td class="num" style="color:${ri>=0?'var(--esp)':'var(--usa)'}">${ri>=0?'+':''}$${fmt(ri)}</td><td class="num" style="color:${ri>=0?'var(--esp)':'var(--usa)'}">${pi>=0?'+':''}${pi.toFixed(2)}%</td></tr>`}).join('')}
+      ${(()=>{const dd=bancosDietz.filter(d=>!d.oper);const ta=dd.reduce((a,d)=>a+d.apTot,0),va=dd.reduce((a,d)=>a+d.vEnd,0),ri=va-ta;return `<tr style="font-weight:700;border-top:2px solid var(--navy)"><td>Total</td><td class="num">$${fmt(ta)}</td><td class="num">$${fmt(va)}</td><td class="num" style="color:${ri>=0?'var(--esp)':'var(--usa)'}">${ri>=0?'+':''}$${fmt(ri)}</td><td class="num" style="color:${ri>=0?'var(--esp)':'var(--usa)'}">${ta>0?(ri>=0?'+':'')+(ri/ta*100).toFixed(2)+'%':'—'}</td></tr>`})()}
+      </tbody></table></div>
+      <p style="color:var(--text3);font-size:11px;margin-top:8px">Rendimiento desde el ingreso = valor actual − total aportado (incorporaciones + aportes − retiros). Las cuentas operativas se excluyen.</p>
+    </div>` : ''}
+
+    ${pe.length ? `<div class="card" style="margin-top:20px">
+      <div class="section-title" style="font-size:14px;margin-bottom:12px">Private Equity · desglose</div>
+      <div class="table-wrap"><table><thead><tr><th>Inversión</th><th class="num">Capital invertido</th><th class="num">Utilidad cobrada</th><th class="num">Gastos + imp.</th><th class="num">Posición neta</th><th class="num">% recupero</th></tr></thead><tbody>
+      ${pe.map(p=>{const sh=share(p); const d=peDet[p.id]||{util:0,gastos:0,imp:0}; const inv=(Number(p.valor_2026)||0)*sh; const util=d.util*sh; const gi=(d.gastos+d.imp)*sh; const pos=util-gi-inv; const rec=inv>0?(util/inv*100):0; return `<tr><td>${p.nombre}</td><td class="num">$${fmt(inv)}</td><td class="num" style="color:var(--esp)">+$${fmt(util)}</td><td class="num negative">$${fmt(gi)}</td><td class="num" style="color:${pos>=0?'var(--esp)':'var(--usa)'}">${pos>=0?'+':''}$${fmt(pos)}</td><td class="num">${rec.toFixed(1)}%</td></tr>`}).join('')}
+      </tbody></table></div>
+      <p style="color:var(--text3);font-size:11px;margin-top:8px">Criterio de recupero: la utilidad cobrada recupera primero el capital invertido antes de computarse como resultado. Posición neta = utilidad − gastos/impuestos − capital invertido.</p>
+    </div>` : ''}
+
     <p style="color:var(--text3);font-size:11px;margin-top:16px">Acumulado = patrimonio actual − capital invertido. Rendimiento por método Dietz modificado sobre las cuentas de inversión.</p>
     </div>`;
 }
@@ -9009,7 +9048,7 @@ function toggleTheme() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260702-040';
+const APP_VERSION = '20260702-041';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
