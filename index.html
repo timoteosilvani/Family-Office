@@ -5934,7 +5934,6 @@ async function generarReporte() {
   // Bancos: saldo final (2026) + saldo inicial (dic 2025) + aportes → rendimiento (Dietz $)
   let bancosActual = 0; const bancosPais = {};
   let aportesBancos = 0, rendimientoBancos = 0, bancosCierre = 0; const bancosDietz = [];
-  let bancosCierre25 = 0;
   if (bancoIds.length) {
     const [movR, iniR, apsR] = await Promise.all([
       sb.from('movimientos_bancos').select('*').eq('anio',2026).in('banco_id', bancoIds),
@@ -5984,6 +5983,15 @@ async function generarReporte() {
         d.netoSem += neto;
       }
     });
+  }
+  // Renta neta histórica (2020-2025) desde renta_anual_prop, sumada al acumulado
+  if (propIds.length) {
+    const nros = props.map(p=>p.nro).filter(x=>x!=null);
+    if (nros.length) {
+      const { data: rh } = await sb.from('renta_anual_prop').select('nro,renta_neta').in('nro', nros);
+      const rhByNro = {}; (rh||[]).forEach(r => { rhByNro[r.nro] = (rhByNro[r.nro]||0) + (Number(r.renta_neta)||0); });
+      props.forEach(p => { if (propDet[p.id] && rhByNro[p.nro]) propDet[p.id].netoAcum += rhByNro[p.nro] * share(p); });
+    }
   }
 
   const sum = (arr,f) => arr.reduce((a,r)=>a + (Number(r[f])||0)*share(r), 0);
@@ -6090,7 +6098,7 @@ async function generarReporte() {
           return `<tr><td>${paisB(p.pais)} ${p.nombre}</td><td class="num" style="font-size:11px">${p.fecha_compra||'—'}</td><td class="num">$${fmt(vc)}</td><td class="num">$${fmt(va)}</td><td class="num" style="color:${d.netoAcum>=0?'var(--esp)':'var(--usa)'}">${d.netoAcum>=0?'+':''}$${fmt(d.netoAcum)}</td><td class="num" style="color:${valoriz>=0?'var(--esp)':'var(--usa)'}">${valPct>=0?'+':''}${valPct.toFixed(1)}%</td><td class="num" style="color:${netoEcon>=0?'var(--esp)':'var(--usa)'}">${netoEcon>=0?'+':''}$${fmt(netoEcon)}</td></tr>`;
         }).join('')}
         </tbody></table></div>
-      <p style="color:var(--text3);font-size:11px;margin-top:8px">Neto económico = valorización + renta neta acumulada. La renta neta acumulada refleja los años cargados en la app.</p>
+      <p style="color:var(--text3);font-size:11px;margin-top:8px">Neto económico = valorización + renta neta acumulada. Renta neta acumulada = histórico 2020-2025 + semestre en curso.</p>
     </div>
     <p style="color:var(--text3);font-size:11px;margin-top:16px">Acumulado = patrimonio actual − capital invertido. Rendimiento por método Dietz sobre las cuentas de inversión. Próxima fase: export a PDF con un botón.</p>`;
 }
@@ -8948,7 +8956,7 @@ function toggleTheme() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260702-037';
+const APP_VERSION = '20260702-038';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
