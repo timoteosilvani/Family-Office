@@ -5931,18 +5931,35 @@ async function generarReporte() {
   const pe = peR.data||[], autos = autosR.data||[], bancos = (bancosR.data||[]).filter(b => b.activo !== false);
   const bancoIds = bancos.map(b=>b.id);
 
-  // Bancos: último mov por banco (convertido) + aportes
+  // Bancos: saldo final (2026) + saldo inicial (dic 2025) + aportes → rendimiento (Dietz $)
   let bancosActual = 0; const bancosPais = {};
+  let aportesBancos = 0, rendimientoBancos = 0; const bancosDietz = [];
   if (bancoIds.length) {
-    const { data: movs } = await sb.from('movimientos_bancos').select('*').eq('anio',2026).in('banco_id', bancoIds);
-    const latest = {};
-    (movs||[]).forEach(m => { if (!latest[m.banco_id] || m.mes > latest[m.banco_id].mes) latest[m.banco_id] = m; });
-    bancos.forEach(b => { const m = latest[b.id]; if (!m) return; const usd = Number(bancoMovUSD(m).neto)||0; bancosActual += usd; bancosPais[b.pais] = (bancosPais[b.pais]||0) + usd; });
-  }
-  let aportesBancos = 0;
-  if (bancoIds.length) {
-    const { data: aps } = await sb.from('aportes_bancos').select('*').in('banco_id', bancoIds);
-    (aps||[]).forEach(a => { aportesBancos += (a.tipo==='retiro'?-1:1) * Math.abs(a.monto||0); });
+    const [movR, iniR, apsR] = await Promise.all([
+      sb.from('movimientos_bancos').select('*').eq('anio',2026).in('banco_id', bancoIds),
+      sb.from('movimientos_bancos').select('*').eq('anio',2025).eq('mes',12).in('banco_id', bancoIds),
+      sb.from('aportes_bancos').select('*').in('banco_id', bancoIds),
+    ]);
+    const latest = {}; (movR.data||[]).forEach(m => { if (!latest[m.banco_id] || m.mes > latest[m.banco_id].mes) latest[m.banco_id] = m; });
+    const inicial = {}; (iniR.data||[]).forEach(m => inicial[m.banco_id] = m);
+    const apSem = {}, apTot = {};
+    (apsR.data||[]).forEach(a => {
+      const signed = (a.tipo==='retiro'?-1:1) * Math.abs(Number(a.monto)||0);
+      apTot[a.banco_id] = (apTot[a.banco_id]||0) + signed;
+      if (a.fecha >= '2026-01-01' && a.fecha <= '2026-06-30') apSem[a.banco_id] = (apSem[a.banco_id]||0) + signed;
+    });
+    bancos.forEach(b => {
+      const m = latest[b.id]; if (!m) return;
+      const vEnd = Number(bancoMovUSD(m).neto)||0;
+      bancosActual += vEnd; bancosPais[b.pais] = (bancosPais[b.pais]||0) + vEnd;
+      if (!b.es_operativa) {
+        aportesBancos += (apTot[b.id]||0);
+        const vBeg = inicial[b.id] ? (Number(bancoMovUSD(inicial[b.id]).neto)||0) : 0;
+        const rend = vEnd - vBeg - (apSem[b.id]||0);
+        rendimientoBancos += rend;
+        bancosDietz.push({ nombre:b.nombre, vBeg, vEnd, apSem:(apSem[b.id]||0), rend });
+      }
+    });
   }
   // Renta neta de propiedades del semestre (ene-jun)
   let rentaNeta = 0;
@@ -5960,6 +5977,8 @@ async function generarReporte() {
   const patrimonioActual = propsActual + bancosActual + peActual + autosActual;
   const capitalInvertido = propsInvertido + aportesBancos + peInvertido;
   const acumulado = patrimonioActual - capitalInvertido;
+  const resultadoSemestre = rentaNeta + rendimientoBancos;
+  const rendSemPct = capitalInvertido > 0 ? (resultadoSemestre / capitalInvertido * 100) : 0;
 
   const pais = {ARG:0,USA:0,URU:0,ESP:0};
   [...props,...pe,...autos].forEach(r => { pais[r.pais] = (pais[r.pais]||0) + (Number(r.valor_2026)||0)*share(r); });
@@ -5982,7 +6001,7 @@ async function generarReporte() {
       ${kpi('Capital invertido', capitalInvertido, 'aporte histórico')}
       ${kpi('Patrimonio actual', patrimonioActual, 'al 30/06/2026')}
       ${kpi('Resultado acumulado', acumulado, 'desde el ingreso', acumulado>=0?'var(--esp)':'var(--usa)')}
-      ${kpi('Renta neta S1 · propiedades', rentaNeta, 'componente propiedades', rentaNeta>=0?'var(--esp)':'var(--usa)')}
+      ${kpi('Resultado del semestre', resultadoSemestre, (resultadoSemestre>=0?'+':'')+rendSemPct.toFixed(2)+'% · ganancia genuina', resultadoSemestre>=0?'var(--esp)':'var(--usa)')}
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
       <div class="card"><div class="section-title" style="font-size:14px;margin-bottom:12px">Distribución por tipo de activo</div>
@@ -5996,7 +6015,20 @@ async function generarReporte() {
         <tr style="font-weight:600;border-top:2px solid var(--border)"><td>Total</td><td class="num">$${fmt(patrimonioActual)}</td><td class="num">100%</td></tr>
         </tbody></table></div></div>
     </div>
-    <p style="color:var(--text3);font-size:11px;margin-top:16px">Acumulado = patrimonio actual − capital invertido. El resultado del semestre completo (renta neta + rendimiento de bancos por Dietz), el detalle por activo y el export a PDF se agregan en las próximas fases.</p>`;
+    <div class="card" style="margin-top:20px">
+      <div class="section-title" style="font-size:14px;margin-bottom:12px">¿Dónde se generó el resultado del semestre?</div>
+      <div class="table-wrap"><table><thead><tr><th>Componente</th><th class="num">Resultado</th></tr></thead><tbody>
+        <tr><td>Renta neta de propiedades<br><span style="font-size:11px;color:var(--text3)">Alquileres cobrados, netos de gastos e impuestos</span></td><td class="num" style="color:${rentaNeta>=0?'var(--esp)':'var(--usa)'}">${rentaNeta>=0?'+':''}$${fmt(rentaNeta)}</td></tr>
+        <tr><td>Rendimiento de cuentas de inversión<br><span style="font-size:11px;color:var(--text3)">Ganancia financiera (Dietz), neta de aportes de capital</span></td><td class="num" style="color:${rendimientoBancos>=0?'var(--esp)':'var(--usa)'}">${rendimientoBancos>=0?'+':''}$${fmt(rendimientoBancos)}</td></tr>
+        <tr style="font-weight:600;border-top:2px solid var(--border)"><td>Resultado económico total del semestre</td><td class="num" style="color:${resultadoSemestre>=0?'var(--esp)':'var(--usa)'}">${resultadoSemestre>=0?'+':''}$${fmt(resultadoSemestre)}</td></tr>
+      </tbody></table></div>
+      ${bancosDietz.length ? `<div class="section-title" style="font-size:13px;margin:18px 0 8px">Rendimiento por cuenta de inversión</div>
+      <div class="table-wrap"><table><thead><tr><th>Cuenta</th><th class="num">S. inicial</th><th class="num">Aportes S1</th><th class="num">S. final</th><th class="num">Rendimiento</th></tr></thead><tbody>
+        ${bancosDietz.map(d=>`<tr><td>${d.nombre}</td><td class="num">$${fmt(d.vBeg)}</td><td class="num">${d.apSem>=0?'+':''}$${fmt(d.apSem)}</td><td class="num">$${fmt(d.vEnd)}</td><td class="num" style="color:${d.rend>=0?'var(--esp)':'var(--usa)'}">${d.rend>=0?'+':''}$${fmt(d.rend)}</td></tr>`).join('')}
+      </tbody></table></div>
+      <p style="color:var(--text3);font-size:11px;margin-top:10px">Las cuentas operativas (marcadas en Bancos) cuentan en el patrimonio pero se excluyen del rendimiento: su variación viene de rentas y transferencias, no de ganancia financiera.</p>` : ''}
+    </div>
+    <p style="color:var(--text3);font-size:11px;margin-top:16px">Acumulado = patrimonio actual − capital invertido. Rendimiento por método Dietz sobre las cuentas de inversión. El detalle por activo (propiedades) y el export a PDF se agregan en las próximas fases.</p>`;
 }
 
 async function guardarMovBanco() {
@@ -8852,7 +8884,7 @@ function toggleTheme() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260702-033';
+const APP_VERSION = '20260702-034';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
