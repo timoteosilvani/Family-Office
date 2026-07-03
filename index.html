@@ -5930,7 +5930,7 @@ async function generarReporte() {
     const { data: movs } = await sb.from('movimientos_bancos').select('*').eq('anio',2026).in('banco_id', bancoIds);
     const latest = {};
     (movs||[]).forEach(m => { if (!latest[m.banco_id] || m.mes > latest[m.banco_id].mes) latest[m.banco_id] = m; });
-    bancos.forEach(b => { const m = latest[b.id]; if (!m) return; const usd = Number(bancoMovUSD(m))||0; bancosActual += usd; bancosPais[b.pais] = (bancosPais[b.pais]||0) + usd; });
+    bancos.forEach(b => { const m = latest[b.id]; if (!m) return; const usd = Number(bancoMovUSD(m).neto)||0; bancosActual += usd; bancosPais[b.pais] = (bancosPais[b.pais]||0) + usd; });
   }
   let aportesBancos = 0;
   if (bancoIds.length) {
@@ -8845,7 +8845,7 @@ function toggleTheme() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260702-031';
+const APP_VERSION = '20260702-032';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
