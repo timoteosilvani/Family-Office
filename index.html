@@ -5918,10 +5918,10 @@ async function generarReporte() {
     sb.from('propiedades').select('*').in('titular', titFilter),
     sb.from('private_equity').select('*').in('titular', titFilter),
     sb.from('autos').select('*').in('titular', titFilter),
-    sb.from('bancos').select('*').eq('titular', tit).eq('activo', true),
+    sb.from('bancos').select('*').eq('titular', tit),
   ]);
   const props = (propsR.data||[]).filter(p => p.activa !== false && p.vendida !== true);
-  const pe = peR.data||[], autos = autosR.data||[], bancos = bancosR.data||[];
+  const pe = peR.data||[], autos = autosR.data||[], bancos = (bancosR.data||[]).filter(b => b.activo !== false);
   const bancoIds = bancos.map(b=>b.id);
 
   // Bancos: último mov por banco (convertido) + aportes
@@ -5930,7 +5930,7 @@ async function generarReporte() {
     const { data: movs } = await sb.from('movimientos_bancos').select('*').eq('anio',2026).in('banco_id', bancoIds);
     const latest = {};
     (movs||[]).forEach(m => { if (!latest[m.banco_id] || m.mes > latest[m.banco_id].mes) latest[m.banco_id] = m; });
-    bancos.forEach(b => { const m = latest[b.id]; if (!m) return; const usd = bancoMovUSD(m); bancosActual += usd; bancosPais[b.pais] = (bancosPais[b.pais]||0) + usd; });
+    bancos.forEach(b => { const m = latest[b.id]; if (!m) return; const usd = Number(bancoMovUSD(m))||0; bancosActual += usd; bancosPais[b.pais] = (bancosPais[b.pais]||0) + usd; });
   }
   let aportesBancos = 0;
   if (bancoIds.length) {
@@ -5943,10 +5943,10 @@ async function generarReporte() {
   const shareById = {}; props.forEach(p => shareById[p.id] = share(p));
   if (propIds.length) {
     const { data: mp } = await sb.from('movimientos_propiedades').select('*').eq('anio',2026).in('propiedad_id', propIds);
-    (mp||[]).forEach(m => { if (m.mes>=1 && m.mes<=6) rentaNeta += (m.neto_usd||0) * (shareById[m.propiedad_id]||1); });
+    (mp||[]).forEach(m => { if (m.mes>=1 && m.mes<=6) rentaNeta += (Number(m.neto_usd)||0) * (shareById[m.propiedad_id]||1); });
   }
 
-  const sum = (arr,f) => arr.reduce((a,r)=>a + (r[f]||0)*share(r), 0);
+  const sum = (arr,f) => arr.reduce((a,r)=>a + (Number(r[f])||0)*share(r), 0);
   const propsActual = sum(props,'valor_2026'), propsInvertido = sum(props,'valor_compra');
   const peActual = sum(pe,'valor_2026'), peInvertido = sum(pe,'valor_2026');
   const autosActual = sum(autos,'valor_2026');
@@ -5955,7 +5955,7 @@ async function generarReporte() {
   const acumulado = patrimonioActual - capitalInvertido;
 
   const pais = {ARG:0,USA:0,URU:0,ESP:0};
-  [...props,...pe,...autos].forEach(r => { pais[r.pais] = (pais[r.pais]||0) + (r.valor_2026||0)*share(r); });
+  [...props,...pe,...autos].forEach(r => { pais[r.pais] = (pais[r.pais]||0) + (Number(r.valor_2026)||0)*share(r); });
   Object.keys(bancosPais).forEach(k => pais[k] = (pais[k]||0) + bancosPais[k]);
   const clases = [['Propiedades',propsActual],['Bancos',bancosActual],['Private Equity',peActual],['Autos',autosActual]];
 
@@ -8845,7 +8845,7 @@ function toggleTheme() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260702-030';
+const APP_VERSION = '20260702-031';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
