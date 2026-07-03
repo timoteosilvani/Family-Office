@@ -5953,16 +5953,18 @@ async function generarReporte() {
       const m = latest[b.id]; if (!m) return;
       const vEnd = Number(bancoMovUSD(m).neto)||0;
       bancosActual += vEnd; bancosPais[b.pais] = (bancosPais[b.pais]||0) + vEnd;
-      if (inicial[b.id]) bancosCierre25 += Number(bancoMovUSD(inicial[b.id]).neto)||0;
+      const vBeg = inicial[b.id] ? (Number(bancoMovUSD(inicial[b.id]).neto)||0) : 0;
+      bancosCierre += vBeg;
+      const varTot = vEnd - vBeg;
       if (!b.es_operativa) {
         aportesBancos += (apTot[b.id]||0);
-        const vBeg = inicial[b.id] ? (Number(bancoMovUSD(inicial[b.id]).neto)||0) : 0;
-        const rend = vEnd - vBeg - (apSem[b.id]||0);
+        const rend = varTot - (apSem[b.id]||0);
         rendimientoBancos += rend;
-        bancosDietz.push({ nombre:b.nombre, vBeg, vEnd, apSem:(apSem[b.id]||0), rend });
+        bancosDietz.push({ nombre:b.nombre, oper:false, vBeg, vEnd, apSem:(apSem[b.id]||0), varTot, rend, movCap:(apSem[b.id]||0) });
+      } else {
+        bancosDietz.push({ nombre:b.nombre, oper:true, vBeg, vEnd, apSem:0, varTot, rend:0, movCap:varTot });
       }
     });
-    bancos.forEach(b => { const mi = inicial[b.id]; if (mi) bancosCierre += Number(bancoMovUSD(mi).neto)||0; });
   }
   // Renta neta de propiedades: semestre (ene-jun 2026) + detalle acumulado por propiedad
   let rentaNeta = 0;
@@ -6059,11 +6061,12 @@ async function generarReporte() {
         <tr><td>Rendimiento de cuentas de inversión<br><span style="font-size:11px;color:var(--text3)">Ganancia financiera (Dietz), neta de aportes de capital</span></td><td class="num" style="color:${rendimientoBancos>=0?'var(--esp)':'var(--usa)'}">${rendimientoBancos>=0?'+':''}$${fmt(rendimientoBancos)}</td></tr>
         <tr style="font-weight:600;border-top:2px solid var(--border)"><td>Resultado económico total del semestre</td><td class="num" style="color:${resultadoSemestre>=0?'var(--esp)':'var(--usa)'}">${resultadoSemestre>=0?'+':''}$${fmt(resultadoSemestre)}</td></tr>
       </tbody></table></div>
-      ${bancosDietz.length ? `<div class="section-title" style="font-size:13px;margin:18px 0 8px">Rendimiento por cuenta de inversión</div>
-      <div class="table-wrap"><table><thead><tr><th>Cuenta</th><th class="num">S. inicial</th><th class="num">Aportes S1</th><th class="num">S. final</th><th class="num">Rendimiento</th></tr></thead><tbody>
-        ${bancosDietz.map(d=>`<tr><td>${d.nombre}</td><td class="num">$${fmt(d.vBeg)}</td><td class="num">${d.apSem>=0?'+':''}$${fmt(d.apSem)}</td><td class="num">$${fmt(d.vEnd)}</td><td class="num" style="color:${d.rend>=0?'var(--esp)':'var(--usa)'}">${d.rend>=0?'+':''}$${fmt(d.rend)}</td></tr>`).join('')}
+      ${bancosDietz.length ? `<div class="section-title" style="font-size:13px;margin:18px 0 8px">Desglose de la variación de bancos</div>
+      <div class="table-wrap"><table><thead><tr><th>Cuenta</th><th class="num">S. inicial</th><th class="num">S. final</th><th class="num">Variación</th><th class="num">Rendimiento</th><th class="num">Mov. capital</th></tr></thead><tbody>
+        ${bancosDietz.map(d=>`<tr><td>${d.nombre}${d.oper?' <span style="font-size:9px;color:var(--text3)">(operativa)</span>':''}</td><td class="num">$${fmt(d.vBeg)}</td><td class="num">$${fmt(d.vEnd)}</td><td class="num" style="color:${d.varTot>=0?'var(--esp)':'var(--usa)'}">${d.varTot>=0?'+':''}$${fmt(d.varTot)}</td><td class="num" style="color:${d.rend>=0?'var(--esp)':'var(--usa)'}">${d.oper?'—':(d.rend>=0?'+':'')+'$'+fmt(d.rend)}</td><td class="num">${d.movCap>=0?'+':''}$${fmt(d.movCap)}</td></tr>`).join('')}
+        <tr style="font-weight:600;border-top:2px solid var(--border)"><td>Total</td><td class="num">$${fmt(bancosDietz.reduce((a,d)=>a+d.vBeg,0))}</td><td class="num">$${fmt(bancosDietz.reduce((a,d)=>a+d.vEnd,0))}</td><td class="num">${(()=>{const v=bancosDietz.reduce((a,d)=>a+d.varTot,0);return (v>=0?'+':'')+'$'+fmt(v)})()}</td><td class="num" style="color:${rendimientoBancos>=0?'var(--esp)':'var(--usa)'}">${rendimientoBancos>=0?'+':''}$${fmt(rendimientoBancos)}</td><td class="num">${(()=>{const v=bancosDietz.reduce((a,d)=>a+d.movCap,0);return (v>=0?'+':'')+'$'+fmt(v)})()}</td></tr>
       </tbody></table></div>
-      <p style="color:var(--text3);font-size:11px;margin-top:10px">Las cuentas operativas (marcadas en Bancos) cuentan en el patrimonio pero se excluyen del rendimiento: su variación viene de rentas y transferencias, no de ganancia financiera.</p>` : ''}
+      <p style="color:var(--text3);font-size:11px;margin-top:10px">De la variación total de bancos, solo el <b>Rendimiento</b> es ganancia genuina. Los <b>Mov. de capital</b> (aportes, y en las cuentas operativas las rentas/transferencias) aumentan el saldo pero no son resultado del período.</p>` : ''}
     </div>
     <div class="card" style="margin-top:20px">
       <div class="section-title" style="font-size:14px;margin-bottom:12px">Propiedades · resultado del semestre (S1 2026)</div>
@@ -8945,7 +8948,7 @@ function toggleTheme() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260702-036';
+const APP_VERSION = '20260702-037';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
