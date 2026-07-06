@@ -5906,6 +5906,11 @@ async function exportarReportePDF() {
   if (!cont || !cont.innerHTML.trim() || cont.querySelector('.spinner')) return toast('Generá el informe primero', 'error');
   const w = window.open('', '_blank');
   if (!w) return toast('Permití las ventanas emergentes para exportar', 'error');
+  // Clonar contenido y reemplazar los gráficos (canvas) por imágenes (el canvas no viaja en el HTML)
+  const clone = cont.cloneNode(true);
+  const oc = cont.querySelectorAll('canvas'), cc = clone.querySelectorAll('canvas');
+  oc.forEach((c, i) => { try { const img = document.createElement('img'); img.src = c.toDataURL('image/png'); img.style.width = '100%'; img.style.height = 'auto'; if (cc[i]) cc[i].replaceWith(img); } catch(e){} });
+  const htmlBody = clone.innerHTML;
   w.document.write(`<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>Informe ${cliNom}</title>
   <style>
     :root{--navy:#0F2A43;--green:#2f9e63;--red:#c0605f;--teal:#2E9B8F;--border:#e4e7ec;--text:#1a1a1a;--text2:#444;--text3:#888;--esp:#2f9e63;--usa:#c0605f;--gold:#8a6d3b;--gold-soft:#f5efe0;--bg2:#f7f7f5;--bg:#fff;}
@@ -5922,7 +5927,7 @@ async function exportarReportePDF() {
     @page{size:A4 landscape;margin:1cm;} @media print{body{padding:0;}}
   </style></head><body>
   <div class="hdr"><div><h1>Informe Patrimonial</h1><div style="color:var(--text3);font-size:13px">${cliNom} \u00b7 Primer semestre 2026 \u00b7 Cifras en USD</div></div><div style="color:var(--text3);font-size:11px;text-align:right">Family Office<br>Generado ${new Date().toLocaleDateString('es-AR')}</div></div>
-  ${cont.innerHTML}
+  ${htmlBody}
   </body></html>`);
   w.document.close();
   setTimeout(() => { try { w.focus(); w.print(); } catch(e){} }, 500);
@@ -6051,6 +6056,15 @@ async function generarReporte() {
   const resultadoSemestre = rentaNeta + rendimientoBancos;
   const rendSemPct = capitalInvertido > 0 ? (resultadoSemestre / capitalInvertido * 100) : 0;
 
+  // Patrimonio histórico por año (tabla + gráficos)
+  let histAnios = [];
+  { const { data: ph } = await sb.from('patrimonio_historico').select('*').in('titular', titFilter);
+    const byY = {};
+    (ph||[]).forEach(r => { const sh=(r.titular==='H'&&esH)?1/3:1; const y=r.anio; byY[y]=byY[y]||{prop:0,banco:0,pe:0,autos:0}; byY[y].prop+=(Number(r.propiedades)||0)*sh; byY[y].banco+=(Number(r.banco)||0)*sh; byY[y].pe+=(Number(r.private_equity)||0)*sh; byY[y].autos+=(Number(r.autos)||0)*sh; });
+    histAnios = Object.keys(byY).map(Number).map(y=>({anio:y,...byY[y],total:byY[y].prop+byY[y].banco+byY[y].pe+byY[y].autos})).filter(d=>d.total>0).sort((a,b)=>a.anio-b.anio);
+  }
+  histAnios.push({anio:2026, prop:propsActual, banco:bancosActual, pe:peActual, autos:autosActual, total:patrimonioActual});
+
   const pais = {ARG:0,USA:0,URU:0,ESP:0};
   [...props,...pe,...autos].forEach(r => { pais[r.pais] = (pais[r.pais]||0) + (Number(r.valor_2026)||0)*share(r); });
   Object.keys(bancosPais).forEach(k => pais[k] = (pais[k]||0) + bancosPais[k]);
@@ -6167,6 +6181,18 @@ async function generarReporte() {
       </div>
     </div>
     <div class="card" style="margin-top:20px">
+      <div class="section-title" style="font-size:14px;margin-bottom:12px">Patrimonio histórico y composición</div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Año</th><th class="num">Propiedades</th><th class="num">%</th><th class="num">Bancos</th><th class="num">%</th><th class="num">Priv. Equity</th><th class="num">%</th><th class="num">Total</th></tr></thead>
+        <tbody>
+        ${histAnios.map(d=>`<tr><td>${d.anio}</td><td class="num">$${fmt(d.prop)}</td><td class="num" style="color:var(--text3)">${d.total?(d.prop/d.total*100).toFixed(1):'0'}%</td><td class="num">$${fmt(d.banco)}</td><td class="num" style="color:var(--text3)">${d.total?(d.banco/d.total*100).toFixed(1):'0'}%</td><td class="num">${d.pe?'$'+fmt(d.pe):'—'}</td><td class="num" style="color:var(--text3)">${d.pe?(d.pe/d.total*100).toFixed(1)+'%':'—'}</td><td class="num" style="font-weight:700">$${fmt(d.total)}</td></tr>`).join('')}
+        </tbody></table></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:20px">
+      <div class="card"><div class="section-title" style="font-size:14px;margin-bottom:12px">Evolución patrimonial</div><div style="height:230px"><canvas id="rep-ch-evol"></canvas></div></div>
+      <div class="card"><div class="section-title" style="font-size:14px;margin-bottom:12px">Composición por activo</div><div style="height:230px"><canvas id="rep-ch-comp"></canvas></div></div>
+    </div>
+    <div class="card" style="margin-top:20px">
       <div class="section-title" style="font-size:14px;margin-bottom:12px">¿Dónde se generó el resultado del semestre?</div>
       <div class="table-wrap"><table><thead><tr><th>Componente</th><th class="num">Resultado</th></tr></thead><tbody>
         <tr><td>Renta neta de propiedades<br><span style="font-size:11px;color:var(--text3)">Alquileres cobrados, netos de gastos e impuestos</span></td><td class="num" style="color:${rentaNeta>=0?'var(--esp)':'var(--usa)'}">${rentaNeta>=0?'+':''}$${fmt(rentaNeta)}</td></tr>
@@ -6248,6 +6274,31 @@ async function generarReporte() {
 
     <p style="color:var(--text3);font-size:11px;margin-top:16px">Acumulado = patrimonio actual − capital invertido. Rendimiento por método Dietz modificado sobre las cuentas de inversión.</p>
     </div>`;
+  try { renderReporteCharts(histAnios); } catch(e) { console.warn('charts:', e.message); }
+}
+
+let _repCharts = [];
+function renderReporteCharts(hist) {
+  _repCharts.forEach(c => { try { c.destroy(); } catch(e){} }); _repCharts = [];
+  if (!window.Chart || !hist || !hist.length) return;
+  const labels = hist.map(d => d.anio);
+  const yAxis = { ticks: { callback: v => '$' + (Math.abs(v)>=1e6 ? (v/1e6).toFixed(1)+'M' : (v/1e3).toFixed(0)+'k') } };
+  const evolEl = document.getElementById('rep-ch-evol');
+  if (evolEl) _repCharts.push(new Chart(evolEl.getContext('2d'), {
+    type: 'bar',
+    data: { labels, datasets: [{ data: hist.map(d=>d.total), backgroundColor: '#0f2a43', borderRadius: 3 }] },
+    options: { responsive:true, maintainAspectRatio:false, animation:false, plugins:{ legend:{display:false}, tooltip:{callbacks:{label:c=>'$'+fmt(c.raw)}} }, scales:{ y:yAxis } }
+  }));
+  const compEl = document.getElementById('rep-ch-comp');
+  if (compEl) _repCharts.push(new Chart(compEl.getContext('2d'), {
+    type: 'bar',
+    data: { labels, datasets: [
+      { label:'Propiedades', data:hist.map(d=>d.prop), backgroundColor:'#0f2a43' },
+      { label:'Bancos', data:hist.map(d=>d.banco), backgroundColor:'#2f9e63' },
+      { label:'Private Equity', data:hist.map(d=>d.pe), backgroundColor:'#c9a24b' },
+    ] },
+    options: { responsive:true, maintainAspectRatio:false, animation:false, plugins:{ legend:{display:true,position:'bottom',labels:{boxWidth:10,font:{size:10}}} }, scales:{ x:{stacked:true}, y:{stacked:true, ...yAxis} } }
+  }));
 }
 
 async function guardarMovBanco() {
@@ -9103,7 +9154,7 @@ function toggleTheme() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260702-047';
+const APP_VERSION = '20260702-049';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
