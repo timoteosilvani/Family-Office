@@ -5918,7 +5918,7 @@ async function exportarReportePDF() {
     .card{border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:16px;page-break-inside:avoid;background:var(--bg);}
     .table-wrap{overflow:visible;} table{width:100%;border-collapse:collapse;font-size:11.5px;} th{color:var(--navy);font-size:10px;text-transform:uppercase;letter-spacing:.5px;font-weight:700;}
     th,td{padding:6px 8px;text-align:left;border-bottom:1px solid var(--border);} .num{text-align:right;font-variant-numeric:tabular-nums;} .negative{color:var(--usa);} .positive{color:var(--esp);}
-    .section-title{font-weight:700;color:var(--navy);font-size:15px;border-bottom:2px solid #e8eef4;padding-bottom:6px;margin-bottom:12px;} .badge{font-size:9px;padding:1px 6px;border-radius:4px;background:var(--bg2);border:1px solid var(--border);}
+    .section-title{background:var(--navy);color:#fff;font-weight:700;font-size:13.5px;padding:8px 12px;border-radius:6px;margin-bottom:12px;} .badge{font-size:9px;padding:1px 6px;border-radius:4px;background:var(--bg2);border:1px solid var(--border);}
     .rep-h2{font-size:20px;font-weight:800;color:var(--navy);margin:22px 0 8px;padding-bottom:4px;border-bottom:3px solid var(--navy);}
     .rep-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px;} .rep-kpi{border:1px solid var(--border);border-top:3px solid var(--navy);border-radius:8px;padding:16px 12px;text-align:center;page-break-inside:avoid;}
     .rep-kpi .l{font-size:9.5px;letter-spacing:.8px;color:var(--text3);text-transform:uppercase;margin-bottom:8px;} .rep-kpi .v{font-size:21px;font-weight:700;} .rep-kpi .s{font-size:10.5px;color:var(--text3);margin-top:5px;}
@@ -5968,7 +5968,7 @@ async function generarReporte() {
 
   // Bancos: saldo final (2026) + saldo inicial (dic 2025) + aportes → rendimiento (Dietz $)
   let bancosActual = 0; const bancosPais = {};
-  let aportesBancos = 0, rendimientoBancos = 0, bancosCierre = 0; const bancosDietz = [];
+  let aportesBancos = 0, rendimientoBancos = 0, bancosCierre = 0; const bancosDietz = []; let bancosMensual = [];
   if (bancoIds.length) {
     const [movR, iniR, apsR] = await Promise.all([
       sb.from('movimientos_bancos').select('*').eq('anio',2026).in('banco_id', bancoIds),
@@ -6000,6 +6000,13 @@ async function generarReporte() {
       } else {
         bancosDietz.push({ nombre:b.nombre, oper:true, vBeg, vEnd, apSem:0, apTot:(apTot[b.id]||0), varTot, rend:0, movCap:varTot, aportes:aportesOrd });
       }
+    });
+    // Serie mensual (dic 2025 -> jun 2026) para el gráfico de evolución de bancos
+    const movBM = {}; (movR.data||[]).forEach(mv => { (movBM[mv.banco_id]=movBM[mv.banco_id]||{})[mv.mes]=mv; });
+    [{y:2025,m:12,lbl:'31/12'},{y:2026,m:1,lbl:'31/1'},{y:2026,m:2,lbl:'28/2'},{y:2026,m:3,lbl:'31/3'},{y:2026,m:4,lbl:'30/4'},{y:2026,m:5,lbl:'31/5'},{y:2026,m:6,lbl:'30/6'}].forEach(({y,m,lbl}) => {
+      let tot = 0;
+      bancos.forEach(b => { let mov = null; if (y===2025) mov = inicial[b.id]; else { const bm = movBM[b.id]||{}; for (let k=m;k>=1;k--){ if(bm[k]){mov=bm[k];break;} } if(!mov) mov = inicial[b.id]; } if (mov) tot += Number(bancoMovUSD(mov).neto)||0; });
+      if (tot>0) bancosMensual.push({ lbl, total: tot });
     });
   }
   // Renta neta de propiedades: semestre (ene-jun 2026) + detalle acumulado por propiedad
@@ -6061,7 +6068,7 @@ async function generarReporte() {
   { const { data: ph } = await sb.from('patrimonio_historico').select('*').in('titular', titFilter);
     const byY = {};
     (ph||[]).forEach(r => { const sh=(r.titular==='H'&&esH)?1/3:1; const y=r.anio; byY[y]=byY[y]||{prop:0,banco:0,pe:0,autos:0}; byY[y].prop+=(Number(r.propiedades)||0)*sh; byY[y].banco+=(Number(r.banco)||0)*sh; byY[y].pe+=(Number(r.private_equity)||0)*sh; byY[y].autos+=(Number(r.autos)||0)*sh; });
-    histAnios = Object.keys(byY).map(Number).map(y=>({anio:y,...byY[y],total:byY[y].prop+byY[y].banco+byY[y].pe+byY[y].autos})).filter(d=>d.total>0).sort((a,b)=>a.anio-b.anio);
+    histAnios = Object.keys(byY).map(Number).map(y=>({anio:y,...byY[y],total:byY[y].prop+byY[y].banco+byY[y].pe+byY[y].autos})).filter(d=>d.total>0 && d.anio<=2025).sort((a,b)=>a.anio-b.anio);
   }
   histAnios.push({anio:2026, prop:propsActual, banco:bancosActual, pe:peActual, autos:autosActual, total:patrimonioActual});
 
@@ -6103,7 +6110,7 @@ async function generarReporte() {
   cont.innerHTML = `
     <style>
       .rep-doc{--esp:#2f9e63;--usa:#c0605f;--navy:#0f2a43;--gold:#8a6d3b;}
-      .rep-doc .section-title{color:var(--navy)!important;font-weight:700!important;font-size:15.5px!important;border-bottom:2px solid #e8eef4;padding-bottom:7px!important;margin-bottom:14px!important;letter-spacing:-.2px;}
+      .rep-doc .section-title{background:var(--navy);color:#fff!important;font-weight:700!important;font-size:13.5px!important;padding:8px 12px!important;border-radius:6px;margin-bottom:14px!important;letter-spacing:.2px;border-bottom:none!important;}
       .rep-doc .rep-h2{font-size:20px;font-weight:800;color:var(--navy);margin:28px 0 8px;letter-spacing:-.4px;padding-bottom:4px;border-bottom:3px solid var(--navy);}
       .rep-doc table th{color:var(--navy);border-bottom-color:#d8dee6;}
       .rep-doc .card{border-color:#e4e7ec;}
@@ -6126,6 +6133,11 @@ async function generarReporte() {
       ${kpi('Resultado acumulado', acumulado, 'desde el ingreso', acumulado>=0?'var(--esp)':'var(--usa)')}
       ${kpi('Resultado del semestre', resultadoSemestre, (resultadoSemestre>=0?'+':'')+rendSemPct.toFixed(2)+'% · ganancia genuina', resultadoSemestre>=0?'var(--esp)':'var(--usa)')}
     </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:18px">
+      <div class="card" style="margin:0"><div class="section-title" style="font-size:14px;margin-bottom:10px">Evolución patrimonial</div><div style="height:210px"><canvas id="rep-ch-evol"></canvas></div></div>
+      <div class="card" style="margin:0"><div class="section-title" style="font-size:14px;margin-bottom:10px">Composición por activo</div><div style="height:210px"><canvas id="rep-ch-comp"></canvas></div></div>
+    </div>
+    <div class="card" style="margin-bottom:20px"><div class="section-title" style="font-size:14px;margin-bottom:10px">Evolución de bancos · semestre</div><div style="height:190px"><canvas id="rep-ch-bancos"></canvas></div></div>
     <div class="card" style="margin-bottom:20px">
       <div class="section-title" style="font-size:14px;margin-bottom:12px">Patrimonio por tipo de activo</div>
       <div class="table-wrap"><table>
@@ -6136,7 +6148,7 @@ async function generarReporte() {
         </tbody></table></div>
       <p style="color:var(--text3);font-size:11px;margin-top:8px">Invertido = capital aportado (valor de compra de propiedades · aportes a cuentas de inversión · inversión en PE). La variación de bancos incluye movimientos de capital.</p>
     </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;page-break-inside:avoid;break-inside:avoid">
       <div class="card"><div class="section-title" style="font-size:14px;margin-bottom:12px">Distribución por tipo de activo</div>
         <div class="table-wrap"><table><thead><tr><th>Activo</th><th class="num">Valor</th><th class="num">%</th></tr></thead><tbody>
         ${clases.map(c=>`<tr><td>${c.n}</td><td class="num">$${fmt(c.act)}</td><td class="num">${pct(c.act)}</td></tr>`).join('')}
@@ -6187,10 +6199,6 @@ async function generarReporte() {
         <tbody>
         ${histAnios.map(d=>`<tr><td>${d.anio}</td><td class="num">$${fmt(d.prop)}</td><td class="num" style="color:var(--text3)">${d.total?(d.prop/d.total*100).toFixed(1):'0'}%</td><td class="num">$${fmt(d.banco)}</td><td class="num" style="color:var(--text3)">${d.total?(d.banco/d.total*100).toFixed(1):'0'}%</td><td class="num">${d.pe?'$'+fmt(d.pe):'—'}</td><td class="num" style="color:var(--text3)">${d.pe?(d.pe/d.total*100).toFixed(1)+'%':'—'}</td><td class="num" style="font-weight:700">$${fmt(d.total)}</td></tr>`).join('')}
         </tbody></table></div>
-    </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:20px">
-      <div class="card"><div class="section-title" style="font-size:14px;margin-bottom:12px">Evolución patrimonial</div><div style="height:230px"><canvas id="rep-ch-evol"></canvas></div></div>
-      <div class="card"><div class="section-title" style="font-size:14px;margin-bottom:12px">Composición por activo</div><div style="height:230px"><canvas id="rep-ch-comp"></canvas></div></div>
     </div>
     <div class="card" style="margin-top:20px">
       <div class="section-title" style="font-size:14px;margin-bottom:12px">¿Dónde se generó el resultado del semestre?</div>
@@ -6274,30 +6282,39 @@ async function generarReporte() {
 
     <p style="color:var(--text3);font-size:11px;margin-top:16px">Acumulado = patrimonio actual − capital invertido. Rendimiento por método Dietz modificado sobre las cuentas de inversión.</p>
     </div>`;
-  try { renderReporteCharts(histAnios); } catch(e) { console.warn('charts:', e.message); }
+  try { renderReporteCharts(histAnios, bancosMensual); } catch(e) { console.warn('charts:', e.message); }
 }
 
 let _repCharts = [];
-function renderReporteCharts(hist) {
+function renderReporteCharts(hist, bancosMensual) {
   _repCharts.forEach(c => { try { c.destroy(); } catch(e){} }); _repCharts = [];
   if (!window.Chart || !hist || !hist.length) return;
+  const money = v => '$' + (Math.abs(v)>=1e6 ? (v/1e6).toFixed(2)+'M' : (v/1e3).toFixed(0)+'k');
+  const yAxis = { ticks: { callback: money, font:{size:9} }, grid:{color:'#f0f0ee'} };
+  const xAxis = { ticks:{font:{size:10}}, grid:{display:false} };
+  // plugin: valores arriba de las barras (solo gráficos de 1 dataset)
+  const valLabels = { id:'valLabels', afterDatasetsDraw(chart){ if (chart.data.datasets.length!==1) return; const {ctx}=chart; ctx.save(); ctx.font='bold 9.5px Helvetica,Arial'; ctx.fillStyle='#0f2a43'; ctx.textAlign='center';
+    chart.getDatasetMeta(0).data.forEach((el,i)=>{ const v=chart.data.datasets[0].data[i]; if(v) ctx.fillText(money(v), el.x, el.y-5); }); ctx.restore(); } };
   const labels = hist.map(d => d.anio);
-  const yAxis = { ticks: { callback: v => '$' + (Math.abs(v)>=1e6 ? (v/1e6).toFixed(1)+'M' : (v/1e3).toFixed(0)+'k') } };
   const evolEl = document.getElementById('rep-ch-evol');
   if (evolEl) _repCharts.push(new Chart(evolEl.getContext('2d'), {
-    type: 'bar',
-    data: { labels, datasets: [{ data: hist.map(d=>d.total), backgroundColor: '#0f2a43', borderRadius: 3 }] },
-    options: { responsive:true, maintainAspectRatio:false, animation:false, plugins:{ legend:{display:false}, tooltip:{callbacks:{label:c=>'$'+fmt(c.raw)}} }, scales:{ y:yAxis } }
+    type:'bar', data:{ labels, datasets:[{ data:hist.map(d=>d.total), backgroundColor:'#0f2a43', borderRadius:3 }] },
+    options:{ responsive:true, maintainAspectRatio:false, animation:false, layout:{padding:{top:20}}, plugins:{ legend:{display:false}, tooltip:{callbacks:{label:c=>'$'+fmt(c.raw)}} }, scales:{ y:yAxis, x:xAxis } },
+    plugins:[valLabels]
   }));
   const compEl = document.getElementById('rep-ch-comp');
   if (compEl) _repCharts.push(new Chart(compEl.getContext('2d'), {
-    type: 'bar',
-    data: { labels, datasets: [
-      { label:'Propiedades', data:hist.map(d=>d.prop), backgroundColor:'#0f2a43' },
-      { label:'Bancos', data:hist.map(d=>d.banco), backgroundColor:'#2f9e63' },
-      { label:'Private Equity', data:hist.map(d=>d.pe), backgroundColor:'#c9a24b' },
+    type:'bar', data:{ labels, datasets:[
+      { label:'Propiedades', data:hist.map(d=>d.prop), backgroundColor:'#0f2a43', borderRadius:2 },
+      { label:'Bancos', data:hist.map(d=>d.banco), backgroundColor:'#2f9e63', borderRadius:2 },
+      { label:'Private Equity', data:hist.map(d=>d.pe), backgroundColor:'#c9a24b', borderRadius:2 },
     ] },
-    options: { responsive:true, maintainAspectRatio:false, animation:false, plugins:{ legend:{display:true,position:'bottom',labels:{boxWidth:10,font:{size:10}}} }, scales:{ x:{stacked:true}, y:{stacked:true, ...yAxis} } }
+    options:{ responsive:true, maintainAspectRatio:false, animation:false, plugins:{ legend:{display:true,position:'bottom',labels:{boxWidth:9,font:{size:9}}}, tooltip:{callbacks:{label:c=>c.dataset.label+': $'+fmt(c.raw)}} }, scales:{ y:yAxis, x:xAxis } }
+  }));
+  const bkEl = document.getElementById('rep-ch-bancos');
+  if (bkEl && bancosMensual && bancosMensual.length) _repCharts.push(new Chart(bkEl.getContext('2d'), {
+    type:'line', data:{ labels:bancosMensual.map(d=>d.lbl), datasets:[{ data:bancosMensual.map(d=>d.total), borderColor:'#0f2a43', backgroundColor:'rgba(15,42,67,0.08)', fill:true, tension:0.25, pointRadius:3, pointBackgroundColor:'#0f2a43', borderWidth:2 }] },
+    options:{ responsive:true, maintainAspectRatio:false, animation:false, plugins:{ legend:{display:false}, tooltip:{callbacks:{label:c=>'$'+fmt(c.raw)}} }, scales:{ y:yAxis, x:xAxis } }
   }));
 }
 
@@ -9154,7 +9171,7 @@ function toggleTheme() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260702-049';
+const APP_VERSION = '20260702-050';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
