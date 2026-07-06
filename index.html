@@ -5914,7 +5914,7 @@ async function exportarReportePDF() {
   w.document.write(`<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>Informe ${cliNom}</title>
   <style>
     :root{--navy:#0F2A43;--green:#2f9e63;--red:#c0605f;--teal:#2E9B8F;--border:#e4e7ec;--text:#1a1a1a;--text2:#444;--text3:#888;--esp:#2f9e63;--usa:#c0605f;--gold:#8a6d3b;--gold-soft:#f5efe0;--bg2:#f7f7f5;--bg:#fff;}
-    *{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact;} body{font-family:Helvetica,Arial,sans-serif;color:var(--text);margin:0;padding:24px;font-size:12px;line-height:1.4;}
+    *{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact;} body{font-family:Helvetica,Arial,sans-serif;color:var(--text);margin:0;padding:14px;font-size:11px;line-height:1.35;}
     .card{border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:16px;page-break-inside:avoid;background:var(--bg);}
     .table-wrap{overflow:visible;} table{width:100%;border-collapse:collapse;font-size:11.5px;} th{color:var(--navy);font-size:10px;text-transform:uppercase;letter-spacing:.5px;font-weight:700;}
     th,td{padding:6px 8px;text-align:left;border-bottom:1px solid var(--border);} .num{text-align:right;font-variant-numeric:tabular-nums;} .negative{color:var(--usa);} .positive{color:var(--esp);}
@@ -6109,18 +6109,18 @@ async function generarReporte() {
 
   cont.innerHTML = `
     <style>
-      .rep-doc{--esp:#2f9e63;--usa:#c0605f;--navy:#0f2a43;--gold:#8a6d3b;}
-      .rep-doc .section-title{background:var(--navy);color:#fff!important;font-weight:700!important;font-size:13.5px!important;padding:8px 12px!important;border-radius:6px;margin-bottom:14px!important;letter-spacing:.2px;border-bottom:none!important;}
-      .rep-doc .rep-h2{font-size:20px;font-weight:800;color:var(--navy);margin:28px 0 8px;letter-spacing:-.4px;padding-bottom:4px;border-bottom:3px solid var(--navy);}
-      .rep-doc table th{color:var(--navy);border-bottom-color:#d8dee6;}
-      .rep-doc .card{border-color:#e4e7ec;}
+      .rep-doc{--esp:#2f9e63;--usa:#c0605f;--navy:#0f2a43;--gold:#8a6d3b;font-size:11px;}
+      .rep-doc .section-title{background:var(--navy);color:#fff!important;font-weight:700!important;font-size:12px!important;padding:6px 10px!important;border-radius:5px;margin-bottom:8px!important;letter-spacing:.2px;border-bottom:none!important;}
+      .rep-doc .rep-h2{font-size:15px!important;font-weight:800;color:var(--navy);margin:16px 0 6px!important;letter-spacing:-.3px;padding-bottom:3px;border-bottom:2px solid var(--navy);}
+      .rep-doc .card{border-color:#e4e7ec;padding:10px 12px!important;margin-bottom:10px!important;}
       .rep-doc .card,.rep-doc .rep-kpi{page-break-inside:avoid;break-inside:avoid;}
-      .rep-doc .rep-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:22px;}
-      .rep-doc .rep-kpi{border:1px solid #e4e7ec;border-top:3px solid var(--navy);border-radius:8px;padding:16px 12px;text-align:center;background:var(--bg);}
-      .rep-doc .rep-kpi .l{font-size:9.5px;letter-spacing:.8px;color:var(--text3);text-transform:uppercase;margin-bottom:8px;min-height:22px;}
-      .rep-doc .rep-kpi .v{font-size:21px;font-weight:700;}
-      .rep-doc .rep-kpi .s{font-size:10.5px;color:var(--text3);margin-top:5px;}
-      .rep-doc .rep-head{background:var(--navy);color:#fff;border-radius:10px;padding:15px 20px;margin-bottom:20px;display:flex;justify-content:space-between;align-items:center;}
+      .rep-doc table{font-size:9.5px!important;} .rep-doc th,.rep-doc td{padding:3px 6px!important;} .rep-doc table th{color:var(--navy);border-bottom-color:#d8dee6;font-size:8.5px!important;}
+      .rep-doc .rep-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px;}
+      .rep-doc .rep-kpi{border:1px solid #e4e7ec;border-top:3px solid var(--navy);border-radius:7px;padding:9px 8px;text-align:center;background:var(--bg);}
+      .rep-doc .rep-kpi .l{font-size:8px;letter-spacing:.6px;color:var(--text3);text-transform:uppercase;margin-bottom:3px;min-height:0;}
+      .rep-doc .rep-kpi .v{font-size:15px;font-weight:700;}
+      .rep-doc .rep-kpi .s{font-size:8.5px;color:var(--text3);margin-top:2px;}
+      .rep-doc .rep-head{background:var(--navy);color:#fff;border-radius:9px;padding:11px 16px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;}
     </style>
     <div class="rep-doc">
     <div class="rep-head">
@@ -6133,11 +6133,11 @@ async function generarReporte() {
       ${kpi('Resultado acumulado', acumulado, 'desde el ingreso', acumulado>=0?'var(--esp)':'var(--usa)')}
       ${kpi('Resultado del semestre', resultadoSemestre, (resultadoSemestre>=0?'+':'')+rendSemPct.toFixed(2)+'% · ganancia genuina', resultadoSemestre>=0?'var(--esp)':'var(--usa)')}
     </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:18px">
-      <div class="card" style="margin:0"><div class="section-title" style="font-size:14px;margin-bottom:10px">Evolución patrimonial</div><div style="height:210px"><canvas id="rep-ch-evol"></canvas></div></div>
-      <div class="card" style="margin:0"><div class="section-title" style="font-size:14px;margin-bottom:10px">Composición por activo</div><div style="height:210px"><canvas id="rep-ch-comp"></canvas></div></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:12px">
+      <div class="card" style="margin:0"><div class="section-title" style="font-size:14px;margin-bottom:10px">Evolución patrimonial</div><div style="height:175px"><canvas id="rep-ch-evol"></canvas></div></div>
+      <div class="card" style="margin:0"><div class="section-title" style="font-size:14px;margin-bottom:10px">Composición por activo</div><div style="height:175px"><canvas id="rep-ch-comp"></canvas></div></div>
     </div>
-    <div class="card" style="margin-bottom:20px"><div class="section-title" style="font-size:14px;margin-bottom:10px">Evolución de bancos · semestre</div><div style="height:190px"><canvas id="rep-ch-bancos"></canvas></div></div>
+    <div class="card" style="margin-bottom:12px"><div class="section-title" style="font-size:14px;margin-bottom:10px">Evolución de bancos · semestre</div><div style="height:150px"><canvas id="rep-ch-bancos"></canvas></div></div>
     <div class="card" style="margin-bottom:20px">
       <div class="section-title" style="font-size:14px;margin-bottom:12px">Patrimonio por tipo de activo</div>
       <div class="table-wrap"><table>
@@ -6159,6 +6159,14 @@ async function generarReporte() {
         ${['USA','ARG','URU','ESP'].map(k=>`<tr><td>${paisNom[k]}</td><td class="num">$${fmt(pais[k]||0)}</td><td class="num">${pct(pais[k]||0)}</td></tr>`).join('')}
         <tr style="font-weight:600;border-top:2px solid var(--border)"><td>Total</td><td class="num">$${fmt(patrimonioActual)}</td><td class="num">100%</td></tr>
         </tbody></table></div></div>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <div class="section-title" style="font-size:14px;margin-bottom:12px">Patrimonio histórico y composición</div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Año</th><th class="num">Propiedades</th><th class="num">%</th><th class="num">Bancos</th><th class="num">%</th><th class="num">Priv. Equity</th><th class="num">%</th><th class="num">Total</th></tr></thead>
+        <tbody>
+        ${histAnios.map(d=>`<tr><td>${d.anio}</td><td class="num">$${fmt(d.prop)}</td><td class="num" style="color:var(--text3)">${d.total?(d.prop/d.total*100).toFixed(1):'0'}%</td><td class="num">$${fmt(d.banco)}</td><td class="num" style="color:var(--text3)">${d.total?(d.banco/d.total*100).toFixed(1):'0'}%</td><td class="num">${d.pe?'$'+fmt(d.pe):'—'}</td><td class="num" style="color:var(--text3)">${d.pe?(d.pe/d.total*100).toFixed(1)+'%':'—'}</td><td class="num" style="font-weight:700">$${fmt(d.total)}</td></tr>`).join('')}
+        </tbody></table></div>
     </div>
     <div class="rep-h2">Resumen</div>
     <div class="card" style="margin-top:20px">
@@ -6191,14 +6199,6 @@ async function generarReporte() {
           ${rrow('Estado', peRecupero>=0?'Recuperado':'En recupero')}
         </div>
       </div>
-    </div>
-    <div class="card" style="margin-top:20px">
-      <div class="section-title" style="font-size:14px;margin-bottom:12px">Patrimonio histórico y composición</div>
-      <div class="table-wrap"><table>
-        <thead><tr><th>Año</th><th class="num">Propiedades</th><th class="num">%</th><th class="num">Bancos</th><th class="num">%</th><th class="num">Priv. Equity</th><th class="num">%</th><th class="num">Total</th></tr></thead>
-        <tbody>
-        ${histAnios.map(d=>`<tr><td>${d.anio}</td><td class="num">$${fmt(d.prop)}</td><td class="num" style="color:var(--text3)">${d.total?(d.prop/d.total*100).toFixed(1):'0'}%</td><td class="num">$${fmt(d.banco)}</td><td class="num" style="color:var(--text3)">${d.total?(d.banco/d.total*100).toFixed(1):'0'}%</td><td class="num">${d.pe?'$'+fmt(d.pe):'—'}</td><td class="num" style="color:var(--text3)">${d.pe?(d.pe/d.total*100).toFixed(1)+'%':'—'}</td><td class="num" style="font-weight:700">$${fmt(d.total)}</td></tr>`).join('')}
-        </tbody></table></div>
     </div>
     <div class="card" style="margin-top:20px">
       <div class="section-title" style="font-size:14px;margin-bottom:12px">¿Dónde se generó el resultado del semestre?</div>
@@ -6313,7 +6313,7 @@ function renderReporteCharts(hist, bancosMensual) {
   }));
   const bkEl = document.getElementById('rep-ch-bancos');
   if (bkEl && bancosMensual && bancosMensual.length) _repCharts.push(new Chart(bkEl.getContext('2d'), {
-    type:'line', data:{ labels:bancosMensual.map(d=>d.lbl), datasets:[{ data:bancosMensual.map(d=>d.total), borderColor:'#0f2a43', backgroundColor:'rgba(15,42,67,0.08)', fill:true, tension:0.25, pointRadius:3, pointBackgroundColor:'#0f2a43', borderWidth:2 }] },
+    type:'bar', data:{ labels:bancosMensual.map(d=>d.lbl), datasets:[{ data:bancosMensual.map(d=>d.total), backgroundColor:'#2f9e63', borderRadius:3 }] },
     options:{ responsive:true, maintainAspectRatio:false, animation:false, plugins:{ legend:{display:false}, tooltip:{callbacks:{label:c=>'$'+fmt(c.raw)}} }, scales:{ y:yAxis, x:xAxis } }
   }));
 }
@@ -9171,7 +9171,7 @@ function toggleTheme() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260702-050';
+const APP_VERSION = '20260702-051';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
