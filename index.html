@@ -5916,7 +5916,7 @@ function exportarReportePDF() {
     .section-title{font-weight:700;color:var(--navy);} .badge{font-size:9px;padding:1px 6px;border-radius:4px;background:var(--bg2);border:1px solid var(--border);}
     .loader,.spinner,.rep-head{display:none!important;}
     h1{color:var(--navy);font-size:24px;margin:0 0 4px;letter-spacing:-.3px;} .hdr{border-bottom:3px solid var(--navy);padding-bottom:14px;margin-bottom:22px;display:flex;justify-content:space-between;align-items:flex-end;}
-    @page{size:portrait;margin:1.3cm;} @page wide{size:A4 landscape;margin:1cm;} .wide{page:wide;} @media print{body{padding:0;}}
+    @page{size:portrait;margin:1.3cm;} @page wide{size:A4 landscape;margin:1cm;} .wide{page:wide;break-before:page;break-inside:avoid;} @media print{body{padding:0;}}
   </style></head><body>
   <div class="hdr"><div><h1>Informe Patrimonial</h1><div style="color:var(--text3);font-size:13px">${cliNom} · Primer semestre 2026 · Cifras en USD</div></div><div style="color:var(--text3);font-size:11px;text-align:right">Family Office<br>Generado ${new Date().toLocaleDateString('es-AR')}</div></div>
   ${cont.innerHTML}
@@ -6033,6 +6033,11 @@ async function generarReporte() {
     const { data: mpe } = await sb.from('movimientos_pe').select('*').in('pe_id', peIds);
     (mpe||[]).forEach(m => { const d=peDet[m.pe_id]; if(!d) return; const u=Number(m.utilidad)||0; d.util+=u; d.aporte+=(Number(m.aporte_capital)||0); d.gastos+=(Number(m.gastos)||0); d.imp+=(Number(m.impuestos)||0); d.byYear[m.anio]=(d.byYear[m.anio]||0)+u; });
   }
+  if (peIds.length) {
+    const { data: uh } = await sb.from('utilidad_anual_pe').select('*');
+    const normPe = s => String(s||'').toLowerCase().trim();
+    (uh||[]).forEach(u => { const p = pe.find(x => normPe(x.nombre) === normPe(u.pe_nombre)); if (p && peDet[p.id] && !peDet[p.id].byYear[u.anio]) { const v=Number(u.utilidad)||0; peDet[p.id].byYear[u.anio]=v; peDet[p.id].util+=v; } });
+  }
 
   const sum = (arr,f) => arr.reduce((a,r)=>a + (Number(r[f])||0)*share(r), 0);
   const propsActual = sum(props,'valor_2026'), propsInvertido = sum(props,'valor_compra');
@@ -6084,7 +6089,7 @@ async function generarReporte() {
   cont.innerHTML = `
     <style>
       .rep-doc{--esp:#2f9e63;--usa:#c0605f;--navy:#0f2a43;--gold:#8a6d3b;}
-      .rep-doc .section-title{color:var(--navy);font-weight:700;}
+      .rep-doc .section-title{color:var(--navy)!important;font-weight:700!important;font-size:15.5px!important;border-bottom:2px solid #e8eef4;padding-bottom:7px!important;margin-bottom:14px!important;letter-spacing:-.2px;}
       .rep-doc table th{color:var(--navy);border-bottom-color:#d8dee6;}
       .rep-doc .card{border-color:#e4e7ec;}
       .rep-doc .card,.rep-doc .rep-kpi{page-break-inside:avoid;break-inside:avoid;}
@@ -9095,7 +9100,7 @@ function toggleTheme() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260702-042';
+const APP_VERSION = '20260702-044';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
