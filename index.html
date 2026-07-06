@@ -5909,7 +5909,7 @@ async function exportarReportePDF() {
   // Clonar contenido y reemplazar los gráficos (canvas) por imágenes (el canvas no viaja en el HTML)
   const clone = cont.cloneNode(true);
   const oc = cont.querySelectorAll('canvas'), cc = clone.querySelectorAll('canvas');
-  oc.forEach((c, i) => { try { const img = document.createElement('img'); img.src = c.toDataURL('image/png'); img.style.width = '100%'; img.style.height = 'auto'; if (cc[i]) cc[i].replaceWith(img); } catch(e){} });
+  oc.forEach((c, i) => { try { const img = document.createElement('img'); img.src = c.toDataURL('image/png'); img.style.width = '100%'; img.style.height = 'auto'; img.style.display = 'block'; if (cc[i]) { if (cc[i].parentElement) cc[i].parentElement.style.height = 'auto'; cc[i].replaceWith(img); } } catch(e){} });
   const htmlBody = clone.innerHTML;
   w.document.write(`<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>Informe ${cliNom}</title>
   <style>
@@ -6172,9 +6172,9 @@ async function generarReporte() {
     <div class="card pgbreak" style="margin-top:16px">
       <div class="section-title" style="font-size:14px;margin-bottom:12px">Patrimonio histórico y composición</div>
       <div class="table-wrap"><table class="rep-big">
-        <thead><tr><th>Año</th><th class="num">Propiedades</th><th class="num">%</th><th class="num">Bancos</th><th class="num">%</th><th class="num">Priv. Equity</th><th class="num">%</th><th class="num">Total</th></tr></thead>
+        <thead><tr><th>Año</th><th class="num">Propiedades</th><th class="num">Bancos</th><th class="num">Priv. Equity</th><th class="num">Total</th></tr></thead>
         <tbody>
-        ${histAnios.map(d=>`<tr><td>${d.anio}</td><td class="num">$${fmt(d.prop)}</td><td class="num" style="color:var(--text3)">${d.total?(d.prop/d.total*100).toFixed(1):'0'}%</td><td class="num">$${fmt(d.banco)}</td><td class="num" style="color:var(--text3)">${d.total?(d.banco/d.total*100).toFixed(1):'0'}%</td><td class="num">${d.pe?'$'+fmt(d.pe):'—'}</td><td class="num" style="color:var(--text3)">${d.pe?(d.pe/d.total*100).toFixed(1)+'%':'—'}</td><td class="num" style="font-weight:700">$${fmt(d.total)}</td></tr>`).join('')}
+        ${histAnios.map(d=>`<tr><td style="font-weight:600">${d.anio}</td><td class="num">$${fmt(d.prop)} <span style="color:var(--text3);font-size:.82em">${d.total?(d.prop/d.total*100).toFixed(1):'0'}%</span></td><td class="num">$${fmt(d.banco)} <span style="color:var(--text3);font-size:.82em">${d.total?(d.banco/d.total*100).toFixed(1):'0'}%</span></td><td class="num">${d.pe?'$'+fmt(d.pe)+' <span style="color:var(--text3);font-size:.82em">'+(d.pe/d.total*100).toFixed(1)+'%</span>':'—'}</td><td class="num" style="font-weight:700">$${fmt(d.total)}</td></tr>`).join('')}
         </tbody></table></div>
     </div>
     <div class="rep-h2">Resumen</div>
@@ -6274,9 +6274,21 @@ async function generarReporte() {
         }).join('')}
         </tbody></table></div>
     </div>` : ''}
+    ${propsHist.length ? `<div class="card">
+      <div class="section-title" style="font-size:14px;margin-bottom:12px">Rentabilidad por año <span style="font-weight:400;font-size:10px;opacity:.85">· renta neta sobre valor de compra</span></div>
+      <div class="table-wrap"><table class="rep-big">
+        <thead><tr><th>Propiedad</th><th class="num">V. compra</th>${aniosR.map(y=>`<th class="num">${y}</th>`).join('')}<th class="num">2026 S1</th></tr></thead>
+        <tbody>
+        ${propsHist.map(p=>{ const vc=(Number(p.valor_compra)||0); const a=propDet[p.id].anual; const sem=propDet[p.id].netoSem;
+          return `<tr><td style="font-weight:600">${p.nombre}</td><td class="num">$${fmt(vc)}</td>${aniosR.map(y=>{ const v=(a[y]&&vc)?(a[y].neta/vc*100):null; return `<td class="num" style="color:${v==null?'var(--text3)':(v>=0?'var(--esp)':'var(--usa)')}">${v==null?'—':(v>=0?'+':'')+v.toFixed(2)+'%'}</td>`; }).join('')}<td class="num" style="color:${sem>=0?'var(--esp)':'var(--usa)'}">${vc?(sem>=0?'+':'')+(sem/vc*100).toFixed(2)+'%':'—'}</td></tr>`;
+        }).join('')}
+        </tbody></table></div>
+      <p style="color:var(--text3);font-size:10px;margin-top:6px">Rentabilidad = renta neta del año / valor de compra de la propiedad.</p>
+    </div>` : ''}
 
     ${bancosDietz.length ? `<div class="rep-h2 pgbreak">Bancos</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start">
+      <div>
       <div class="card" style="margin:0">
       <div class="section-title" style="font-size:14px;margin-bottom:10px">Resultado del semestre por cuenta</div>
       <div class="table-wrap"><table><thead><tr><th>Cuenta</th><th class="num">S. inic.</th><th class="num">Aportes</th><th class="num">S. final</th><th class="num">Result.</th><th class="num">Rend.</th></tr></thead><tbody>
@@ -6284,19 +6296,21 @@ async function generarReporte() {
       ${(()=>{const inv=bancosDietz.filter(d=>!d.oper);const si=inv.reduce((a,d)=>a+d.vBeg,0),ap=inv.reduce((a,d)=>a+d.apSem,0),sf=inv.reduce((a,d)=>a+d.vEnd,0);return `<tr style="font-weight:700;border-top:2px solid var(--navy)"><td>Total inv.</td><td class="num">$${fmt(si)}</td><td class="num">${ap>=0?'+':''}$${fmt(ap)}</td><td class="num">$${fmt(sf)}</td><td class="num" style="color:${rendimientoBancos>=0?'var(--esp)':'var(--usa)'}">${rendimientoBancos>=0?'+':''}$${fmt(rendimientoBancos)}</td><td class="num"></td></tr>`})()}
       </tbody></table></div>
       </div>
-      ${bancosDietz.some(d=>!d.oper) ? `<div class="card" style="margin:0">
-      <div class="section-title" style="font-size:14px;margin-bottom:10px">Rendimiento desde el ingreso</div>
-      <div class="table-wrap"><table><thead><tr><th>Cuenta</th><th class="num">Aportado</th><th class="num">V. actual</th><th class="num">Rend.</th><th class="num">%</th></tr></thead><tbody>
-      ${bancosDietz.filter(d=>!d.oper).map(d=>{const ri=d.vEnd-d.apTot; const pi=d.apTot>0?(ri/d.apTot*100):0; return `<tr><td>${d.nombre}</td><td class="num">$${fmt(d.apTot)}</td><td class="num">$${fmt(d.vEnd)}</td><td class="num" style="color:${ri>=0?'var(--esp)':'var(--usa)'}">${ri>=0?'+':''}$${fmt(ri)}</td><td class="num" style="color:${ri>=0?'var(--esp)':'var(--usa)'}">${pi>=0?'+':''}${pi.toFixed(1)}%</td></tr>`}).join('')}
-      ${(()=>{const dd=bancosDietz.filter(d=>!d.oper);const ta=dd.reduce((a,d)=>a+d.apTot,0),va=dd.reduce((a,d)=>a+d.vEnd,0),ri=va-ta;return `<tr style="font-weight:700;border-top:2px solid var(--navy)"><td>Total</td><td class="num">$${fmt(ta)}</td><td class="num">$${fmt(va)}</td><td class="num" style="color:${ri>=0?'var(--esp)':'var(--usa)'}">${ri>=0?'+':''}$${fmt(ri)}</td><td class="num">${ta>0?(ri>=0?'+':'')+(ri/ta*100).toFixed(1)+'%':'—'}</td></tr>`})()}
-      </tbody></table></div>
-      </div>` : '<div></div>'}
-      </div>
       <div class="card" style="margin-top:14px">
       <div class="section-title" style="font-size:14px;margin-bottom:10px">Detalle de aportes y movimientos de capital</div>
       <div class="table-wrap"><table><thead><tr><th>Cuenta</th><th class="num">Fecha</th><th>Tipo</th><th class="num">Monto</th></tr></thead><tbody>
       ${bancosDietz.flatMap(d=>(d.aportes||[]).map(a=>`<tr><td>${d.nombre}</td><td class="num">${a.fecha}</td><td>${({incorporacion:'Incorporación',aporte:'Aporte',retiro:'Retiro'})[a.tipo]||a.tipo}</td><td class="num" style="color:${a.tipo==='retiro'?'var(--usa)':'var(--esp)'}">${a.tipo==='retiro'?'-':'+'}$${fmt(Math.abs(Number(a.monto)||0))}</td></tr>`)).join('') || '<tr><td colspan="4" style="color:var(--text3)">Sin aportes registrados</td></tr>'}
       </tbody></table></div>
+      </div>
+      </div>
+      ${bancosDietz.some(d=>!d.oper) ? `<div><div class="card" style="margin:0">
+      <div class="section-title" style="font-size:14px;margin-bottom:10px">Rendimiento desde el ingreso</div>
+      <div class="table-wrap"><table><thead><tr><th>Cuenta</th><th class="num">Aportado</th><th class="num">V. actual</th><th class="num">Rend.</th><th class="num">%</th></tr></thead><tbody>
+      ${bancosDietz.filter(d=>!d.oper).map(d=>{const ri=d.vEnd-d.apTot; const pi=d.apTot>0?(ri/d.apTot*100):0; return `<tr><td>${d.nombre}</td><td class="num">$${fmt(d.apTot)}</td><td class="num">$${fmt(d.vEnd)}</td><td class="num" style="color:${ri>=0?'var(--esp)':'var(--usa)'}">${ri>=0?'+':''}$${fmt(ri)}</td><td class="num" style="color:${ri>=0?'var(--esp)':'var(--usa)'}">${pi>=0?'+':''}${pi.toFixed(1)}%</td></tr>`}).join('')}
+      ${(()=>{const dd=bancosDietz.filter(d=>!d.oper);const ta=dd.reduce((a,d)=>a+d.apTot,0),va=dd.reduce((a,d)=>a+d.vEnd,0),ri=va-ta;return `<tr style="font-weight:700;border-top:2px solid var(--navy)"><td>Total</td><td class="num">$${fmt(ta)}</td><td class="num">$${fmt(va)}</td><td class="num" style="color:${ri>=0?'var(--esp)':'var(--usa)'}">${ri>=0?'+':''}$${fmt(ri)}</td><td class="num">${ta>0?(ri>=0?'+':'')+(ri/ta*100).toFixed(1)+'%':'—'}</td></tr>`})()}
+      </tbody></table></div>
+      <p style="color:var(--text3);font-size:10px;margin-top:6px">Rendimiento desde el ingreso = valor actual − total aportado.</p>
+      </div></div>` : '<div></div>'}
       </div>` : ''}
 
     ${pe.length ? `<div class="rep-h2 pgbreak">Private Equity</div><div class="card" style="margin-top:20px">
@@ -9209,7 +9223,7 @@ function toggleTheme() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260702-053';
+const APP_VERSION = '20260702-054';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
