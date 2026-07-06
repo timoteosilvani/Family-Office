@@ -5904,32 +5904,28 @@ async function exportarReportePDF() {
   const cliNom = cli && cli.selectedIndex >= 0 ? cli.options[cli.selectedIndex].text : '';
   if (!cli || !cli.value) return toast('Elegí un cliente y generá el informe primero', 'error');
   if (!cont || !cont.innerHTML.trim() || cont.querySelector('.spinner')) return toast('Generá el informe primero', 'error');
-  toast('Generando PDF…', 'info');
-  try {
-    if (!window.html2pdf) {
-      await new Promise((res, rej) => { const s = document.createElement('script'); s.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js'; s.onload = res; s.onerror = () => rej(new Error('no se pudo cargar la librería PDF')); document.head.appendChild(s); });
-    }
-    const wrap = document.createElement('div');
-    wrap.id = 'pdf-export-wrap';
-    wrap.style.cssText = 'position:absolute;left:0;top:0;width:1120px;padding:22px;background:#fff;color:#1a1a1a;font-family:Helvetica,Arial,sans-serif;z-index:2147483647;';
-    wrap.innerHTML = `<div style="border-bottom:3px solid #0f2a43;padding-bottom:12px;margin-bottom:18px;display:flex;justify-content:space-between;align-items:flex-end">
-        <div><div style="font-size:24px;font-weight:800;color:#0f2a43;letter-spacing:-.4px">Informe Patrimonial</div><div style="font-size:13px;color:#888">${cliNom} · Primer semestre 2026 · Cifras en USD</div></div>
-        <div style="font-size:11px;color:#888;text-align:right">Family Office<br>Generado ${new Date().toLocaleDateString('es-AR')}</div>
-      </div>` + cont.innerHTML;
-    wrap.querySelectorAll('.rep-head,.loader,.spinner').forEach(e => e.remove());
-    document.body.appendChild(wrap);
-    window.scrollTo(0, 0);
-    await new Promise(r => setTimeout(r, 200));
-    await html2pdf().set({
-      margin: [8, 8, 10, 8], filename: `Informe_${cliNom.replace(/[^\w]+/g,'_')||'cliente'}.pdf`,
-      image: { type: 'jpeg', quality: 0.98 },
-      html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
-      jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' },
-      pagebreak: { mode: ['css', 'legacy'], avoid: ['.card', '.rep-kpi', 'tr'] }
-    }).from(wrap).save();
-    wrap.remove();
-    toast('PDF descargado ✓', 'success');
-  } catch (e) { const w = document.getElementById('pdf-export-wrap'); if (w) w.remove(); toast('No se pudo generar el PDF: ' + e.message, 'error'); }
+  const w = window.open('', '_blank');
+  if (!w) return toast('Permití las ventanas emergentes para exportar', 'error');
+  w.document.write(`<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>Informe ${cliNom}</title>
+  <style>
+    :root{--navy:#0F2A43;--green:#2f9e63;--red:#c0605f;--teal:#2E9B8F;--border:#e4e7ec;--text:#1a1a1a;--text2:#444;--text3:#888;--esp:#2f9e63;--usa:#c0605f;--gold:#8a6d3b;--gold-soft:#f5efe0;--bg2:#f7f7f5;--bg:#fff;}
+    *{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact;} body{font-family:Helvetica,Arial,sans-serif;color:var(--text);margin:0;padding:24px;font-size:12px;line-height:1.4;}
+    .card{border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:16px;page-break-inside:avoid;background:var(--bg);}
+    .table-wrap{overflow:visible;} table{width:100%;border-collapse:collapse;font-size:11.5px;} th{color:var(--navy);font-size:10px;text-transform:uppercase;letter-spacing:.5px;font-weight:700;}
+    th,td{padding:6px 8px;text-align:left;border-bottom:1px solid var(--border);} .num{text-align:right;font-variant-numeric:tabular-nums;} .negative{color:var(--usa);} .positive{color:var(--esp);}
+    .section-title{font-weight:700;color:var(--navy);font-size:15px;border-bottom:2px solid #e8eef4;padding-bottom:6px;margin-bottom:12px;} .badge{font-size:9px;padding:1px 6px;border-radius:4px;background:var(--bg2);border:1px solid var(--border);}
+    .rep-h2{font-size:20px;font-weight:800;color:var(--navy);margin:22px 0 8px;padding-bottom:4px;border-bottom:3px solid var(--navy);}
+    .rep-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px;} .rep-kpi{border:1px solid var(--border);border-top:3px solid var(--navy);border-radius:8px;padding:16px 12px;text-align:center;page-break-inside:avoid;}
+    .rep-kpi .l{font-size:9.5px;letter-spacing:.8px;color:var(--text3);text-transform:uppercase;margin-bottom:8px;} .rep-kpi .v{font-size:21px;font-weight:700;} .rep-kpi .s{font-size:10.5px;color:var(--text3);margin-top:5px;}
+    .loader,.spinner,.rep-head{display:none!important;}
+    h1{color:var(--navy);font-size:24px;margin:0 0 4px;letter-spacing:-.3px;} .hdr{border-bottom:3px solid var(--navy);padding-bottom:14px;margin-bottom:20px;display:flex;justify-content:space-between;align-items:flex-end;}
+    @page{size:A4 landscape;margin:1cm;} @media print{body{padding:0;}}
+  </style></head><body>
+  <div class="hdr"><div><h1>Informe Patrimonial</h1><div style="color:var(--text3);font-size:13px">${cliNom} \u00b7 Primer semestre 2026 \u00b7 Cifras en USD</div></div><div style="color:var(--text3);font-size:11px;text-align:right">Family Office<br>Generado ${new Date().toLocaleDateString('es-AR')}</div></div>
+  ${cont.innerHTML}
+  </body></html>`);
+  w.document.close();
+  setTimeout(() => { try { w.focus(); w.print(); } catch(e){} }, 500);
 }
 
 const REP_CLIENTES = [
@@ -9107,7 +9103,7 @@ function toggleTheme() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260702-046';
+const APP_VERSION = '20260702-047';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
