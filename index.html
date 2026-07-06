@@ -5898,35 +5898,36 @@ async function toggleOperativa(id, actual) {
   await loadBancos();
 }
 
-function exportarReportePDF() {
+async function exportarReportePDF() {
   const cont = document.getElementById('rep-contenido');
   const cli = document.getElementById('rep-cliente');
   const cliNom = cli && cli.selectedIndex >= 0 ? cli.options[cli.selectedIndex].text : '';
   if (!cli || !cli.value) return toast('Elegí un cliente y generá el informe primero', 'error');
   if (!cont || !cont.innerHTML.trim() || cont.querySelector('.spinner')) return toast('Generá el informe primero', 'error');
-  const w = window.open('', '_blank');
-  if (!w) return toast('Permití las ventanas emergentes para exportar', 'error');
-  w.document.write(`<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>Informe ${cliNom}</title>
-  <style>
-    :root{--navy:#0F2A43;--green:#2f9e63;--red:#c0605f;--teal:#2E9B8F;--border:#e4e7ec;--text:#1a1a1a;--text2:#444;--text3:#888;--esp:#2f9e63;--usa:#c0605f;--gold:#8a6d3b;--gold-soft:#f5efe0;--bg2:#f7f7f5;--bg:#fff;}
-    *{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact;} body{font-family:Helvetica,Arial,sans-serif;color:var(--text);margin:0;padding:34px;font-size:12px;line-height:1.4;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
-    .card{border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:16px;page-break-inside:avoid;background:var(--bg);}
-    .table-wrap{overflow:visible;} table{width:100%;border-collapse:collapse;font-size:11.5px;} th{color:var(--text3);font-size:10px;text-transform:uppercase;letter-spacing:.5px;font-weight:600;}
-    th,td{padding:6px 8px;text-align:left;border-bottom:1px solid var(--border);} .num{text-align:right;font-variant-numeric:tabular-nums;} .negative{color:var(--usa);} .positive{color:var(--esp);}
-    .section-title{font-weight:700;color:var(--navy);} .badge{font-size:9px;padding:1px 6px;border-radius:4px;background:var(--bg2);border:1px solid var(--border);}
-    .loader,.spinner,.rep-head{display:none!important;}
-    h1{color:var(--navy);font-size:24px;margin:0 0 4px;letter-spacing:-.3px;} .hdr{border-bottom:3px solid var(--navy);padding-bottom:14px;margin-bottom:22px;display:flex;justify-content:space-between;align-items:flex-end;}
-    @page{size:portrait;margin:1.3cm;} @page wide{size:A4 landscape;margin:1cm;} .wide{page:wide;break-before:page;break-inside:avoid;} @media print{body{padding:0;}}
-  </style></head><body>
-  <div class="hdr"><div><h1>Informe Patrimonial</h1><div style="color:var(--text3);font-size:13px">${cliNom} · Primer semestre 2026 · Cifras en USD</div></div><div style="color:var(--text3);font-size:11px;text-align:right">Family Office<br>Generado ${new Date().toLocaleDateString('es-AR')}</div></div>
-  ${cont.innerHTML}
-  <p style="color:var(--text3);font-size:9px;margin-top:24px;border-top:1px solid var(--border);padding-top:8px">Documento generado automáticamente. Rendimiento por método Dietz modificado sobre cuentas de inversión.</p>
-  </body></html>`);
-  w.document.close();
-  setTimeout(() => { try { w.focus(); w.print(); } catch(e){} }, 500);
+  toast('Generando PDF…', 'info');
+  try {
+    if (!window.html2pdf) {
+      await new Promise((res, rej) => { const s = document.createElement('script'); s.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js'; s.onload = res; s.onerror = () => rej(new Error('no se pudo cargar la librería PDF')); document.head.appendChild(s); });
+    }
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'width:1120px;padding:22px;background:#fff;font-family:Helvetica,Arial,sans-serif;color:#1a1a1a;position:fixed;left:-99999px;top:0;';
+    wrap.innerHTML = `<div style="border-bottom:3px solid #0f2a43;padding-bottom:12px;margin-bottom:18px;display:flex;justify-content:space-between;align-items:flex-end">
+        <div><div style="font-size:24px;font-weight:800;color:#0f2a43;letter-spacing:-.4px">Informe Patrimonial</div><div style="font-size:13px;color:#888">${cliNom} · Primer semestre 2026 · Cifras en USD</div></div>
+        <div style="font-size:11px;color:#888;text-align:right">Family Office<br>Generado ${new Date().toLocaleDateString('es-AR')}</div>
+      </div>` + cont.innerHTML;
+    wrap.querySelectorAll('.rep-head,.loader,.spinner').forEach(e => e.remove());
+    document.body.appendChild(wrap);
+    await html2pdf().set({
+      margin: [8, 8, 10, 8], filename: `Informe_${cliNom.replace(/[^\w]+/g,'_')||'cliente'}.pdf`,
+      image: { type: 'jpeg', quality: 0.98 },
+      html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff', windowWidth: 1160 },
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' },
+      pagebreak: { mode: ['css', 'legacy'], avoid: ['.card', '.rep-kpi', 'tr'] }
+    }).from(wrap).save();
+    document.body.removeChild(wrap);
+    toast('PDF descargado ✓', 'success');
+  } catch (e) { toast('No se pudo generar el PDF: ' + e.message, 'error'); }
 }
-
-function exportarReportePDF_end(){}
 
 const REP_CLIENTES = [
   {code:'JC',nombre:'Juan Cocci'},{code:'FC',nombre:'Franco Cocci'},{code:'FCC',nombre:'Fiorella Cocci'},
@@ -6083,13 +6084,14 @@ async function generarReporte() {
   const rrow = (l,v,c) => `<div style="display:flex;justify-content:space-between;font-size:12px;padding:4px 0;border-bottom:1px solid #f0f0ee"><span style="color:var(--text3)">${l}</span><span style="font-weight:600;${c?'color:'+c:''}">${v}</span></div>`;
   const peUtilTotal = pe.reduce((a,p)=>a+((peDet[p.id]||{util:0}).util)*share(p),0);
   const peInvTotal = pe.reduce((a,p)=>a+(Number(p.valor_2026)||0)*share(p),0);
-  const peRecupero = peInvTotal>0?(peUtilTotal/peInvTotal*100):0;
+  const peRecupero = peInvTotal>0?((peUtilTotal-peInvTotal)/peInvTotal*100):0;
   const paises = [...new Set(props.map(p=>p.pais).filter(Boolean))];
 
   cont.innerHTML = `
     <style>
       .rep-doc{--esp:#2f9e63;--usa:#c0605f;--navy:#0f2a43;--gold:#8a6d3b;}
       .rep-doc .section-title{color:var(--navy)!important;font-weight:700!important;font-size:15.5px!important;border-bottom:2px solid #e8eef4;padding-bottom:7px!important;margin-bottom:14px!important;letter-spacing:-.2px;}
+      .rep-doc .rep-h2{font-size:20px;font-weight:800;color:var(--navy);margin:28px 0 8px;letter-spacing:-.4px;padding-bottom:4px;border-bottom:3px solid var(--navy);}
       .rep-doc table th{color:var(--navy);border-bottom-color:#d8dee6;}
       .rep-doc .card{border-color:#e4e7ec;}
       .rep-doc .card,.rep-doc .rep-kpi{page-break-inside:avoid;break-inside:avoid;}
@@ -6133,6 +6135,7 @@ async function generarReporte() {
         <tr style="font-weight:600;border-top:2px solid var(--border)"><td>Total</td><td class="num">$${fmt(patrimonioActual)}</td><td class="num">100%</td></tr>
         </tbody></table></div></div>
     </div>
+    <div class="rep-h2">Resumen</div>
     <div class="card" style="margin-top:20px">
       <div class="section-title" style="font-size:14px;margin-bottom:14px">Resumen por tipo de activo</div>
       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px">
@@ -6158,9 +6161,9 @@ async function generarReporte() {
           <div style="font-weight:700;color:var(--navy);font-size:11px;letter-spacing:.5px;margin-bottom:10px">PRIVATE EQUITY</div>
           ${rrow('Inversión','$'+fmt(peInvTotal))}
           ${rrow('Utilidad acum.', '+$'+fmt(peUtilTotal), 'var(--esp)')}
-          ${rrow('Recupero', peRecupero.toFixed(1)+'%')}
+          ${rrow('Recupero', (peRecupero>=0?'+':'')+peRecupero.toFixed(1)+'%', peRecupero>=0?'var(--esp)':'var(--usa)')}
           ${rrow('Sociedades', pe.length)}
-          ${rrow('Estado', peRecupero>=100?'Recuperado':'En recupero')}
+          ${rrow('Estado', peRecupero>=0?'Recuperado':'En recupero')}
         </div>
       </div>
     </div>
@@ -6178,6 +6181,7 @@ async function generarReporte() {
       </tbody></table></div>
       <p style="color:var(--text3);font-size:11px;margin-top:10px">De la variación total de bancos, solo el <b>Rendimiento</b> es ganancia genuina. Los <b>Mov. de capital</b> (aportes, y en las cuentas operativas las rentas/transferencias) aumentan el saldo pero no son resultado del período.</p>` : ''}
     </div>
+    <div class="rep-h2">Propiedades</div>
     <div class="card wide" style="margin-top:20px">
       <div class="section-title" style="font-size:14px;margin-bottom:12px">Propiedades · resultado del semestre (S1 2026)</div>
       <div class="table-wrap"><table>
@@ -6203,7 +6207,7 @@ async function generarReporte() {
         </tbody></table></div>
       <p style="color:var(--text3);font-size:11px;margin-top:8px">Neto económico = valorización + renta neta acumulada. Renta neta acumulada = histórico 2020-2025 + semestre en curso.</p>
     </div>
-    ${bancosDietz.length ? `<div class="card wide" style="margin-top:20px">
+    ${bancosDietz.length ? `<div class="rep-h2">Bancos</div><div class="card wide" style="margin-top:20px">
       <div class="section-title" style="font-size:14px;margin-bottom:12px">Resultado del semestre por cuenta</div>
       <div class="table-wrap"><table><thead><tr><th>Cuenta</th><th class="num">S. inicial</th><th class="num">Aportes S1</th><th class="num">S. final</th><th class="num">Resultado</th><th class="num">Rend.</th></tr></thead><tbody>
       ${bancosDietz.map(d=>{const pc=(!d.oper&&d.vBeg>0)?((d.rend/d.vBeg*100).toFixed(2)+'%'):'—'; return `<tr><td>${d.nombre}${d.oper?' <span style="font-size:9px;color:var(--text3)">(operativa)</span>':''}</td><td class="num">$${fmt(d.vBeg)}</td><td class="num">${d.apSem>=0?'+':''}$${fmt(d.apSem)}</td><td class="num">$${fmt(d.vEnd)}</td><td class="num" style="color:${d.rend>=0?'var(--esp)':'var(--usa)'}">${d.oper?'—':(d.rend>=0?'+':'')+'$'+fmt(d.rend)}</td><td class="num">${pc}</td></tr>`}).join('')}
@@ -6224,10 +6228,10 @@ async function generarReporte() {
       <p style="color:var(--text3);font-size:11px;margin-top:8px">Rendimiento desde el ingreso = valor actual − total aportado (incorporaciones + aportes − retiros). Las cuentas operativas se excluyen.</p>
     </div>` : ''}
 
-    ${pe.length ? `<div class="card" style="margin-top:20px">
+    ${pe.length ? `<div class="rep-h2">Private Equity</div><div class="card" style="margin-top:20px">
       <div class="section-title" style="font-size:14px;margin-bottom:12px">Private Equity · desglose</div>
       <div class="table-wrap"><table><thead><tr><th>Sociedad</th><th class="num">Inversión</th><th class="num">Utilidad acum.</th><th class="num">Utilidad 2026</th><th class="num">Posición neta</th><th class="num">% recupero</th></tr></thead><tbody>
-      ${pe.map(p=>{const sh=share(p); const d=peDet[p.id]||{util:0,gastos:0,imp:0,byYear:{}}; const inv=(Number(p.valor_2026)||0)*sh; const util=d.util*sh; const u26=(d.byYear[2026]||0)*sh; const gi=(d.gastos+d.imp)*sh; const pos=util-gi-inv; const rec=inv>0?(util/inv*100):0; return `<tr><td>${p.nombre}</td><td class="num">$${fmt(inv)}</td><td class="num" style="color:var(--esp)">+$${fmt(util)}</td><td class="num" style="color:var(--esp)">+$${fmt(u26)}</td><td class="num" style="color:${pos>=0?'var(--esp)':'var(--usa)'}">${pos>=0?'+':''}$${fmt(pos)}</td><td class="num">${rec.toFixed(1)}%</td></tr>`}).join('')}
+      ${pe.map(p=>{const sh=share(p); const d=peDet[p.id]||{util:0,gastos:0,imp:0,byYear:{}}; const inv=(Number(p.valor_2026)||0)*sh; const util=d.util*sh; const u26=(d.byYear[2026]||0)*sh; const gi=(d.gastos+d.imp)*sh; const pos=util-gi-inv; const rec=inv>0?((util-inv)/inv*100):0; return `<tr><td>${p.nombre}</td><td class="num">$${fmt(inv)}</td><td class="num" style="color:var(--esp)">+$${fmt(util)}</td><td class="num" style="color:var(--esp)">+$${fmt(u26)}</td><td class="num" style="color:${pos>=0?'var(--esp)':'var(--usa)'}">${pos>=0?'+':''}$${fmt(pos)}</td><td class="num" style="color:${rec>=0?'var(--esp)':'var(--usa)'}">${rec>=0?'+':''}${rec.toFixed(2)}%</td></tr>`}).join('')}
       </tbody></table></div>
       ${pe.map(p=>{const sh=share(p); const d=peDet[p.id]||{util:0,byYear:{}}; const inv=(Number(p.valor_2026)||0)*sh; const util=d.util*sh; const rec=inv>0?Math.min(100,util/inv*100):0; const years=Object.keys(d.byYear).sort();
         return `<div style="margin-top:16px;padding:14px 16px;background:var(--bg2);border-radius:8px;page-break-inside:avoid">
@@ -9100,7 +9104,7 @@ function toggleTheme() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260702-044';
+const APP_VERSION = '20260702-045';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
