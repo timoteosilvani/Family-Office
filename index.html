@@ -6119,6 +6119,8 @@ async function generarReporte() {
       .rep-doc .section-title{background:var(--navy);color:#fff!important;font-weight:700!important;font-size:12px!important;padding:6px 10px!important;border-radius:5px;margin-bottom:8px!important;letter-spacing:.2px;border-bottom:none!important;}
       .rep-doc .rep-h2{font-size:15px!important;font-weight:800;color:var(--navy);margin:16px 0 6px!important;letter-spacing:-.3px;padding-bottom:3px;border-bottom:2px solid var(--navy);}
       .rep-doc .pgbreak{page-break-before:always;break-before:page;}
+      .rep-doc .rep-big{font-size:12.5px!important;} .rep-doc .rep-big td,.rep-doc .rep-big th{padding:6px 10px!important;} .rep-doc .rep-big th{font-size:10px!important;}
+      .rep-doc .rep-narrow{max-width:620px;}
       .rep-doc .card{border-color:#e4e7ec;padding:10px 12px!important;margin-bottom:10px!important;}
       .rep-doc .card,.rep-doc .rep-kpi{page-break-inside:avoid;break-inside:avoid;}
       .rep-doc table{font-size:9.5px!important;} .rep-doc th,.rep-doc td{padding:3px 6px!important;} .rep-doc table th{color:var(--navy);border-bottom-color:#d8dee6;font-size:8.5px!important;}
@@ -6140,10 +6142,10 @@ async function generarReporte() {
       ${kpi('Resultado acumulado', acumulado, 'desde el ingreso', acumulado>=0?'var(--esp)':'var(--usa)')}
       ${kpi('Resultado del semestre', resultadoSemestre, (resultadoSemestre>=0?'+':'')+rendSemPct.toFixed(2)+'% · ganancia genuina', resultadoSemestre>=0?'var(--esp)':'var(--usa)')}
     </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px">
-      <div class="card" style="margin:0"><div class="section-title" style="font-size:14px;margin-bottom:8px">Evolución patrimonial</div><div style="height:135px"><canvas id="rep-ch-evol"></canvas></div></div>
-      <div class="card" style="margin:0"><div class="section-title" style="font-size:14px;margin-bottom:8px">Composición por activo</div><div style="height:135px"><canvas id="rep-ch-comp"></canvas></div></div>
-      <div class="card" style="margin:0"><div class="section-title" style="font-size:14px;margin-bottom:8px">Evolución bancos · semestre</div><div style="height:135px"><canvas id="rep-ch-bancos"></canvas></div></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:8px">
+      <div class="card" style="margin:0"><div class="section-title" style="font-size:14px;margin-bottom:8px">Evolución patrimonial</div><div style="height:130px"><canvas id="rep-ch-evol"></canvas></div></div>
+      <div class="card" style="margin:0"><div class="section-title" style="font-size:14px;margin-bottom:8px">Composición por activo</div><div style="height:130px"><canvas id="rep-ch-comp"></canvas></div></div>
+      <div class="card" style="margin:0"><div class="section-title" style="font-size:14px;margin-bottom:8px">Evolución bancos · semestre</div><div style="height:130px"><canvas id="rep-ch-bancos"></canvas></div></div>
     </div>
     <div class="card" style="margin-bottom:20px">
       <div class="section-title" style="font-size:14px;margin-bottom:12px">Patrimonio por tipo de activo</div>
@@ -6169,7 +6171,7 @@ async function generarReporte() {
     </div>
     <div class="card pgbreak" style="margin-top:16px">
       <div class="section-title" style="font-size:14px;margin-bottom:12px">Patrimonio histórico y composición</div>
-      <div class="table-wrap"><table>
+      <div class="table-wrap"><table class="rep-big">
         <thead><tr><th>Año</th><th class="num">Propiedades</th><th class="num">%</th><th class="num">Bancos</th><th class="num">%</th><th class="num">Priv. Equity</th><th class="num">%</th><th class="num">Total</th></tr></thead>
         <tbody>
         ${histAnios.map(d=>`<tr><td>${d.anio}</td><td class="num">$${fmt(d.prop)}</td><td class="num" style="color:var(--text3)">${d.total?(d.prop/d.total*100).toFixed(1):'0'}%</td><td class="num">$${fmt(d.banco)}</td><td class="num" style="color:var(--text3)">${d.total?(d.banco/d.total*100).toFixed(1):'0'}%</td><td class="num">${d.pe?'$'+fmt(d.pe):'—'}</td><td class="num" style="color:var(--text3)">${d.pe?(d.pe/d.total*100).toFixed(1)+'%':'—'}</td><td class="num" style="font-weight:700">$${fmt(d.total)}</td></tr>`).join('')}
@@ -6209,7 +6211,7 @@ async function generarReporte() {
     </div>
     <div class="card pgbreak" style="margin-top:20px">
       <div class="section-title" style="font-size:14px;margin-bottom:12px">¿Dónde se generó el resultado del semestre?</div>
-      <div class="table-wrap"><table><thead><tr><th>Componente</th><th class="num">Resultado</th></tr></thead><tbody>
+      <div class="table-wrap rep-narrow"><table><thead><tr><th>Componente</th><th class="num">Resultado</th></tr></thead><tbody>
         <tr><td>Renta neta de propiedades<br><span style="font-size:11px;color:var(--text3)">Alquileres cobrados, netos de gastos e impuestos</span></td><td class="num" style="color:${rentaNeta>=0?'var(--esp)':'var(--usa)'}">${rentaNeta>=0?'+':''}$${fmt(rentaNeta)}</td></tr>
         <tr><td>Rendimiento de cuentas de inversión<br><span style="font-size:11px;color:var(--text3)">Ganancia financiera (Dietz), neta de aportes de capital</span></td><td class="num" style="color:${rendimientoBancos>=0?'var(--esp)':'var(--usa)'}">${rendimientoBancos>=0?'+':''}$${fmt(rendimientoBancos)}</td></tr>
         <tr style="font-weight:600;border-top:2px solid var(--border)"><td>Resultado económico total del semestre</td><td class="num" style="color:${resultadoSemestre>=0?'var(--esp)':'var(--usa)'}">${resultadoSemestre>=0?'+':''}$${fmt(resultadoSemestre)}</td></tr>
@@ -6273,26 +6275,29 @@ async function generarReporte() {
         </tbody></table></div>
     </div>` : ''}
 
-    ${bancosDietz.length ? `<div class="rep-h2 pgbreak">Bancos</div><div class="card wide" style="margin-top:20px">
-      <div class="section-title" style="font-size:14px;margin-bottom:12px">Resultado del semestre por cuenta</div>
-      <div class="table-wrap"><table><thead><tr><th>Cuenta</th><th class="num">S. inicial</th><th class="num">Aportes S1</th><th class="num">S. final</th><th class="num">Resultado</th><th class="num">Rend.</th></tr></thead><tbody>
-      ${bancosDietz.map(d=>{const pc=(!d.oper&&d.vBeg>0)?((d.rend/d.vBeg*100).toFixed(2)+'%'):'—'; return `<tr><td>${d.nombre}${d.oper?' <span style="font-size:9px;color:var(--text3)">(operativa)</span>':''}</td><td class="num">$${fmt(d.vBeg)}</td><td class="num">${d.apSem>=0?'+':''}$${fmt(d.apSem)}</td><td class="num">$${fmt(d.vEnd)}</td><td class="num" style="color:${d.rend>=0?'var(--esp)':'var(--usa)'}">${d.oper?'—':(d.rend>=0?'+':'')+'$'+fmt(d.rend)}</td><td class="num">${pc}</td></tr>`}).join('')}
-      ${(()=>{const inv=bancosDietz.filter(d=>!d.oper);const si=inv.reduce((a,d)=>a+d.vBeg,0),ap=inv.reduce((a,d)=>a+d.apSem,0),sf=inv.reduce((a,d)=>a+d.vEnd,0);return `<tr style="font-weight:700;border-top:2px solid var(--navy)"><td>Total inversión</td><td class="num">$${fmt(si)}</td><td class="num">${ap>=0?'+':''}$${fmt(ap)}</td><td class="num">$${fmt(sf)}</td><td class="num" style="color:${rendimientoBancos>=0?'var(--esp)':'var(--usa)'}">${rendimientoBancos>=0?'+':''}$${fmt(rendimientoBancos)}</td><td class="num"></td></tr>`})()}
+    ${bancosDietz.length ? `<div class="rep-h2 pgbreak">Bancos</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start">
+      <div class="card" style="margin:0">
+      <div class="section-title" style="font-size:14px;margin-bottom:10px">Resultado del semestre por cuenta</div>
+      <div class="table-wrap"><table><thead><tr><th>Cuenta</th><th class="num">S. inic.</th><th class="num">Aportes</th><th class="num">S. final</th><th class="num">Result.</th><th class="num">Rend.</th></tr></thead><tbody>
+      ${bancosDietz.map(d=>{const pc=(!d.oper&&d.vBeg>0)?((d.rend/d.vBeg*100).toFixed(2)+'%'):'—'; return `<tr><td>${d.nombre}${d.oper?' <span style="font-size:8px;color:var(--text3)">(op)</span>':''}</td><td class="num">$${fmt(d.vBeg)}</td><td class="num">${d.apSem>=0?'+':''}$${fmt(d.apSem)}</td><td class="num">$${fmt(d.vEnd)}</td><td class="num" style="color:${d.rend>=0?'var(--esp)':'var(--usa)'}">${d.oper?'—':(d.rend>=0?'+':'')+'$'+fmt(d.rend)}</td><td class="num">${pc}</td></tr>`}).join('')}
+      ${(()=>{const inv=bancosDietz.filter(d=>!d.oper);const si=inv.reduce((a,d)=>a+d.vBeg,0),ap=inv.reduce((a,d)=>a+d.apSem,0),sf=inv.reduce((a,d)=>a+d.vEnd,0);return `<tr style="font-weight:700;border-top:2px solid var(--navy)"><td>Total inv.</td><td class="num">$${fmt(si)}</td><td class="num">${ap>=0?'+':''}$${fmt(ap)}</td><td class="num">$${fmt(sf)}</td><td class="num" style="color:${rendimientoBancos>=0?'var(--esp)':'var(--usa)'}">${rendimientoBancos>=0?'+':''}$${fmt(rendimientoBancos)}</td><td class="num"></td></tr>`})()}
       </tbody></table></div>
-      <div class="section-title" style="font-size:13px;margin:18px 0 8px">Detalle de aportes y movimientos de capital</div>
+      </div>
+      ${bancosDietz.some(d=>!d.oper) ? `<div class="card" style="margin:0">
+      <div class="section-title" style="font-size:14px;margin-bottom:10px">Rendimiento desde el ingreso</div>
+      <div class="table-wrap"><table><thead><tr><th>Cuenta</th><th class="num">Aportado</th><th class="num">V. actual</th><th class="num">Rend.</th><th class="num">%</th></tr></thead><tbody>
+      ${bancosDietz.filter(d=>!d.oper).map(d=>{const ri=d.vEnd-d.apTot; const pi=d.apTot>0?(ri/d.apTot*100):0; return `<tr><td>${d.nombre}</td><td class="num">$${fmt(d.apTot)}</td><td class="num">$${fmt(d.vEnd)}</td><td class="num" style="color:${ri>=0?'var(--esp)':'var(--usa)'}">${ri>=0?'+':''}$${fmt(ri)}</td><td class="num" style="color:${ri>=0?'var(--esp)':'var(--usa)'}">${pi>=0?'+':''}${pi.toFixed(1)}%</td></tr>`}).join('')}
+      ${(()=>{const dd=bancosDietz.filter(d=>!d.oper);const ta=dd.reduce((a,d)=>a+d.apTot,0),va=dd.reduce((a,d)=>a+d.vEnd,0),ri=va-ta;return `<tr style="font-weight:700;border-top:2px solid var(--navy)"><td>Total</td><td class="num">$${fmt(ta)}</td><td class="num">$${fmt(va)}</td><td class="num" style="color:${ri>=0?'var(--esp)':'var(--usa)'}">${ri>=0?'+':''}$${fmt(ri)}</td><td class="num">${ta>0?(ri>=0?'+':'')+(ri/ta*100).toFixed(1)+'%':'—'}</td></tr>`})()}
+      </tbody></table></div>
+      </div>` : '<div></div>'}
+      </div>
+      <div class="card" style="margin-top:14px">
+      <div class="section-title" style="font-size:14px;margin-bottom:10px">Detalle de aportes y movimientos de capital</div>
       <div class="table-wrap"><table><thead><tr><th>Cuenta</th><th class="num">Fecha</th><th>Tipo</th><th class="num">Monto</th></tr></thead><tbody>
-      ${bancosDietz.flatMap(d=>(d.aportes||[]).map(a=>`<tr><td>${d.nombre}</td><td class="num" style="font-size:11px">${a.fecha}</td><td>${({incorporacion:'Incorporación',aporte:'Aporte',retiro:'Retiro'})[a.tipo]||a.tipo}${a.notas?' · <span style="color:var(--text3);font-size:11px">'+a.notas+'</span>':''}</td><td class="num" style="color:${a.tipo==='retiro'?'var(--usa)':'var(--esp)'}">${a.tipo==='retiro'?'-':'+'}$${fmt(Math.abs(Number(a.monto)||0))}</td></tr>`)).join('') || '<tr><td colspan="4" style="color:var(--text3)">Sin aportes registrados</td></tr>'}
+      ${bancosDietz.flatMap(d=>(d.aportes||[]).map(a=>`<tr><td>${d.nombre}</td><td class="num">${a.fecha}</td><td>${({incorporacion:'Incorporación',aporte:'Aporte',retiro:'Retiro'})[a.tipo]||a.tipo}</td><td class="num" style="color:${a.tipo==='retiro'?'var(--usa)':'var(--esp)'}">${a.tipo==='retiro'?'-':'+'}$${fmt(Math.abs(Number(a.monto)||0))}</td></tr>`)).join('') || '<tr><td colspan="4" style="color:var(--text3)">Sin aportes registrados</td></tr>'}
       </tbody></table></div>
-    </div>` : ''}
-
-    ${bancosDietz.some(d=>!d.oper) ? `<div class="card" style="margin-top:20px">
-      <div class="section-title" style="font-size:14px;margin-bottom:12px">Rendimiento desde el ingreso · cuentas de inversión</div>
-      <div class="table-wrap"><table><thead><tr><th>Cuenta</th><th class="num">Total aportado</th><th class="num">Valor actual</th><th class="num">Rendimiento</th><th class="num">%</th></tr></thead><tbody>
-      ${bancosDietz.filter(d=>!d.oper).map(d=>{const ri=d.vEnd-d.apTot; const pi=d.apTot>0?(ri/d.apTot*100):0; return `<tr><td>${d.nombre}</td><td class="num">$${fmt(d.apTot)}</td><td class="num">$${fmt(d.vEnd)}</td><td class="num" style="color:${ri>=0?'var(--esp)':'var(--usa)'}">${ri>=0?'+':''}$${fmt(ri)}</td><td class="num" style="color:${ri>=0?'var(--esp)':'var(--usa)'}">${pi>=0?'+':''}${pi.toFixed(2)}%</td></tr>`}).join('')}
-      ${(()=>{const dd=bancosDietz.filter(d=>!d.oper);const ta=dd.reduce((a,d)=>a+d.apTot,0),va=dd.reduce((a,d)=>a+d.vEnd,0),ri=va-ta;return `<tr style="font-weight:700;border-top:2px solid var(--navy)"><td>Total</td><td class="num">$${fmt(ta)}</td><td class="num">$${fmt(va)}</td><td class="num" style="color:${ri>=0?'var(--esp)':'var(--usa)'}">${ri>=0?'+':''}$${fmt(ri)}</td><td class="num" style="color:${ri>=0?'var(--esp)':'var(--usa)'}">${ta>0?(ri>=0?'+':'')+(ri/ta*100).toFixed(2)+'%':'—'}</td></tr>`})()}
-      </tbody></table></div>
-      <p style="color:var(--text3);font-size:11px;margin-top:8px">Rendimiento desde el ingreso = valor actual − total aportado (incorporaciones + aportes − retiros). Las cuentas operativas se excluyen.</p>
-    </div>` : ''}
+      </div>` : ''}
 
     ${pe.length ? `<div class="rep-h2 pgbreak">Private Equity</div><div class="card" style="margin-top:20px">
       <div class="section-title" style="font-size:14px;margin-bottom:12px">Private Equity · desglose</div>
@@ -6300,7 +6305,7 @@ async function generarReporte() {
       ${pe.map(p=>{const sh=share(p); const d=peDet[p.id]||{util:0,gastos:0,imp:0,byYear:{}}; const inv=(Number(p.valor_2026)||0)*sh; const util=d.util*sh; const u26=(d.byYear[2026]||0)*sh; const gi=(d.gastos+d.imp)*sh; const pos=util-gi-inv; const rec=inv>0?((util-inv)/inv*100):0; return `<tr><td>${p.nombre}</td><td class="num">$${fmt(inv)}</td><td class="num" style="color:var(--esp)">+$${fmt(util)}</td><td class="num" style="color:var(--esp)">+$${fmt(u26)}</td><td class="num" style="color:${pos>=0?'var(--esp)':'var(--usa)'}">${pos>=0?'+':''}$${fmt(pos)}</td><td class="num" style="color:${rec>=0?'var(--esp)':'var(--usa)'}">${rec>=0?'+':''}${rec.toFixed(2)}%</td></tr>`}).join('')}
       </tbody></table></div>
       ${pe.map(p=>{const sh=share(p); const d=peDet[p.id]||{util:0,byYear:{}}; const inv=(Number(p.valor_2026)||0)*sh; const util=d.util*sh; const rec=inv>0?Math.min(100,util/inv*100):0; const years=Object.keys(d.byYear).sort();
-        return `<div style="margin-top:16px;padding:14px 16px;background:var(--bg2);border-radius:8px;page-break-inside:avoid">
+        return `<div style="margin-top:14px;padding:12px 14px;background:var(--bg2);border-radius:8px;page-break-inside:avoid;max-width:520px">
           <div style="font-weight:600;color:var(--navy);margin-bottom:10px;font-size:12px">${p.nombre} · evolución de la inversión</div>
           <div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0"><span>Inversión inicial</span><span style="color:var(--usa)">− $${fmt(inv)}</span></div>
           ${years.map(y=>`<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0"><span>Utilidad recibida ${y}</span><span style="color:var(--esp)">+ $${fmt((d.byYear[y]||0)*sh)}</span></div>`).join('')}
@@ -9204,7 +9209,7 @@ function toggleTheme() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260702-052';
+const APP_VERSION = '20260702-053';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
