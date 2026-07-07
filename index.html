@@ -5923,7 +5923,7 @@ async function exportarReportePDF() {
     .rep-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px;} .rep-kpi{border:1px solid var(--border);border-top:3px solid var(--navy);border-radius:8px;padding:16px 12px;text-align:center;page-break-inside:avoid;}
     .rep-kpi .l{font-size:9.5px;letter-spacing:.8px;color:var(--text3);text-transform:uppercase;margin-bottom:8px;} .rep-kpi .v{font-size:21px;font-weight:700;} .rep-kpi .s{font-size:10.5px;color:var(--text3);margin-top:5px;}
     .loader,.spinner,.rep-head{display:none!important;}
-    h1{color:var(--navy);font-size:24px;margin:0 0 4px;letter-spacing:-.3px;} .hdr{border-bottom:3px solid var(--navy);padding-bottom:14px;margin-bottom:20px;display:flex;justify-content:space-between;align-items:flex-end;}
+    h1{color:var(--navy);font-size:22px;margin:0 0 3px;letter-spacing:-.3px;} .hdr{border-bottom:3px solid var(--navy);padding-bottom:9px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:flex-end;}
     @page{size:A4 landscape;margin:1cm;} .pgbreak{page-break-before:always;} @media print{body{padding:0;}}
   </style></head><body>
   <div class="hdr"><div><h1>Informe Patrimonial</h1><div style="color:var(--text3);font-size:13px">${cliNom} \u00b7 Primer semestre 2026 \u00b7 Cifras en USD</div></div><div style="color:var(--text3);font-size:11px;text-align:right">Family Office<br>Generado ${new Date().toLocaleDateString('es-AR')}</div></div>
@@ -6113,6 +6113,44 @@ async function generarReporte() {
   const peRecupero = peInvTotal>0?((peUtilTotal-peInvTotal)/peInvTotal*100):0;
   const paises = [...new Set(props.map(p=>p.pais).filter(Boolean))];
 
+  // Rentabilidad detallada por año (bloques). VALOR por año desde PROP_HIST_DATA (corregido/G); valor de compra desde el catálogo.
+  const valByNro = {}; PROP_HIST_DATA.forEach(o => { valByNro[o.nro] = o.valores || {}; });
+  let rentabDetalleHTML = '';
+  if (propsHist.length) {
+    const pctS = v => v==null ? '—' : (v>=0?'+':'') + v.toFixed(2).replace('.',',') + '%';
+    const pctC = v => v==null ? 'var(--text3)' : (v>=0?'var(--esp)':'var(--usa)');
+    const yearSet = new Set();
+    propsHist.forEach(p => { Object.keys(valByNro[p.nro]||{}).forEach(y => yearSet.add(Number(y))); });
+    yearSet.add(2026);
+    const blockYears = [...yearSet].filter(y => propsHist.some(p => (valByNro[p.nro]||{})[y] != null)).sort((a,b)=>b-a);
+    const blockFor = (Y) => {
+      const rows = propsHist.filter(p => (valByNro[p.nro]||{})[Y] != null).map(p => {
+        const sh = share(p); const val = valByNro[p.nro]||{};
+        const firstY = Object.keys(val).map(Number).sort((a,b)=>a-b)[0];
+        const vc = (Number(p.valor_compra)||0)*sh;
+        const vFin = (Number(val[Y])||0)*sh;
+        const vIni = (Y===firstY) ? vc : (val[Y-1]!=null ? (Number(val[Y-1])||0)*sh : vFin);
+        const rneta = (Y===2026) ? ((propDet[p.id]||{}).netoSem||0) : ((propDet[p.id]&&propDet[p.id].anual[Y]) ? propDet[p.id].anual[Y].neta : null);
+        const rAnual = (rneta!=null && vIni>0) ? (rneta/vIni*100) : null;
+        const desdeC = (rneta!=null && vc>0) ? (rneta/vc*100) : null;
+        const valoriz = vIni>0 ? ((vFin-vIni)/vIni*100) : null;
+        const rnetaStr = rneta==null ? '—' : (rneta>=0?'+':'')+'$'+fmt(rneta);
+        const valorizStr = (valoriz==null || Math.abs(valoriz)<0.05) ? '—' : (valoriz>=0?'+':'')+valoriz.toFixed(2).replace('.',',')+'%';
+        return `<tr><td style="font-weight:600">${p.nombre}</td><td class="num">$${fmt(vIni)}</td><td class="num">$${fmt(vFin)}</td><td class="num" style="color:${rneta==null?'var(--text3)':(rneta>=0?'var(--esp)':'var(--usa)')}">${rnetaStr}</td><td class="num" style="color:${pctC(rAnual)}">${pctS(rAnual)}</td><td class="num" style="color:${pctC(desdeC)}">${pctS(desdeC)}</td><td class="num" style="color:${valoriz==null?'var(--text3)':(valoriz>=0?'var(--esp)':'var(--usa)')}">${valorizStr}</td></tr>`;
+      }).join('');
+      return `<div style="border:1px solid #e4e7ec;border-radius:6px;overflow:hidden;margin-bottom:10px;page-break-inside:avoid;break-inside:avoid">
+        <div style="background:var(--esp);color:#fff;font-weight:700;font-size:11px;padding:4px 10px">${Y===2026?'2026 · S1':Y}</div>
+        <table style="width:100%"><thead><tr><th>Propiedad</th><th class="num">V. inicio</th><th class="num">V. final</th><th class="num">R. neta</th><th class="num">R. anual</th><th class="num">Desde c.</th><th class="num">Valoriz.</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    };
+    const left=[], right=[];
+    blockYears.forEach((y,i)=> (i%2===0?left:right).push(blockFor(y)));
+    rentabDetalleHTML = `<div class="card pgbreak">
+      <div class="section-title" style="font-size:14px;margin-bottom:12px">Rentabilidad por año <span style="font-weight:400;font-size:10px;opacity:.85">· ${propsHist.map(p=>p.nombre).join(', ')}</span></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start"><div>${left.join('')}</div><div>${right.join('')}</div></div>
+      <p style="color:var(--text3);font-size:10px;margin-top:6px">V. inicio/final = valuación al cierre del año anterior/actual. R. anual = renta neta ÷ V. inicio. Desde c. = renta neta ÷ valor de compra. Valoriz. = variación de valuación en el año.</p>
+    </div>`;
+  }
+
   cont.innerHTML = `
     <style>
       .rep-doc{--esp:#2f9e63;--usa:#c0605f;--navy:#0f2a43;--gold:#8a6d3b;font-size:11px;}
@@ -6124,8 +6162,8 @@ async function generarReporte() {
       .rep-doc .card{border-color:#e4e7ec;padding:10px 12px!important;margin-bottom:10px!important;}
       .rep-doc .card,.rep-doc .rep-kpi{page-break-inside:avoid;break-inside:avoid;}
       .rep-doc table{font-size:9.5px!important;} .rep-doc th,.rep-doc td{padding:3px 6px!important;} .rep-doc table th{color:var(--navy);border-bottom-color:#d8dee6;font-size:8.5px!important;}
-      .rep-doc .rep-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px;}
-      .rep-doc .rep-kpi{border:1px solid #e4e7ec;border-top:3px solid var(--navy);border-radius:7px;padding:9px 8px;text-align:center;background:var(--bg);}
+      .rep-doc .rep-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:8px;}
+      .rep-doc .rep-kpi{border:1px solid #e4e7ec;border-top:3px solid var(--navy);border-radius:7px;padding:7px 8px;text-align:center;background:var(--bg);}
       .rep-doc .rep-kpi .l{font-size:8px;letter-spacing:.6px;color:var(--text3);text-transform:uppercase;margin-bottom:3px;min-height:0;}
       .rep-doc .rep-kpi .v{font-size:15px;font-weight:700;}
       .rep-doc .rep-kpi .s{font-size:8.5px;color:var(--text3);margin-top:2px;}
@@ -6143,11 +6181,11 @@ async function generarReporte() {
       ${kpi('Resultado del semestre', resultadoSemestre, (resultadoSemestre>=0?'+':'')+rendSemPct.toFixed(2)+'% · ganancia genuina', resultadoSemestre>=0?'var(--esp)':'var(--usa)')}
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:8px">
-      <div class="card" style="margin:0"><div class="section-title" style="font-size:14px;margin-bottom:8px">Evolución patrimonial</div><div style="height:130px"><canvas id="rep-ch-evol"></canvas></div></div>
-      <div class="card" style="margin:0"><div class="section-title" style="font-size:14px;margin-bottom:8px">Composición por activo</div><div style="height:130px"><canvas id="rep-ch-comp"></canvas></div></div>
-      <div class="card" style="margin:0"><div class="section-title" style="font-size:14px;margin-bottom:8px">Evolución bancos · semestre</div><div style="height:130px"><canvas id="rep-ch-bancos"></canvas></div></div>
+      <div class="card" style="margin:0"><div class="section-title" style="font-size:14px;margin-bottom:6px">Evolución patrimonial</div><div style="height:96px"><canvas id="rep-ch-evol"></canvas></div></div>
+      <div class="card" style="margin:0"><div class="section-title" style="font-size:14px;margin-bottom:6px">Composición por activo</div><div style="height:96px"><canvas id="rep-ch-comp"></canvas></div></div>
+      <div class="card" style="margin:0"><div class="section-title" style="font-size:14px;margin-bottom:6px">Evolución bancos · semestre</div><div style="height:96px"><canvas id="rep-ch-bancos"></canvas></div></div>
     </div>
-    <div class="card" style="margin-bottom:20px">
+    <div class="card" style="margin-bottom:10px">
       <div class="section-title" style="font-size:14px;margin-bottom:12px">Patrimonio por tipo de activo</div>
       <div class="table-wrap"><table>
         <thead><tr><th>Activo</th><th class="num">Invertido</th><th class="num">Cierre 2025</th><th class="num">Actual</th><th class="num">Var. semestre</th><th class="num">Var. histórica</th></tr></thead>
@@ -6155,9 +6193,9 @@ async function generarReporte() {
         ${clases.map(c=>{const vs=c.act-c.cie, vh=c.act-c.inv; return `<tr><td>${c.n}</td><td class="num">$${fmt(c.inv)}</td><td class="num">$${fmt(c.cie)}</td><td class="num">$${fmt(c.act)}</td><td class="num" style="color:${vs>=0?'var(--esp)':'var(--usa)'}">${vs>=0?'+':''}$${fmt(vs)}</td><td class="num" style="color:${vh>=0?'var(--esp)':'var(--usa)'}">${vh>=0?'+':''}$${fmt(vh)}</td></tr>`}).join('')}
         <tr style="font-weight:600;border-top:2px solid var(--border)"><td>Total</td><td class="num">$${fmt(totInv)}</td><td class="num">$${fmt(totCie)}</td><td class="num">$${fmt(patrimonioActual)}</td><td class="num" style="color:${(patrimonioActual-totCie)>=0?'var(--esp)':'var(--usa)'}">${(patrimonioActual-totCie)>=0?'+':''}$${fmt(patrimonioActual-totCie)}</td><td class="num" style="color:${acumulado>=0?'var(--esp)':'var(--usa)'}">${acumulado>=0?'+':''}$${fmt(acumulado)}</td></tr>
         </tbody></table></div>
-      <p style="color:var(--text3);font-size:11px;margin-top:8px">Invertido = capital aportado (valor de compra de propiedades · aportes a cuentas de inversión · inversión en PE). La variación de bancos incluye movimientos de capital.</p>
+      <p style="color:var(--text3);font-size:10px;margin-top:5px">Invertido = capital aportado (valor de compra de propiedades · aportes a cuentas de inversión · inversión en PE). La variación de bancos incluye movimientos de capital.</p>
     </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;page-break-inside:avoid;break-inside:avoid">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;page-break-inside:avoid;break-inside:avoid">
       <div class="card"><div class="section-title" style="font-size:14px;margin-bottom:12px">Distribución por tipo de activo</div>
         <div class="table-wrap"><table><thead><tr><th>Activo</th><th class="num">Valor</th><th class="num">%</th></tr></thead><tbody>
         ${clases.map(c=>`<tr><td>${c.n}</td><td class="num">$${fmt(c.act)}</td><td class="num">${pct(c.act)}</td></tr>`).join('')}
@@ -6210,7 +6248,7 @@ async function generarReporte() {
       </div>
     </div>
     <div class="card pgbreak" style="margin-top:20px">
-      <div class="section-title" style="font-size:14px;margin-bottom:12px">¿Dónde se generó el resultado del semestre?</div>
+      <div class="section-title rep-narrow" style="font-size:14px;margin-bottom:12px">¿Dónde se generó el resultado del semestre?</div>
       <div class="table-wrap rep-narrow"><table><thead><tr><th>Componente</th><th class="num">Resultado</th></tr></thead><tbody>
         <tr><td>Renta neta de propiedades<br><span style="font-size:11px;color:var(--text3)">Alquileres cobrados, netos de gastos e impuestos</span></td><td class="num" style="color:${rentaNeta>=0?'var(--esp)':'var(--usa)'}">${rentaNeta>=0?'+':''}$${fmt(rentaNeta)}</td></tr>
         <tr><td>Rendimiento de cuentas de inversión<br><span style="font-size:11px;color:var(--text3)">Ganancia financiera (Dietz), neta de aportes de capital</span></td><td class="num" style="color:${rendimientoBancos>=0?'var(--esp)':'var(--usa)'}">${rendimientoBancos>=0?'+':''}$${fmt(rendimientoBancos)}</td></tr>
@@ -6260,6 +6298,7 @@ async function generarReporte() {
             <tr><td style="color:var(--text3)">Gastos</td>${cell('gastos')}</tr>
             <tr style="border-bottom:2px solid var(--border)"><td style="color:var(--text3)">Renta neta</td>${aniosR.map(y=>`<td class="num" style="color:${a[y]&&a[y].neta>=0?'var(--esp)':'var(--usa)'}">${a[y]?(a[y].neta>=0?'+':'')+'$'+fmt(a[y].neta):'—'}</td>`).join('')}<td class="num" style="font-weight:700">$${fmt(aniosR.reduce((s,y)=>s+(a[y]?a[y].neta:0),0))}</td></tr>`;
         }).join('')}
+        ${(()=>{ const tot=(f,y)=>propsHist.reduce((s,p)=>{const a=propDet[p.id].anual; return s+(a[y]?a[y][f]:0);},0); const gtot=f=>aniosR.reduce((s,y)=>s+tot(f,y),0); const row=(f,lbl)=>`<td style="color:var(--text3);font-weight:600">${lbl}</td>`+aniosR.map(y=>`<td class="num" style="font-weight:600">$${fmt(tot(f,y))}</td>`).join('')+`<td class="num" style="font-weight:700">$${fmt(gtot(f))}</td>`; const netaRow=`<td style="color:var(--text3);font-weight:600">Renta neta</td>`+aniosR.map(y=>{const v=tot('neta',y);return `<td class="num" style="font-weight:600;color:${v>=0?'var(--esp)':'var(--usa)'}">${v>=0?'+':''}$${fmt(v)}</td>`;}).join('')+`<td class="num" style="font-weight:700">$${fmt(gtot('neta'))}</td>`; return `<tr style="border-top:2px solid var(--navy)"><td rowspan="3" style="font-weight:700;vertical-align:top">Total</td>${row('renta','Renta')}</tr><tr>${row('gastos','Gastos')}</tr><tr>${netaRow}</tr>`; })()}
         </tbody></table></div>
     </div>` : ''}
     ${propsMens.length ? `<div class="card">
@@ -6272,19 +6311,10 @@ async function generarReporte() {
             <tr><td style="color:var(--text3)">Gastos</td>${cell('gastos')}</tr>
             <tr style="border-bottom:2px solid var(--border)"><td style="color:var(--text3)">Renta neta</td>${mesesR.map(m=>`<td class="num" style="color:${mm[m]&&mm[m].neta>=0?'var(--esp)':'var(--usa)'}">${mm[m]?(mm[m].neta>=0?'+':'')+'$'+fmt(mm[m].neta):'—'}</td>`).join('')}<td class="num" style="font-weight:700">$${fmt(mesesR.reduce((s,m)=>s+(mm[m]?mm[m].neta:0),0))}</td></tr>`;
         }).join('')}
+        ${(()=>{ const tot=(f,m)=>propsMens.reduce((s,p)=>{const mm=propDet[p.id].mensual; return s+(mm[m]?mm[m][f]:0);},0); const gtot=f=>mesesR.reduce((s,m)=>s+tot(f,m),0); const row=(f,lbl)=>`<td style="color:var(--text3);font-weight:600">${lbl}</td>`+mesesR.map(m=>`<td class="num" style="font-weight:600">$${fmt(tot(f,m))}</td>`).join('')+`<td class="num" style="font-weight:700">$${fmt(gtot(f))}</td>`; const netaRow=`<td style="color:var(--text3);font-weight:600">Renta neta</td>`+mesesR.map(m=>{const v=tot('neta',m);return `<td class="num" style="font-weight:600;color:${v>=0?'var(--esp)':'var(--usa)'}">${v>=0?'+':''}$${fmt(v)}</td>`;}).join('')+`<td class="num" style="font-weight:700">$${fmt(gtot('neta'))}</td>`; return `<tr style="border-top:2px solid var(--navy)"><td rowspan="3" style="font-weight:700;vertical-align:top">Total</td>${row('renta','Renta')}</tr><tr>${row('gastos','Gastos')}</tr><tr>${netaRow}</tr>`; })()}
         </tbody></table></div>
     </div>` : ''}
-    ${propsHist.length ? `<div class="card">
-      <div class="section-title" style="font-size:14px;margin-bottom:12px">Rentabilidad por año <span style="font-weight:400;font-size:10px;opacity:.85">· renta neta sobre valor de compra</span></div>
-      <div class="table-wrap"><table class="rep-big">
-        <thead><tr><th>Propiedad</th><th class="num">V. compra</th>${aniosR.map(y=>`<th class="num">${y}</th>`).join('')}<th class="num">2026 S1</th></tr></thead>
-        <tbody>
-        ${propsHist.map(p=>{ const vc=(Number(p.valor_compra)||0); const a=propDet[p.id].anual; const sem=propDet[p.id].netoSem;
-          return `<tr><td style="font-weight:600">${p.nombre}</td><td class="num">$${fmt(vc)}</td>${aniosR.map(y=>{ const v=(a[y]&&vc)?(a[y].neta/vc*100):null; return `<td class="num" style="color:${v==null?'var(--text3)':(v>=0?'var(--esp)':'var(--usa)')}">${v==null?'—':(v>=0?'+':'')+v.toFixed(2)+'%'}</td>`; }).join('')}<td class="num" style="color:${sem>=0?'var(--esp)':'var(--usa)'}">${vc?(sem>=0?'+':'')+(sem/vc*100).toFixed(2)+'%':'—'}</td></tr>`;
-        }).join('')}
-        </tbody></table></div>
-      <p style="color:var(--text3);font-size:10px;margin-top:6px">Rentabilidad = renta neta del año / valor de compra de la propiedad.</p>
-    </div>` : ''}
+    ${rentabDetalleHTML}
 
     ${bancosDietz.length ? `<div class="rep-h2 pgbreak">Bancos</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start">
@@ -9223,7 +9253,7 @@ function toggleTheme() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260702-054';
+const APP_VERSION = '20260706-055';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
