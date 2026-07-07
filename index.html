@@ -5924,7 +5924,7 @@ async function exportarReportePDF() {
     .rep-kpi .l{font-size:9.5px;letter-spacing:.8px;color:var(--text3);text-transform:uppercase;margin-bottom:8px;} .rep-kpi .v{font-size:21px;font-weight:700;} .rep-kpi .s{font-size:10.5px;color:var(--text3);margin-top:5px;}
     .loader,.spinner,.rep-head{display:none!important;}
     h1{color:var(--navy);font-size:22px;margin:0 0 3px;letter-spacing:-.3px;} .hdr{border-bottom:3px solid var(--navy);padding-bottom:9px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:flex-end;}
-    @page{size:A4 landscape;margin:1cm;} .pgbreak{page-break-before:always;} @media print{body{padding:0;}}
+    @page{size:A4 portrait;margin:1cm;} @page landscapePg{size:A4 landscape;margin:1cm;} .pgbreak{page-break-before:always;} .land-zone{page:landscapePg;} @media print{body{padding:0;}}
   </style></head><body>
   <div class="hdr"><div><h1>Informe Patrimonial</h1><div style="color:var(--text3);font-size:13px">${cliNom} \u00b7 Primer semestre 2026 \u00b7 Cifras en USD</div></div><div style="color:var(--text3);font-size:11px;text-align:right">Family Office<br>Generado ${new Date().toLocaleDateString('es-AR')}</div></div>
   ${htmlBody}
@@ -6144,7 +6144,7 @@ async function generarReporte() {
     };
     const left=[], right=[];
     blockYears.forEach((y,i)=> (i%2===0?left:right).push(blockFor(y)));
-    rentabDetalleHTML = `<div class="card pgbreak">
+    rentabDetalleHTML = `<div class="card" style="margin-top:14px">
       <div class="section-title" style="font-size:14px;margin-bottom:12px">Rentabilidad por año <span style="font-weight:400;font-size:10px;opacity:.85">· ${propsHist.map(p=>p.nombre).join(', ')}</span></div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start"><div>${left.join('')}</div><div>${right.join('')}</div></div>
       <p style="color:var(--text3);font-size:10px;margin-top:6px">V. inicio/final = valuación al cierre del año anterior/actual. R. anual = renta neta ÷ V. inicio. Desde c. = renta neta ÷ valor de compra. Valoriz. = variación de valuación en el año.</p>
@@ -6180,12 +6180,7 @@ async function generarReporte() {
       ${kpi('Resultado acumulado', acumulado, 'desde el ingreso', acumulado>=0?'var(--esp)':'var(--usa)')}
       ${kpi('Resultado del semestre', resultadoSemestre, (resultadoSemestre>=0?'+':'')+rendSemPct.toFixed(2)+'% · ganancia genuina', resultadoSemestre>=0?'var(--esp)':'var(--usa)')}
     </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:8px">
-      <div class="card" style="margin:0"><div class="section-title" style="font-size:14px;margin-bottom:6px">Evolución patrimonial</div><div style="height:96px"><canvas id="rep-ch-evol"></canvas></div></div>
-      <div class="card" style="margin:0"><div class="section-title" style="font-size:14px;margin-bottom:6px">Composición por activo</div><div style="height:96px"><canvas id="rep-ch-comp"></canvas></div></div>
-      <div class="card" style="margin:0"><div class="section-title" style="font-size:14px;margin-bottom:6px">Evolución bancos · semestre</div><div style="height:96px"><canvas id="rep-ch-bancos"></canvas></div></div>
-    </div>
-    <div class="card" style="margin-bottom:10px">
+    <div class="card" style="margin-bottom:12px">
       <div class="section-title" style="font-size:14px;margin-bottom:12px">Patrimonio por tipo de activo</div>
       <div class="table-wrap"><table>
         <thead><tr><th>Activo</th><th class="num">Invertido</th><th class="num">Cierre 2025</th><th class="num">Actual</th><th class="num">Var. semestre</th><th class="num">Var. histórica</th></tr></thead>
@@ -6206,6 +6201,11 @@ async function generarReporte() {
         ${['USA','ARG','URU','ESP'].map(k=>`<tr><td>${paisNom[k]}</td><td class="num">$${fmt(pais[k]||0)}</td><td class="num">${pct(pais[k]||0)}</td></tr>`).join('')}
         <tr style="font-weight:600;border-top:2px solid var(--border)"><td>Total</td><td class="num">$${fmt(patrimonioActual)}</td><td class="num">100%</td></tr>
         </tbody></table></div></div>
+    </div>
+    <div class="card" style="margin:12px 0 10px"><div class="section-title" style="font-size:14px;margin-bottom:8px">Evolución patrimonial</div><div style="height:150px"><canvas id="rep-ch-evol"></canvas></div></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="card" style="margin:0"><div class="section-title" style="font-size:14px;margin-bottom:8px">Composición por activo</div><div style="height:150px"><canvas id="rep-ch-comp"></canvas></div></div>
+      <div class="card" style="margin:0"><div class="section-title" style="font-size:14px;margin-bottom:8px">Evolución bancos · semestre</div><div style="height:150px"><canvas id="rep-ch-bancos"></canvas></div></div>
     </div>
     <div class="card pgbreak" style="margin-top:16px">
       <div class="section-title" style="font-size:14px;margin-bottom:12px">Patrimonio histórico y composición</div>
@@ -6229,16 +6229,16 @@ async function generarReporte() {
           ${rrow('Cantidad', props.length+' propiedades')}
           ${rrow('Países', paises.join(' · ')||'—')}
         </div>
-        <div style="border:1px solid var(--border);border-top:3px solid var(--navy);border-radius:8px;padding:14px">
-          <div style="font-weight:700;color:var(--navy);font-size:11px;letter-spacing:.5px;margin-bottom:10px">BANCOS</div>
+        <div style="border:1px solid var(--border);border-top:3px solid #2f9e63;border-radius:8px;padding:14px">
+          <div style="font-weight:700;color:#2f9e63;font-size:11px;letter-spacing:.5px;margin-bottom:10px">BANCOS</div>
           ${rrow('Invertido','$'+fmt(aportesBancos))}
           ${rrow('Saldo actual','$'+fmt(bancosActual))}
           ${rrow('Result. semestre', (rendimientoBancos>=0?'+':'')+'$'+fmt(rendimientoBancos), rendimientoBancos>=0?'var(--esp)':'var(--usa)')}
           ${rrow('Cuentas inversión', bancosDietz.filter(d=>!d.oper).length)}
           ${rrow('Cuentas operativas', bancosDietz.filter(d=>d.oper).length)}
         </div>
-        <div style="border:1px solid var(--border);border-top:3px solid var(--navy);border-radius:8px;padding:14px">
-          <div style="font-weight:700;color:var(--navy);font-size:11px;letter-spacing:.5px;margin-bottom:10px">PRIVATE EQUITY</div>
+        <div style="border:1px solid var(--border);border-top:3px solid #c9a24b;border-radius:8px;padding:14px">
+          <div style="font-weight:700;color:#c9a24b;font-size:11px;letter-spacing:.5px;margin-bottom:10px">PRIVATE EQUITY</div>
           ${rrow('Inversión','$'+fmt(peInvTotal))}
           ${rrow('Utilidad acum.', '+$'+fmt(peUtilTotal), 'var(--esp)')}
           ${rrow('Recupero', (peRecupero>=0?'+':'')+peRecupero.toFixed(1)+'%', peRecupero>=0?'var(--esp)':'var(--usa)')}
@@ -6261,6 +6261,7 @@ async function generarReporte() {
       </tbody></table></div>
       <p style="color:var(--text3);font-size:11px;margin-top:10px">De la variación total de bancos, solo el <b>Rendimiento</b> es ganancia genuina. Los <b>Mov. de capital</b> (aportes, y en las cuentas operativas las rentas/transferencias) aumentan el saldo pero no son resultado del período.</p>` : ''}
     </div>
+    <div class="land-zone">
     <div class="rep-h2 pgbreak">Propiedades</div>
     <div class="card wide" style="margin-top:20px">
       <div class="section-title" style="font-size:14px;margin-bottom:12px">Propiedades · resultado del semestre (S1 2026)</div>
@@ -6288,7 +6289,8 @@ async function generarReporte() {
       <p style="color:var(--text3);font-size:11px;margin-top:8px">Neto económico = valorización + renta neta acumulada. Renta neta acumulada = histórico 2020-2025 + semestre en curso.</p>
     </div>
     <div class="rep-h2 pgbreak">Propiedades · rentabilidad histórica</div>
-    ${propsHist.length ? `<div class="card">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start">
+    ${propsHist.length ? `<div class="card" style="margin:0">
       <div class="section-title" style="font-size:14px;margin-bottom:12px">Renta, gastos y renta neta — histórico por año</div>
       <div class="table-wrap"><table>
         <thead><tr><th>Propiedad</th><th>Concepto</th>${aniosR.map(y=>`<th class="num">${y}</th>`).join('')}<th class="num">Total</th></tr></thead>
@@ -6301,7 +6303,7 @@ async function generarReporte() {
         ${(()=>{ const tot=(f,y)=>propsHist.reduce((s,p)=>{const a=propDet[p.id].anual; return s+(a[y]?a[y][f]:0);},0); const gtot=f=>aniosR.reduce((s,y)=>s+tot(f,y),0); const row=(f,lbl)=>`<td style="color:var(--text3);font-weight:600">${lbl}</td>`+aniosR.map(y=>`<td class="num" style="font-weight:600">$${fmt(tot(f,y))}</td>`).join('')+`<td class="num" style="font-weight:700">$${fmt(gtot(f))}</td>`; const netaRow=`<td style="color:var(--text3);font-weight:600">Renta neta</td>`+aniosR.map(y=>{const v=tot('neta',y);return `<td class="num" style="font-weight:600;color:${v>=0?'var(--esp)':'var(--usa)'}">${v>=0?'+':''}$${fmt(v)}</td>`;}).join('')+`<td class="num" style="font-weight:700">$${fmt(gtot('neta'))}</td>`; return `<tr style="border-top:2px solid var(--navy)"><td rowspan="3" style="font-weight:700;vertical-align:top">Total</td>${row('renta','Renta')}</tr><tr>${row('gastos','Gastos')}</tr><tr>${netaRow}</tr>`; })()}
         </tbody></table></div>
     </div>` : ''}
-    ${propsMens.length ? `<div class="card">
+    ${propsMens.length ? `<div class="card" style="margin:0">
       <div class="section-title" style="font-size:14px;margin-bottom:12px">Renta, gastos y renta neta — mensual 2026</div>
       <div class="table-wrap"><table>
         <thead><tr><th>Propiedad</th><th>Concepto</th>${mesesR.map(m=>`<th class="num">${mesLbl[m]}</th>`).join('')}<th class="num">Total S1</th></tr></thead>
@@ -6314,6 +6316,7 @@ async function generarReporte() {
         ${(()=>{ const tot=(f,m)=>propsMens.reduce((s,p)=>{const mm=propDet[p.id].mensual; return s+(mm[m]?mm[m][f]:0);},0); const gtot=f=>mesesR.reduce((s,m)=>s+tot(f,m),0); const row=(f,lbl)=>`<td style="color:var(--text3);font-weight:600">${lbl}</td>`+mesesR.map(m=>`<td class="num" style="font-weight:600">$${fmt(tot(f,m))}</td>`).join('')+`<td class="num" style="font-weight:700">$${fmt(gtot(f))}</td>`; const netaRow=`<td style="color:var(--text3);font-weight:600">Renta neta</td>`+mesesR.map(m=>{const v=tot('neta',m);return `<td class="num" style="font-weight:600;color:${v>=0?'var(--esp)':'var(--usa)'}">${v>=0?'+':''}$${fmt(v)}</td>`;}).join('')+`<td class="num" style="font-weight:700">$${fmt(gtot('neta'))}</td>`; return `<tr style="border-top:2px solid var(--navy)"><td rowspan="3" style="font-weight:700;vertical-align:top">Total</td>${row('renta','Renta')}</tr><tr>${row('gastos','Gastos')}</tr><tr>${netaRow}</tr>`; })()}
         </tbody></table></div>
     </div>` : ''}
+    </div>
     ${rentabDetalleHTML}
 
     ${bancosDietz.length ? `<div class="rep-h2 pgbreak">Bancos</div>
@@ -6363,6 +6366,7 @@ async function generarReporte() {
     </div>` : ''}
 
     <p style="color:var(--text3);font-size:11px;margin-top:16px">Acumulado = patrimonio actual − capital invertido. Rendimiento por método Dietz modificado sobre las cuentas de inversión.</p>
+    </div>
     </div>`;
   try { renderReporteCharts(histAnios, bancosMensual); } catch(e) { console.warn('charts:', e.message); }
 }
@@ -6391,7 +6395,7 @@ function renderReporteCharts(hist, bancosMensual) {
       { label:'Bancos', data:hist.map(d=>d.banco), backgroundColor:'#2f9e63', borderRadius:2 },
       { label:'Private Equity', data:hist.map(d=>d.pe), backgroundColor:'#c9a24b', borderRadius:2 },
     ] },
-    options:{ responsive:true, maintainAspectRatio:false, animation:false, plugins:{ legend:{display:true,position:'bottom',labels:{boxWidth:9,font:{size:9}}}, tooltip:{callbacks:{label:c=>c.dataset.label+': $'+fmt(c.raw)}} }, scales:{ y:yAxis, x:xAxis } }
+    options:{ responsive:true, maintainAspectRatio:false, animation:false, plugins:{ legend:{display:true,position:'bottom',labels:{boxWidth:9,font:{size:9}}}, tooltip:{callbacks:{label:c=>c.dataset.label+': $'+fmt(c.raw)}} }, scales:{ y:{...yAxis,stacked:true}, x:{...xAxis,stacked:true} } }
   }));
   const bkEl = document.getElementById('rep-ch-bancos');
   if (bkEl && bancosMensual && bancosMensual.length) _repCharts.push(new Chart(bkEl.getContext('2d'), {
@@ -9253,7 +9257,7 @@ function toggleTheme() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260706-055';
+const APP_VERSION = '20260707-056';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
