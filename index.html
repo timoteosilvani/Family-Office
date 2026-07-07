@@ -5924,7 +5924,7 @@ async function exportarReportePDF() {
     .rep-kpi .l{font-size:9.5px;letter-spacing:.8px;color:var(--text3);text-transform:uppercase;margin-bottom:8px;} .rep-kpi .v{font-size:21px;font-weight:700;} .rep-kpi .s{font-size:10.5px;color:var(--text3);margin-top:5px;}
     .loader,.spinner,.rep-head{display:none!important;}
     h1{color:var(--navy);font-size:22px;margin:0 0 3px;letter-spacing:-.3px;} .hdr{border-bottom:3px solid var(--navy);padding-bottom:9px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:flex-end;}
-    @page{size:A4 portrait;margin:1cm;} @page landscapePg{size:A4 landscape;margin:1cm;} .pgbreak{page-break-before:always;} .land-zone{page:landscapePg;} @media print{body{padding:0;}}
+    @page{size:A4 portrait;margin:1cm;} .pgbreak{page-break-before:always;} @media print{body{padding:0;}}
   </style></head><body>
   <div class="hdr"><div><h1>Informe Patrimonial</h1><div style="color:var(--text3);font-size:13px">${cliNom} \u00b7 Primer semestre 2026 \u00b7 Cifras en USD</div></div><div style="color:var(--text3);font-size:11px;text-align:right">Family Office<br>Generado ${new Date().toLocaleDateString('es-AR')}</div></div>
   ${htmlBody}
