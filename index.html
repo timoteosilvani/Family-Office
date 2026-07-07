@@ -6395,7 +6395,7 @@ function renderReporteCharts(hist, bancosMensual) {
       { label:'Bancos', data:hist.map(d=>d.banco), backgroundColor:'#2f9e63', borderRadius:2 },
       { label:'Private Equity', data:hist.map(d=>d.pe), backgroundColor:'#c9a24b', borderRadius:2 },
     ] },
-    options:{ responsive:true, maintainAspectRatio:false, animation:false, plugins:{ legend:{display:true,position:'bottom',labels:{boxWidth:9,font:{size:9}}}, tooltip:{callbacks:{label:c=>c.dataset.label+': $'+fmt(c.raw)}} }, scales:{ y:{...yAxis,stacked:true}, x:{...xAxis,stacked:true} } }
+    options:{ responsive:true, maintainAspectRatio:false, animation:false, plugins:{ legend:{display:true,position:'bottom',labels:{boxWidth:9,font:{size:9}}}, tooltip:{callbacks:{label:c=>c.dataset.label+': $'+fmt(c.raw)}} }, scales:{ y:yAxis, x:xAxis } }
   }));
   const bkEl = document.getElementById('rep-ch-bancos');
   if (bkEl && bancosMensual && bancosMensual.length) _repCharts.push(new Chart(bkEl.getContext('2d'), {
@@ -9257,7 +9257,7 @@ function toggleTheme() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260707-056';
+const APP_VERSION = '20260707-057';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
