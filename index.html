@@ -1753,6 +1753,8 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
                     <th onclick="sortPE('pais')" style="cursor:pointer">País <span id="srt-p-pais"></span></th>
                     <th class="num">Aporte hist.</th>
                     <th class="num">Utilidad hist.</th>
+                    <th class="num">Aporte 2026</th>
+                    <th class="num">Utilidad 2026</th>
                     <th class="num">Share</th>
                     <th class="num">Variación</th><th></th>
                   </tr>
@@ -6804,28 +6806,38 @@ function renderPE() {
   const norm = s => String(s||'').toLowerCase().replace(/\s+/g,' ').trim();
   const histMap = {}; PE_HIST_DATA.forEach(p => histMap[norm(p.nombre)] = p);
   tbody.innerHTML = rows.map(r => {
-    const h = histMap[norm(r.nombre)] || {aporteHist:0, utilHist:0};
-    const varr = h.aporteHist>0 ? (h.utilHist/h.aporteHist*100) : 0;
-    return `<tr class="row-${colPais[r.pais]||'arg'}">
+    const h = histMap[norm(r.nombre)] || {aporteHist:0, utilHist:0, byY:{}};
+    const y26 = (h.byY && h.byY['2026']) || {ap:0, ut:0};
+    const rec = h.aporteHist>0 ? ((h.utilHist - h.aporteHist)/h.aporteHist*100) : 0; // recupero: en pérdida hasta recuperar el capital
+    const term = h.terminado === true;
+    const ts = term ? 'text-decoration:line-through;color:var(--text3)' : '';
+    return `<tr class="row-${colPais[r.pais]||'arg'}" style="${term?'opacity:0.55':''}">
       <td style="color:var(--text3)">${r.nro||'—'}</td>
-      <td class="bold">${r.nombre}</td>
+      <td class="bold" style="${ts}">${r.nombre}${term?' <span style="font-size:9px;background:var(--text3);color:#fff;border-radius:4px;padding:1px 5px;margin-left:4px;font-weight:400">TERMINADO</span>':''}</td>
       <td>${r.titular}</td>
       <td><span class="badge badge-${colPais[r.pais]||'arg'}">${r.pais||'—'}</span></td>
       <td class="num">$${fmt(h.aporteHist)}</td>
       <td class="num" style="color:${h.utilHist>0?'var(--esp)':''}">${h.utilHist>0?'+$'+fmt(h.utilHist):'—'}</td>
+      <td class="num" style="color:${y26.ap>0?'var(--esp)':''}">${y26.ap>0?'+$'+fmt(y26.ap):'—'}</td>
+      <td class="num" style="color:${y26.ut>0?'var(--esp)':''}">${y26.ut>0?'+$'+fmt(y26.ut):'—'}</td>
       <td class="num">${r.share > 0 ? (r.share*100).toFixed(2)+'%' : '—'}</td>
-      <td class="num ${varr>=0?'positive':'negative'}">${h.aporteHist>0?varr.toFixed(1)+'%':'—'}</td>
+      <td class="num ${rec>=0?'positive':'negative'}">${h.aporteHist>0?(rec>=0?'+':'')+rec.toFixed(1)+'%':'—'}</td>
       <td><button class="btn-secondary" style="padding:3px 8px;font-size:11px" onclick="editPE('${r.id}')">Editar</button></td>
     </tr>`;
   }).join('');
-  const totAp = rows.reduce((a,b)=>a+((histMap[norm(b.nombre)]||{}).aporteHist||0),0);
-  const totUt = rows.reduce((a,b)=>a+((histMap[norm(b.nombre)]||{}).utilHist||0),0);
+  const gh = b => histMap[norm(b.nombre)] || {};
+  const totAp = rows.reduce((a,b)=>a+(gh(b).aporteHist||0),0);
+  const totUt = rows.reduce((a,b)=>a+(gh(b).utilHist||0),0);
+  const totAp26 = rows.reduce((a,b)=>a+(((gh(b).byY||{})['2026']||{}).ap||0),0);
+  const totUt26 = rows.reduce((a,b)=>a+(((gh(b).byY||{})['2026']||{}).ut||0),0);
   tbody.innerHTML += `<tr style="background:var(--bg3);border-top:2px solid var(--border2)">
     <td colspan="4" class="bold" style="color:var(--gold)">TOTAL</td>
     <td class="num bold" style="color:var(--gold)">$${fmt(totAp)}</td>
     <td class="num bold" style="color:var(--gold)">+$${fmt(totUt)}</td>
+    <td class="num bold" style="color:var(--gold)">${totAp26?'+$'+fmt(totAp26):'—'}</td>
+    <td class="num bold" style="color:var(--gold)">${totUt26?'+$'+fmt(totUt26):'—'}</td>
     <td></td>
-    <td class="num" style="color:var(--text3)">${totAp>0?(totUt/totAp*100).toFixed(1)+'%':'—'}</td>
+    <td class="num" style="color:var(--text3)">${totAp>0?((totUt-totAp)/totAp*100).toFixed(1)+'%':'—'}</td>
     <td></td>
   </tr>`;
 }
@@ -9610,7 +9622,7 @@ function toggleTheme() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260708-068';
+const APP_VERSION = '20260708-069';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
