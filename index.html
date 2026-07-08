@@ -3347,9 +3347,11 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
             <div class="form-row cols-2">
               <div>
                 <label class="fld">Tipo</label>
-                <select class="fld" id="na-tipo">
+                <select class="fld" id="na-tipo" onchange="toggleServicioAlerta()">
                   <option value="Alquiler">Alquiler</option>
-                  <option value="Seguro">Seguro</option>
+                  <option value="Seguro">Seguro de auto</option>
+                  <option value="Patente">Patente de auto</option>
+                  <option value="Servicios">Servicios</option>
                   <option value="Vencimiento">Vencimiento contrato</option>
                   <option value="Impuesto">Impuesto</option>
                   <option value="Mantenimiento">Mantenimiento</option>
@@ -3360,6 +3362,14 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
               <div>
                 <label class="fld">Fecha de vencimiento</label>
                 <input class="fld" type="date" id="na-fecha">
+              </div>
+            </div>
+            <div class="form-row cols-1" id="na-servicio-row" style="display:none">
+              <div>
+                <label class="fld">Servicio</label>
+                <select class="fld" id="na-servicio">
+                  <option>Gas</option><option>Luz</option><option>Cable</option><option>Expensas</option><option>Limpieza</option><option>ARBA/ABL</option><option>Municipalidad de Tigre</option><option>Property Tax</option>
+                </select>
               </div>
             </div>
             <div class="form-row cols-2">
@@ -3689,6 +3699,27 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
     <div class="modal-footer">
       <button class="btn-secondary" onclick="closeModal('modal-auto-venta')">Cancelar</button>
       <button class="btn-primary" style="width:auto;padding:10px 24px" onclick="venderAuto()">Registrar venta</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-hist-edit">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="he-title">Editar histórico</div>
+      <button class="modal-close" onclick="closeModal('modal-hist-edit')">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-row cols-2">
+        <div><label class="fld">Año</label><select class="fld" id="he-anio" onchange="_hePrefill()"></select></div>
+        <div><label class="fld">Campo</label><select class="fld" id="he-campo" onchange="_hePrefill()"></select></div>
+      </div>
+      <div class="form-row cols-1"><div><label class="fld">Valor (USD)</label><input class="fld" type="number" id="he-valor"></div></div>
+      <p style="color:var(--text3);font-size:11px;margin-top:8px">Se guarda como override y recalcula el patrimonio. No modifica tu COMPLETO.</p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closeModal('modal-hist-edit')">Cancelar</button>
+      <button class="btn-primary" style="width:auto;padding:10px 24px" onclick="guardarHistEdit()">Guardar</button>
     </div>
   </div>
 </div>
@@ -4045,12 +4076,14 @@ function toggleSidebar() {
 // ============================================
 async function initApp() {
   await loadTC();
+  await loadHistOverrides();
   try {
     await populateAllSelects();
   } catch(e) {
     console.error('populateAllSelects failed:', e.message);
   }
   loadPage('dashboard');
+  actualizarBadgeAlertas();
 }
 
 async function populateAllSelects() {
@@ -4804,7 +4837,7 @@ function renderHistorialProps(filtro) {
 
     return `<tr class="row-${colPais[p.pais]||'arg'}" style="${rowStyle}">
       <td style="color:var(--text3);font-size:11px">${p.nro}</td>
-      <td style="font-size:12px;font-weight:500;${textStyle}">${p.nombre}${isVendida?' <span style="font-size:9px;background:var(--usa);color:#fff;border-radius:4px;padding:1px 5px;margin-left:4px;font-weight:400">VENDIDA</span>':''}</td>
+      <td style="font-size:12px;font-weight:500;${textStyle}">${p.nombre}${isVendida?' <span style="font-size:9px;background:var(--usa);color:#fff;border-radius:4px;padding:1px 5px;margin-left:4px;font-weight:400">VENDIDA</span>':''}<button onclick="abrirEditHist('prop',${p.nro})" style="background:none;border:none;cursor:pointer;color:var(--gold);font-size:12px;margin-left:6px;padding:0" title="Editar valor histórico">✎</button></td>
       <td style="font-size:11px;color:var(--text3)">${p.titular}</td>
       ${YEARS.map(y => {
         const v = p.valores[String(y)];
@@ -4883,7 +4916,7 @@ function renderAutosHist() {
     const ts = isV ? 'text-decoration:line-through;color:var(--text3)' : '';
     return `<tr class="row-${({ARG:'arg',USA:'usa',URU:'uru',ESP:'esp',PAR:'par'})[a.pais]||'arg'}" style="${rs}">
       <td style="color:var(--text3);font-size:11px">${a.nro}</td>
-      <td style="font-size:12px;font-weight:500;${ts}">${a.nombre}${isV?' <span style="font-size:9px;background:var(--usa);color:#fff;border-radius:4px;padding:1px 5px;margin-left:4px;font-weight:400">VENDIDO</span>':''}</td>
+      <td style="font-size:12px;font-weight:500;${ts}">${a.nombre}${isV?' <span style="font-size:9px;background:var(--usa);color:#fff;border-radius:4px;padding:1px 5px;margin-left:4px;font-weight:400">VENDIDO</span>':''}<button onclick="abrirEditHist('auto',${a.nro})" style="background:none;border:none;cursor:pointer;color:var(--gold);font-size:12px;margin-left:6px;padding:0" title="Editar valor histórico">✎</button></td>
       <td style="font-size:11px;color:var(--text3)">${a.titular}</td>
       ${YEARS.map(y => { const v = a.valores[String(y)]; return `<td class="num" style="font-size:11px;color:${v?'var(--text)':'var(--border2)'}">${v?'$'+fmt(v):'—'}</td>`; }).join('')}
       <td class="num ${varPct>0?'positive':(varPct<0?'negative':'')}" style="font-size:11px;font-weight:600">${varPct!==null?(varPct>0?'+':'')+varPct+'%':'—'}</td>
@@ -4959,7 +4992,7 @@ function renderBancosHist() {
   let body = data.map(b => { const d = b.byY[y];
     return `<tr class="row-${cp[b.pais]||'arg'}">
       <td style="color:var(--text3);font-size:11px">${b.nro}</td>
-      <td style="font-size:12px;font-weight:500">${b.nombre}</td>
+      <td style="font-size:12px;font-weight:500">${b.nombre}<button onclick="abrirEditHist('banco',${b.nro},${y})" style="background:none;border:none;cursor:pointer;color:var(--gold);font-size:12px;margin-left:6px;padding:0" title="Editar valor histórico">✎</button></td>
       <td style="font-size:11px;color:var(--text3)">${b.titular}</td>
       <td class="num" style="font-size:11px">${money(d.i)}</td>
       <td class="num" style="font-size:11px">${money(d.c)}</td>
@@ -5007,7 +5040,7 @@ function renderPEHist() {
   const y = sel ? sel.value : '2026';
   const tbody = document.getElementById('tbody-historial-pe');
   if (!tbody) return;
-  const _peP = {"Global Seg":"arg","Vannier":"arg","CRC":"uru"};
+  const _peP = {"Global Seg":"arg","Vannier":"arg","CRC":"uru","Panera Rosa":"arg","Panera Rosa LOAN":"arg","Camping":"arg","805 Streaming":"arg"};
   const _cpP = n => _peP[n] || 'usa';
   const _utAc = p => Object.entries(p.byY).reduce((s,[yy,d]) => yy<=y ? s+(d.ut||0) : s, 0);
   let data = PE_HIST_DATA.filter(p => p.byY[y]);
@@ -5015,7 +5048,7 @@ function renderPEHist() {
   let body = data.map(p => { const d = p.byY[y]; const ua = _utAc(p);
     return `<tr class="row-${_cpP(p.nombre)}">
       <td style="color:var(--text3);font-size:11px">${p.nro}</td>
-      <td style="font-size:12px;font-weight:500">${p.nombre}${p.terminado?' <span style="font-size:9px;background:var(--text3);color:#fff;border-radius:4px;padding:1px 5px;margin-left:4px">TERMINADO</span>':''}</td>
+      <td style="font-size:12px;font-weight:500">${p.nombre}${p.terminado?' <span style="font-size:9px;background:var(--text3);color:#fff;border-radius:4px;padding:1px 5px;margin-left:4px">TERMINADO</span>':''}<button onclick="abrirEditHist('pe',${p.nro},${y})" style="background:none;border:none;cursor:pointer;color:var(--gold);font-size:12px;margin-left:6px;padding:0" title="Editar valor histórico">✎</button></td>
       <td style="font-size:11px;color:var(--text3)">${p.titular}</td>
       <td class="num" style="font-size:11px">${d.ia?'$'+fmt(d.ia):'—'}</td>
       <td class="num" style="font-size:11px;color:${ua?'var(--esp)':''}">${ua?'+$'+fmt(ua):'—'}</td>
@@ -7347,6 +7380,60 @@ async function loadAlertas() {
   updateAlertKPIs();
 }
 
+const _heCampos = {prop:[['valor','Valor']],auto:[['valor','Valor']],banco:[['neto','Neto'],['inv','Inv account'],['cash','Cash'],['cred','Crédito']],pe:[['val','Valor patrimonio'],['ia','Inv. acumulada'],['ap','Aporte'],['ut','Utilidad']]};
+let _heCtx = {};
+function _heSrc(cat){ return {prop:PROP_HIST_DATA,auto:AUTOS_HIST_DATA,banco:BANCOS_HIST_DATA,pe:PE_HIST_DATA}[cat]; }
+function _heActual(cat,nro,anio,campo){
+  const y=String(anio);
+  if(cat==='prop'){const p=PROP_HIST_DATA.find(x=>x.nro===nro);return p&&p.valores[y]!=null?p.valores[y]:0;}
+  if(cat==='auto'){const a=AUTOS_HIST_DATA.find(x=>x.nro===nro);return a&&a.valores[y]!=null?a.valores[y]:0;}
+  if(cat==='banco'){const b=BANCOS_HIST_DATA.find(x=>x.nro===nro);const k={inv:'i',cash:'c',cred:'r',neto:'n'}[campo];return b&&b.byY[y]?(b.byY[y][k]||0):0;}
+  if(cat==='pe'){if(campo==='val'){return (PE_VAL[nro]&&PE_VAL[nro][y])||0;}const p=PE_HIST_DATA.find(x=>x.nro===nro);return p&&p.byY[y]?(p.byY[y][campo]||0):0;}
+  return 0;
+}
+function aplicarOverride(cat,nro,anio,campo,valor){
+  const y=String(anio);
+  if(cat==='prop'){const p=PROP_HIST_DATA.find(x=>x.nro===nro);if(p)p.valores[y]=valor;}
+  else if(cat==='auto'){const a=AUTOS_HIST_DATA.find(x=>x.nro===nro);if(a)a.valores[y]=valor;}
+  else if(cat==='banco'){const b=BANCOS_HIST_DATA.find(x=>x.nro===nro);if(b){b.byY[y]=b.byY[y]||{i:0,c:0,r:0,n:0};b.byY[y][{inv:'i',cash:'c',cred:'r',neto:'n'}[campo]]=valor;}}
+  else if(cat==='pe'){if(campo==='val'){PE_VAL[nro]=PE_VAL[nro]||{};PE_VAL[nro][y]=valor;}else{const p=PE_HIST_DATA.find(x=>x.nro===nro);if(p){p.byY[y]=p.byY[y]||{ia:0,ap:0,ut:0};p.byY[y][campo]=valor;}}}
+}
+async function loadHistOverrides(){
+  try{ const {data}=await sb.from('historico_overrides').select('*');
+    (data||[]).forEach(ov=>aplicarOverride(ov.categoria,ov.nro,ov.anio,ov.campo,Number(ov.valor))); }catch(e){}
+}
+function abrirEditHist(cat,nro,anioFijo){
+  const item=_heSrc(cat).find(x=>x.nro===nro); _heCtx={cat,nro};
+  document.getElementById('he-title').textContent='Editar histórico — '+(item?item.nombre:'');
+  const yrs=anioFijo?[anioFijo]:[2017,2018,2019,2020,2021,2022,2023,2024,2025,2026];
+  const ha=document.getElementById('he-anio'); ha.innerHTML=yrs.map(y=>`<option value="${y}">${y}</option>`).join(''); ha.disabled=!!anioFijo;
+  document.getElementById('he-campo').innerHTML=_heCampos[cat].map(([v,l])=>`<option value="${v}">${l}</option>`).join('');
+  _hePrefill(); openModal('modal-hist-edit');
+}
+function _hePrefill(){ document.getElementById('he-valor').value=_heActual(_heCtx.cat,_heCtx.nro,parseInt(document.getElementById('he-anio').value),document.getElementById('he-campo').value); }
+async function guardarHistEdit(){
+  const {cat,nro}=_heCtx; const anio=parseInt(document.getElementById('he-anio').value); const campo=document.getElementById('he-campo').value;
+  const valor=parseFloat(document.getElementById('he-valor').value);
+  if(isNaN(valor))return toast('Poné un valor','error');
+  const {error}=await sb.from('historico_overrides').upsert({categoria:cat,nro,anio,campo,valor},{onConflict:'categoria,nro,anio,campo'});
+  if(error)return toast('Error: '+error.message,'error');
+  aplicarOverride(cat,nro,anio,campo,valor);
+  toast('Guardado ✓ (recalcula patrimonio)','success'); closeModal('modal-hist-edit');
+  if(cat==='auto')renderAutosHist();else if(cat==='banco')renderBancosHist();else if(cat==='pe')renderPEHist();else renderHistorialProps('all');
+}
+async function actualizarBadgeAlertas() {
+  try {
+    const { data } = await aplicarFiltroTit(sb.from('alertas').select('fecha_vencimiento').eq('activa', true));
+    const n = (data||[]).filter(a => diasHasta(a.fecha_vencimiento) <= 30).length;
+    const b = document.getElementById('alert-nav-badge');
+    if (b) { b.textContent = n>0?n:''; b.style.display = n>0?'inline':'none'; }
+  } catch(e){}
+}
+function toggleServicioAlerta() {
+  const row = document.getElementById('na-servicio-row');
+  if (row) row.style.display = document.getElementById('na-tipo').value === 'Servicios' ? 'block' : 'none';
+}
+
 function diasHasta(fecha) {
   const hoy = new Date();
   hoy.setHours(0,0,0,0);
@@ -7422,9 +7509,12 @@ async function guardarAlerta() {
   if (!fecha || !desc) return toast('Completá fecha y descripción', 'error');
   const propId = document.getElementById('na-prop').value || null;
   const titular = document.getElementById('na-titular-alert').value || null;
+  let _tipo = document.getElementById('na-tipo').value;
+  let _desc = desc;
+  if (_tipo === 'Servicios') { const _s = document.getElementById('na-servicio').value; _desc = _s + ' — ' + desc; }
   const { error } = await sb.from('alertas').insert({
-    tipo: document.getElementById('na-tipo').value,
-    descripcion: desc,
+    tipo: _tipo,
+    descripcion: _desc,
     fecha_vencimiento: fecha,
     propiedad_id: propId || undefined,
     titular: titular || undefined,
@@ -7450,6 +7540,7 @@ async function editarAlerta(id) {
   const a = alertasData.find(x => x.id === id);
   if (!a) return;
   document.getElementById('na-tipo').value = a.tipo;
+  toggleServicioAlerta();
   document.getElementById('na-fecha').value = a.fecha_vencimiento;
   document.getElementById('na-desc').value = a.descripcion;
   document.getElementById('na-notas').value = a.notas || '';
@@ -8210,7 +8301,11 @@ async function verGastosTabla() {
     const moneda = Object.values(byMes)[0]?.moneda_renta || 'USD';
     const monedaNote = moneda !== 'USD' ? ` · valores en ${moneda}` : '';
 
-    const renderSection = (label, concepts, color, totalField) => {
+    const _mFor = (mm, f, sk) => mm['moneda_'+f] || mm['moneda_'+sk] || 'USD';
+    const _secUSD = (concepts, sk) => [1,2,3,4,5,6,7,8,9,10,11,12].map(m => { const mm=byMes[m]; if(!mm) return 0; return concepts.reduce((s,[,f]) => s + convUSD(parseFloat(mm[f])||0, _mFor(mm,f,sk), anio, m), 0); });
+    const _rU=_secUSD(RENTAS,'renta'), _gU=_secUSD(GASTOS,'gastos'), _iU=_secUSD(IMPUESTOS,'impuestos');
+    const _nU=_rU.map((v,i)=>v-_gU[i]-_iU[i]);
+    const renderSection = (label, concepts, color, usdArr) => {
       const active = concepts.filter(([,f]) => Object.values(byMes).some(m => m[f] && parseFloat(m[f]) > 0));
       if (active.length === 0) return '';
       let rows = `<tr style="background:var(--bg3)">
@@ -8223,7 +8318,7 @@ async function verGastosTabla() {
           <td class="num bold" style="font-size:10px;border-right:2px solid var(--border2)">${tot>0?fmt(tot):'—'}</td>
           ${vals.map(({v,c})=>`<td class="num ${c?'coment-tooltip has-coment':''}" style="font-size:10px;position:relative">${v>0?fmt(v):'—'}${c?`<span class="coment-pop">💬 ${c}</span>`:''}</td>`).join('')}</tr>`;
       });
-      const totUSD = [1,2,3,4,5,6,7,8,9,10,11,12].map(m=>byMes[m]?.[totalField]||0);
+      const totUSD = usdArr;
       const grand = totUSD.reduce((a,b)=>a+b,0);
       rows += `<tr style="border-top:1px solid var(--border)">
         <td class="bold" style="font-size:10px;color:${color}">Total USD</td>
@@ -8248,13 +8343,13 @@ async function verGastosTabla() {
             ${[1,2,3,4,5,6,7,8,9,10,11,12].map(m=>`<th class="num" style="min-width:55px">${meses[m]}</th>`).join('')}
           </tr></thead>
           <tbody>
-            ${renderSection('RENTAS',RENTAS,'#5cb85c','total_renta_usd')}
-            ${renderSection('GASTOS',GASTOS,'#c0392b','total_gastos_usd')}
-            ${renderSection('IMPUESTOS',IMPUESTOS,'#d4a017','total_impuestos_usd')}
+            ${renderSection('RENTAS',RENTAS,'#5cb85c',_rU)}
+            ${renderSection('GASTOS',GASTOS,'#c0392b',_gU)}
+            ${renderSection('IMPUESTOS',IMPUESTOS,'#d4a017',_iU)}
             <tr style="background:var(--bg3);border-top:2px solid var(--border2)">
               <td class="bold" style="font-size:11px">NETO USD</td>
-              <td class="num bold ${Object.values(byMes).reduce((a,m)=>a+(m.neto_usd||0),0)>=0?'positive':'negative'}" style="border-right:2px solid var(--border2)">$${fmt(Object.values(byMes).reduce((a,m)=>a+(m.neto_usd||0),0))}</td>
-              ${[1,2,3,4,5,6,7,8,9,10,11,12].map(m=>{const n=byMes[m]?.neto_usd||0;return`<td class="num bold ${n>=0?'positive':'negative'}" style="font-size:10px">${n?'$'+fmt(n):'—'}</td>`;}).join('')}
+              <td class="num bold ${_nU.reduce((a,b)=>a+b,0)>=0?'positive':'negative'}" style="border-right:2px solid var(--border2)">$${fmt(_nU.reduce((a,b)=>a+b,0))}</td>
+              ${_nU.map((n)=>`<td class="num bold ${n>=0?'positive':'negative'}" style="font-size:10px">${n?'$'+fmt(n):'—'}</td>`).join('')}
             </tr>
           </tbody>
         </table>
@@ -9643,7 +9738,7 @@ function toggleTheme() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260708-071';
+const APP_VERSION = '20260708-074';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
