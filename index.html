@@ -1752,8 +1752,8 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
                     <th onclick="sortPE('titular')" style="cursor:pointer">Titular <span id="srt-p-titular"></span></th>
                     <th onclick="sortPE('pais')" style="cursor:pointer">País <span id="srt-p-pais"></span></th>
                     <th class="num">Aporte hist.</th>
-                    <th class="num">Utilidad hist.</th>
                     <th class="num">Aporte 2026</th>
+                    <th class="num">Utilidad hist.</th>
                     <th class="num">Utilidad 2026</th>
                     <th class="num">Share</th>
                     <th class="num">Variación</th><th></th>
@@ -1775,7 +1775,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
           </div>
           <p style="color:var(--text3);font-size:12px;margin-bottom:14px">Inversión acumulada, aporte de capital y utilidad por sociedad, año a año (desde Global Seg, 2018).</p>
           <div class="card"><div style="overflow-x:auto;-webkit-overflow-scrolling:touch"><table style="min-width:640px">
-            <thead><tr><th>#</th><th>Sociedad</th><th>Tit.</th><th class="num">Inversión acumulada</th><th class="num">Aporte de capital</th><th class="num">Utilidad</th></tr></thead>
+            <thead><tr><th>#</th><th>Sociedad</th><th>Tit.</th><th class="num">Inv. acumulada</th><th class="num">Util. acumulada</th><th class="num" style="border-left:2px solid var(--border2)">Aporte de capital</th><th class="num">Utilidad</th></tr></thead>
             <tbody id="tbody-historial-pe"></tbody>
           </table></div></div>
         </div>
@@ -4574,6 +4574,7 @@ function renderPatrimonioPivot() {
   if (!patData.length) return;
   const anios = [...new Set(patData.map(r=>r.anio))].sort();
   const titulares = [...new Set(patData.map(r=>r.titular))];
+  { const _i = titulares.indexOf('FC'); titulares.splice(_i>=0?_i:0, 0, 'FO'); }
   const campo = patTipoActivo;
 
   // Header: Titular | 2017 | 2018 | ... | 2026 | Var%
@@ -4586,20 +4587,17 @@ function renderPatrimonioPivot() {
 
   const tbody = document.getElementById('tbody-patrimonio');
   const rows = titulares.map(tit => {
-    const byAnio = {};
-    patData.filter(r=>r.titular===tit).forEach(r => byAnio[r.anio] = r);
+    const isFO = tit === 'FO';
     const vals = anios.map(a => {
-      const row = byAnio[a];
-      if (!row) return 0;
-      if (campo === 'total') return (row.propiedades||0)+(row.banco||0)+(row.private_equity||0)+(row.autos||0);
-      return row[campo]||0;
+      const src = patData.filter(r => r.anio===a && (isFO || r.titular===tit));
+      return src.reduce((s,row) => s + (campo === 'total' ? (row.propiedades||0)+(row.banco||0)+(row.private_equity||0)+(row.autos||0) : (row[campo]||0)), 0);
     });
     const v25 = vals[anios.indexOf(2025)] || vals[anios.length-2] || 0;
     const v26 = vals[anios.indexOf(2026)] || vals[anios.length-1] || 0;
     const varPct = v25 > 0 ? ((v26-v25)/v25*100) : 0;
     const color = varPct >= 0 ? 'positive' : 'negative';
-    return `<tr>
-      <td class="bold" style="font-size:13px">${tit}</td>
+    return `<tr${isFO?' style="background:var(--bg3)"':''}>
+      <td class="bold" style="font-size:13px;${isFO?'color:var(--navy)':''}">${isFO?'FO':tit}</td>
       ${vals.map((v,i) => {
         const isLast = i === vals.length-1;
         return `<td class="num" style="${isLast?'font-weight:600;color:var(--text)':''}">$${fmt(v)}</td>`;
@@ -4633,9 +4631,10 @@ function renderPatrimonioPivot() {
 let chartsTitulares = {};
 function renderPatrimonioLinea() {
   const anios = [...new Set(patData.map(r=>r.anio))].sort();
-  const titulares = [...new Set(patData.map(r=>r.titular))].sort();
-  const colors = {JC:'#c9a84c',FC:'#2980b9',M:'#c0392b',MFL:'#d4a017',YAC:'#27ae60',FCC:'#8e44ad',G:'#16a085'};
-  const titNames = {JC:'Juan Cocci',FC:'Franco Cocci',M:'Martona',MFL:'M.F. Lorenzo',YAC:'Y.A. Cocci',FCC:'F.C. Cocci',G:'Grupillo'};
+  let titulares = [...new Set(patData.map(r=>r.titular))].sort();
+  { const _i = titulares.indexOf('FC'); titulares.splice(_i>=0?_i:0, 0, 'FO'); }
+  const colors = {FO:'#0f2a43',JC:'#c9a84c',FC:'#2980b9',M:'#c0392b',MFL:'#d4a017',YAC:'#27ae60',FCC:'#8e44ad',G:'#16a085'};
+  const titNames = {FO:'Family Office',JC:'Juan Cocci',FC:'Franco Cocci',M:'Martona',MFL:'M.F. Lorenzo',YAC:'Y.A. Cocci',FCC:'F.C. Cocci',G:'Grupillo'};
   const grid = document.getElementById('graficos-titulares-grid');
   if (!grid) return;
 
@@ -4656,12 +4655,10 @@ function renderPatrimonioLinea() {
     </div>`).join('');
 
   titulares.forEach(tit => {
-    const byAnio = {};
-    patData.filter(r=>r.titular===tit).forEach(r => byAnio[r.anio] = r);
     const vals = anios.map(a => {
-      const r = byAnio[a];
-      if (!r) return null;
-      return (r.propiedades||0)+(r.banco||0)+(r.private_equity||0)+(r.autos||0);
+      const src = patData.filter(r => r.anio===a && (tit==='FO' || r.titular===tit));
+      if (!src.length) return null;
+      return src.reduce((s,r)=> s+(r.propiedades||0)+(r.banco||0)+(r.private_equity||0)+(r.autos||0), 0);
     });
     const ctx = document.getElementById(`chart-tit-${tit}`)?.getContext('2d');
     if (!ctx) return;
@@ -4884,7 +4881,7 @@ function renderAutosHist() {
     const isV = a.vendida === true;
     const rs = isV ? 'opacity:0.55;' : '';
     const ts = isV ? 'text-decoration:line-through;color:var(--text3)' : '';
-    return `<tr style="${rs}">
+    return `<tr class="row-${({ARG:'arg',USA:'usa',URU:'uru',ESP:'esp',PAR:'par'})[a.pais]||'arg'}" style="${rs}">
       <td style="color:var(--text3);font-size:11px">${a.nro}</td>
       <td style="font-size:12px;font-weight:500;${ts}">${a.nombre}${isV?' <span style="font-size:9px;background:var(--usa);color:#fff;border-radius:4px;padding:1px 5px;margin-left:4px;font-weight:400">VENDIDO</span>':''}</td>
       <td style="font-size:11px;color:var(--text3)">${a.titular}</td>
@@ -5010,22 +5007,27 @@ function renderPEHist() {
   const y = sel ? sel.value : '2026';
   const tbody = document.getElementById('tbody-historial-pe');
   if (!tbody) return;
+  const _peP = {"Global Seg":"arg","Vannier":"arg","CRC":"uru"};
+  const _cpP = n => _peP[n] || 'usa';
+  const _utAc = p => Object.entries(p.byY).reduce((s,[yy,d]) => yy<=y ? s+(d.ut||0) : s, 0);
   let data = PE_HIST_DATA.filter(p => p.byY[y]);
   if (verComo) data = data.filter(p => p.titular === verComo);
-  let body = data.map(p => { const d = p.byY[y];
-    return `<tr>
+  let body = data.map(p => { const d = p.byY[y]; const ua = _utAc(p);
+    return `<tr class="row-${_cpP(p.nombre)}">
       <td style="color:var(--text3);font-size:11px">${p.nro}</td>
       <td style="font-size:12px;font-weight:500">${p.nombre}${p.terminado?' <span style="font-size:9px;background:var(--text3);color:#fff;border-radius:4px;padding:1px 5px;margin-left:4px">TERMINADO</span>':''}</td>
       <td style="font-size:11px;color:var(--text3)">${p.titular}</td>
       <td class="num" style="font-size:11px">${d.ia?'$'+fmt(d.ia):'—'}</td>
-      <td class="num" style="font-size:11px;color:${d.ap?'var(--esp)':''}">${d.ap?'+$'+fmt(d.ap):'—'}</td>
+      <td class="num" style="font-size:11px;color:${ua?'var(--esp)':''}">${ua?'+$'+fmt(ua):'—'}</td>
+      <td class="num" style="font-size:11px;border-left:2px solid var(--border2);color:${d.ap?'var(--esp)':''}">${d.ap?'+$'+fmt(d.ap):'—'}</td>
       <td class="num" style="font-size:11px;color:${d.ut?'var(--esp)':''}">${d.ut?'+$'+fmt(d.ut):'—'}</td>
     </tr>`; }).join('');
-  const T = data.reduce((a,p) => { const d=p.byY[y]; a.ia+=d.ia; a.ap+=d.ap; a.ut+=d.ut; return a; }, {ia:0,ap:0,ut:0});
+  const T = data.reduce((a,p) => { const d=p.byY[y]; a.ia+=d.ia; a.ap+=d.ap; a.ut+=d.ut; a.ua+=_utAc(p); return a; }, {ia:0,ap:0,ut:0,ua:0});
   body += `<tr style="background:var(--bg3);border-top:2px solid var(--border2)">
     <td colspan="3" class="bold" style="color:var(--gold)">TOTAL</td>
     <td class="num bold" style="color:var(--gold);font-size:11px">$${fmt(T.ia)}</td>
-    <td class="num bold" style="color:var(--gold);font-size:11px">${T.ap?'+$'+fmt(T.ap):'—'}</td>
+    <td class="num bold" style="color:var(--gold);font-size:11px">${T.ua?'+$'+fmt(T.ua):'—'}</td>
+    <td class="num bold" style="color:var(--gold);font-size:11px;border-left:2px solid var(--border2)">${T.ap?'+$'+fmt(T.ap):'—'}</td>
     <td class="num bold" style="color:var(--gold);font-size:11px">${T.ut?'+$'+fmt(T.ut):'—'}</td>
   </tr>`;
   tbody.innerHTML = body;
@@ -6836,8 +6838,8 @@ function renderPE() {
       <td>${r.titular}</td>
       <td><span class="badge badge-${colPais[r.pais]||'arg'}">${r.pais||'—'}</span></td>
       <td class="num">$${fmt(h.aporteHist)}</td>
-      <td class="num" style="color:${h.utilHist>0?'var(--esp)':''}">${h.utilHist>0?'+$'+fmt(h.utilHist):'—'}</td>
       <td class="num" style="color:${y26.ap>0?'var(--esp)':''}">${y26.ap>0?'+$'+fmt(y26.ap):'—'}</td>
+      <td class="num" style="color:${h.utilHist>0?'var(--esp)':''}">${h.utilHist>0?'+$'+fmt(h.utilHist):'—'}</td>
       <td class="num" style="color:${y26.ut>0?'var(--esp)':''}">${y26.ut>0?'+$'+fmt(y26.ut):'—'}</td>
       <td class="num">${r.share > 0 ? (r.share*100).toFixed(2)+'%' : '—'}</td>
       <td class="num ${rec>=0?'positive':'negative'}">${h.aporteHist>0?(rec>=0?'+':'')+rec.toFixed(1)+'%':'—'}</td>
@@ -6852,8 +6854,8 @@ function renderPE() {
   tbody.innerHTML += `<tr style="background:var(--bg3);border-top:2px solid var(--border2)">
     <td colspan="4" class="bold" style="color:var(--gold)">TOTAL</td>
     <td class="num bold" style="color:var(--gold)">$${fmt(totAp)}</td>
-    <td class="num bold" style="color:var(--gold)">+$${fmt(totUt)}</td>
     <td class="num bold" style="color:var(--gold)">${totAp26?'+$'+fmt(totAp26):'—'}</td>
+    <td class="num bold" style="color:var(--gold)">+$${fmt(totUt)}</td>
     <td class="num bold" style="color:var(--gold)">${totUt26?'+$'+fmt(totUt26):'—'}</td>
     <td></td>
     <td class="num" style="color:var(--text3)">${totAp>0?((totUt-totAp)/totAp*100).toFixed(1)+'%':'—'}</td>
@@ -9641,7 +9643,7 @@ function toggleTheme() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260708-070';
+const APP_VERSION = '20260708-071';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
