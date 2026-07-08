@@ -1928,6 +1928,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
           <button class="tab-btn active" onclick="switchTab('aut','info',this)">Información</button>
           <button class="tab-btn" onclick="switchTab('aut','vendidos',this)">Vendidos</button>
           <button class="tab-btn" onclick="switchTab('aut','evolucion',this)">Gastos Mensuales</button>
+          <button class="tab-btn" onclick="switchTab('aut','historial',this);renderAutosHist()">📈 Historial</button>
           <button class="tab-btn" onclick="switchTab('aut','carga',this)">Carga</button>
         </div>
         <div id="aut-info" class="tab-content" style="display:block">
@@ -1957,6 +1958,26 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
           </div>
         </div>
         </div><!-- /aut-info -->
+
+        <div id="aut-historial" class="tab-content">
+          <div class="section-title" style="margin-bottom:4px">Historial de Valores — Autos</div>
+          <p style="color:var(--text3);font-size:12px;margin-bottom:14px">Evolución del valor de cada vehículo año a año en USD.</p>
+          <div class="filters" style="margin-bottom:14px">
+            <button class="filter-btn active" onclick="filtroHistorialAutos('all',this)">Todos</button>
+            <button class="filter-btn" onclick="filtroHistorialAutos('vendidos',this)">Vendidos</button>
+          </div>
+          <div class="card"><div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
+            <table style="min-width:900px">
+              <thead><tr><th>#</th><th>Vehículo</th><th>Tit.</th>
+                <th class="num">2017</th><th class="num">2018</th><th class="num">2019</th>
+                <th class="num">2020</th><th class="num">2021</th><th class="num">2022</th>
+                <th class="num">2023</th><th class="num">2024</th><th class="num">2025</th>
+                <th class="num">2026</th><th class="num">Var%</th>
+              </tr></thead>
+              <tbody id="tbody-historial-autos"></tbody>
+            </table>
+          </div></div>
+        </div>
 
         <div id="aut-vendidos" class="tab-content">
           <div class="section-title" style="margin-bottom:12px">Vehículos Vendidos</div>
@@ -4672,6 +4693,8 @@ function derivePropsHistByTit() {
         add(anio <= 2024 ? 'JC' : 'M', anio, val);
       } else if (p.nro === 43) {                                    // Oceana 1102: JC hasta 2025, M desde 2026
         add(anio <= 2025 ? 'JC' : 'M', anio, val);
+      } else if (p.nro === 3) {                                     // Nordelta: JC hasta 2024, MFL desde 2025
+        add(anio <= 2024 ? 'JC' : 'MFL', anio, val);
       } else {
         add(p.titular, anio, val);
       }
@@ -4742,6 +4765,68 @@ function renderHistorialProps(filtro) {
 
   if (tbody) tbody.innerHTML = bodyHtml;
   if (tbody2) tbody2.innerHTML = bodyHtml;
+}
+
+// ============================================
+// HISTORIAL DE AUTOS
+// ============================================
+const AUTOS_HIST_DATA = [
+  {"nro": 1, "nombre": "AUDI A5 PAZ947", "titular": "FC", "pais": "ARG", "vendida": false, "valor_venta": null, "valores": {"2017": 25000.0, "2018": 25000.0, "2019": 23000.0, "2020": 23000.0, "2021": 23000.0, "2022": 23000.0, "2023": 23000.0, "2024": 23000.0, "2025": 23000.0, "2026": 23000.0}},
+  {"nro": 2, "nombre": "MB C250 OXW662", "titular": "JC", "pais": "ARG", "vendida": true, "valor_venta": 23000.0, "valores": {"2017": 44000.0, "2018": 40000.0, "2019": 38000.0, "2020": 38000.0, "2021": 44000.0, "2022": 40000.0, "2023": 35000.0, "2024": 23000.0, "2025": 23000.0}},
+  {"nro": 3, "nombre": "Porsche AC420FR", "titular": "FC", "pais": "ARG", "vendida": false, "valor_venta": null, "valores": {"2018": 138400.0, "2019": 138400.0, "2020": 138400.0, "2021": 127000.0, "2022": 127000.0, "2023": 120000.0, "2024": 120000.0, "2025": 120000.0, "2026": 120000.0}},
+  {"nro": 4, "nombre": "Peugeot 3008 LOP067", "titular": "JC", "pais": "URU", "vendida": true, "valor_venta": 8000.0, "valores": {"2017": 6750.0, "2018": 6750.0, "2019": 6750.0, "2020": 6750.0, "2021": 7156.0, "2022": 7156.0, "2023": 8000.0}},
+  {"nro": 5, "nombre": "Ferrari LUMZ86", "titular": "FC", "pais": "USA", "vendida": false, "valor_venta": null, "valores": {"2018": 330000.0, "2019": 320000.0, "2020": 280000.0, "2021": 280000.0, "2022": 280000.0, "2023": 270000.0, "2024": 270000.0, "2025": 270000.0, "2026": 270000.0}},
+  {"nro": 6, "nombre": "MB GLA AB151DK", "titular": "FC", "pais": "ARG", "vendida": false, "valor_venta": null, "valores": {"2017": 60000.0, "2018": 50000.0, "2019": 45700.0, "2020": 40000.0, "2021": 50000.0, "2022": 45000.0, "2023": 42000.0, "2024": 30000.0, "2025": 30000.0, "2026": 30000.0}},
+  {"nro": 7, "nombre": "KIA AB481ZR", "titular": "FC", "pais": "ARG", "vendida": true, "valor_venta": 42319.0, "valores": {"2017": 60000.0, "2018": 50000.0, "2019": 35000.0, "2020": 35000.0, "2021": 42319.0, "2022": 42319.0}},
+  {"nro": 8, "nombre": "Vespa A117FNM", "titular": "FC", "pais": "ARG", "vendida": false, "valor_venta": null, "valores": {"2020": 7000.0, "2021": 7000.0, "2022": 7000.0, "2023": 6000.0, "2024": 6000.0, "2025": 6000.0, "2026": 6000.0}},
+  {"nro": 9, "nombre": "Jeep AB880GN", "titular": "FCC", "pais": "ARG", "vendida": false, "valor_venta": null, "valores": {"2017": 22000.0, "2018": 10000.0, "2019": 10000.0, "2020": 10000.0, "2021": 11943.0, "2022": 11943.0, "2023": 13000.0, "2024": 13000.0, "2025": 13000.0, "2026": 13000.0}},
+  {"nro": 10, "nombre": "Jeep AB880GO", "titular": "YAC", "pais": "ARG", "vendida": false, "valor_venta": null, "valores": {"2017": 22000.0, "2018": 10000.0, "2019": 10000.0, "2020": 10000.0, "2021": 11943.0, "2022": 11943.0, "2023": 13000.0, "2024": 13000.0, "2025": 13000.0, "2026": 13000.0}},
+  {"nro": 11, "nombre": "MB GLE 53", "titular": "FC", "pais": "USA", "vendida": false, "valor_venta": null, "valores": {"2022": 90000.0, "2023": 70000.0, "2024": 70000.0, "2025": 70000.0, "2026": 70000.0}},
+  {"nro": 12, "nombre": "KIA AF853RV", "titular": "FC", "pais": "ARG", "vendida": false, "valor_venta": null, "valores": {"2023": 75000.0, "2024": 51000.0, "2025": 51000.0, "2026": 51000.0}},
+  {"nro": 13, "nombre": "HONDA", "titular": "FC", "pais": "URU", "vendida": false, "valor_venta": null, "valores": {"2023": 1200.0, "2024": 1200.0, "2025": 1200.0, "2026": 1200.0}},
+  {"nro": 14, "nombre": "MB GLC 300 AE221NM", "titular": "MFL", "pais": "ARG", "vendida": false, "valor_venta": null, "valores": {"2024": 50000.0, "2025": 50000.0, "2026": 50000.0}},
+  {"nro": 15, "nombre": "VW GOL  AE002YM", "titular": "FCC", "pais": "ARG", "vendida": false, "valor_venta": null, "valores": {"2024": 11500.0, "2025": 11500.0, "2026": 11500.0}},
+  {"nro": 16, "nombre": "MB CLA 200 AH924OW", "titular": "AP / H", "pais": "ARG", "vendida": false, "valor_venta": null, "valores": {"2025": 63500.0, "2026": 63500.0}},
+  {"nro": 17, "nombre": "MB GLC 43 AH791SZ", "titular": "FC", "pais": "ARG", "vendida": false, "valor_venta": null, "valores": {"2025": 175500.0, "2026": 175500.0}}
+];
+
+let _autoHistFiltro = 'all';
+function filtroHistorialAutos(f, btn) {
+  _autoHistFiltro = f;
+  document.querySelectorAll('#aut-historial .filter-btn').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  renderAutosHist();
+}
+function renderAutosHist() {
+  const YEARS = [2017,2018,2019,2020,2021,2022,2023,2024,2025,2026];
+  const tbody = document.getElementById('tbody-historial-autos');
+  if (!tbody) return;
+  let data = AUTOS_HIST_DATA.slice();
+  if (verComo) data = data.filter(a => a.titular === verComo);
+  if (_autoHistFiltro === 'vendidos') data = data.filter(a => a.vendida);
+  let body = data.map(a => {
+    const vals = YEARS.map(y => a.valores[String(y)] || null);
+    const first = vals.find(v => v !== null);
+    const last = vals.filter(v => v !== null).pop();
+    const varPct = first && last && first !== 0 ? ((last - first) / first * 100).toFixed(1) : null;
+    const isV = a.vendida === true;
+    const rs = isV ? 'opacity:0.55;' : '';
+    const ts = isV ? 'text-decoration:line-through;color:var(--text3)' : '';
+    return `<tr style="${rs}">
+      <td style="color:var(--text3);font-size:11px">${a.nro}</td>
+      <td style="font-size:12px;font-weight:500;${ts}">${a.nombre}${isV?' <span style="font-size:9px;background:var(--usa);color:#fff;border-radius:4px;padding:1px 5px;margin-left:4px;font-weight:400">VENDIDO</span>':''}</td>
+      <td style="font-size:11px;color:var(--text3)">${a.titular}</td>
+      ${YEARS.map(y => { const v = a.valores[String(y)]; return `<td class="num" style="font-size:11px;color:${v?'var(--text)':'var(--border2)'}">${v?'$'+fmt(v):'—'}</td>`; }).join('')}
+      <td class="num ${varPct>0?'positive':(varPct<0?'negative':'')}" style="font-size:11px;font-weight:600">${varPct!==null?(varPct>0?'+':'')+varPct+'%':'—'}</td>
+    </tr>`;
+  }).join('');
+  const totals = YEARS.map(y => data.reduce((s, a) => s + (a.valores[String(y)] || 0), 0));
+  body += `<tr style="background:var(--bg3);border-top:2px solid var(--border2)">
+    <td colspan="3" class="bold" style="color:var(--gold)">TOTAL</td>
+    ${totals.map(v => `<td class="num bold" style="color:var(--gold);font-size:11px">${v>0?'$'+fmt(v):'—'}</td>`).join('')}
+    <td class="num" style="font-size:11px;color:var(--text3)">—</td>
+  </tr>`;
+  tbody.innerHTML = body;
 }
 
 // ============================================
@@ -9316,7 +9401,7 @@ function toggleTheme() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260708-063';
+const APP_VERSION = '20260708-065';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
