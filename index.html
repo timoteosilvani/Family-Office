@@ -1733,6 +1733,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
       <div id="page-private_equity" class="page">
         <div class="tabs">
           <button class="tab-btn active" onclick="switchTab('pe','info',this)">Información</button>
+          <button class="tab-btn" onclick="switchTab('pe','historial',this);renderPEHist()">📈 Historial</button>
           <button class="tab-btn" onclick="switchTab('pe','evolucion',this);loadPEEvolucion()">Evolución Mensual</button>
           <button class="tab-btn" onclick="switchTab('pe','carga',this)">✏️ Carga</button>
         </div>
@@ -1750,11 +1751,10 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
                     <th onclick="sortPE('nombre')" style="cursor:pointer">Sociedad <span id="srt-p-nombre"></span></th>
                     <th onclick="sortPE('titular')" style="cursor:pointer">Titular <span id="srt-p-titular"></span></th>
                     <th onclick="sortPE('pais')" style="cursor:pointer">País <span id="srt-p-pais"></span></th>
+                    <th class="num">Aporte hist.</th>
+                    <th class="num">Utilidad hist.</th>
                     <th class="num">Share</th>
-                    <th class="num" onclick="sortPE('valor_2024')" style="cursor:pointer">2024 <span id="srt-p-valor_2024"></span></th>
-                    <th class="num" onclick="sortPE('valor_2025')" style="cursor:pointer">2025 <span id="srt-p-valor_2025"></span></th>
-                    <th class="num" onclick="sortPE('valor_2026')" style="cursor:pointer">2026 <span id="srt-p-valor_2026"></span></th>
-                    <th class="num">Var. %</th><th></th>
+                    <th class="num">Variación</th><th></th>
                   </tr>
                 </thead>
                 <tbody id="tbody-pe">
@@ -1763,6 +1763,19 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
               </table>
             </div>
           </div>
+        </div>
+        <div id="pe-historial" class="tab-content">
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;flex-wrap:wrap">
+            <div class="section-title" style="margin:0">Historial de Private Equity</div>
+            <select class="fld" id="pe-hist-anio" style="width:auto" onchange="renderPEHist()">
+              <option value="2026">2026</option><option value="2025">2025</option><option value="2024">2024</option><option value="2023">2023</option><option value="2022">2022</option><option value="2021">2021</option><option value="2020">2020</option><option value="2019">2019</option><option value="2018">2018</option>
+            </select>
+          </div>
+          <p style="color:var(--text3);font-size:12px;margin-bottom:14px">Inversión acumulada, aporte de capital y utilidad por sociedad, año a año (desde Global Seg, 2018).</p>
+          <div class="card"><div style="overflow-x:auto;-webkit-overflow-scrolling:touch"><table style="min-width:640px">
+            <thead><tr><th>#</th><th>Sociedad</th><th>Tit.</th><th class="num">Inversión acumulada</th><th class="num">Aporte de capital</th><th class="num">Utilidad</th></tr></thead>
+            <tbody id="tbody-historial-pe"></tbody>
+          </table></div></div>
         </div>
         <div id="pe-evolucion" class="tab-content">
           <div class="section-title" style="margin-bottom:4px">Evolución Mensual</div>
@@ -4948,6 +4961,57 @@ function renderBancosHist() {
 }
 
 // ============================================
+// HISTORIAL DE PRIVATE EQUITY
+// ============================================
+const PE_HIST_DATA = [
+  {nro:1,nombre:"Global Seg",titular:"FC",aporteHist:257000,utilHist:17599,terminado:false,byY:{"2018":{ia:250000,ap:0,ut:0},"2019":{ia:250000,ap:0,ut:0},"2020":{ia:250000,ap:0,ut:0},"2021":{ia:250000,ap:0,ut:0},"2022":{ia:250000,ap:0,ut:0},"2023":{ia:250000,ap:7000,ut:0},"2024":{ia:257000,ap:0,ut:0},"2025":{ia:257000,ap:0,ut:11599},"2026":{ia:257000,ap:0,ut:6000}}},
+  {nro:2,nombre:"Vannier",titular:"H",aporteHist:449131,utilHist:417579,terminado:false,byY:{"2020":{ia:0,ap:389131,ut:17551},"2021":{ia:389131,ap:0,ut:324401},"2022":{ia:389131,ap:60000,ut:0},"2023":{ia:449131,ap:0,ut:0},"2024":{ia:449131,ap:0,ut:33750},"2025":{ia:449131,ap:0,ut:11434},"2026":{ia:449131,ap:0,ut:30443}}},
+  {nro:3,nombre:"CRC",titular:"FC",aporteHist:265000,utilHist:0,terminado:false,byY:{"2021":{ia:0,ap:100000,ut:0},"2022":{ia:100000,ap:0,ut:0},"2023":{ia:100000,ap:100000,ut:0},"2024":{ia:200000,ap:50000,ut:0},"2025":{ia:250000,ap:15000,ut:0},"2026":{ia:265000,ap:0,ut:0}}},
+  {nro:4,nombre:"Ashland",titular:"M",aporteHist:450000,utilHist:0,terminado:true,byY:{"2022":{ia:0,ap:450000,ut:0},"2023":{ia:450000,ap:0,ut:0},"2024":{ia:450000,ap:0,ut:0},"2025":{ia:450000,ap:0,ut:0}}},
+  {nro:5,nombre:"Rheinbeck",titular:"M",aporteHist:466358,utilHist:0,terminado:false,byY:{"2022":{ia:0,ap:367358,ut:0},"2023":{ia:367358,ap:0,ut:0},"2024":{ia:367358,ap:99000,ut:0},"2025":{ia:466358,ap:0,ut:0},"2026":{ia:466358,ap:0,ut:0}}},
+  {nro:6,nombre:"Ulster",titular:"M",aporteHist:400000,utilHist:97322,terminado:false,byY:{"2023":{ia:0,ap:400000,ut:97322},"2024":{ia:400000,ap:0,ut:0},"2025":{ia:400000,ap:0,ut:0},"2026":{ia:400000,ap:0,ut:0}}},
+  {nro:7,nombre:"Palm Bay",titular:"M",aporteHist:708644,utilHist:0,terminado:false,byY:{"2024":{ia:0,ap:250000,ut:0},"2025":{ia:250000,ap:8644,ut:0},"2026":{ia:708644,ap:0,ut:0}}},
+  {nro:8,nombre:"Boston",titular:"M",aporteHist:100000,utilHist:100000,terminado:true,byY:{"2023":{ia:0,ap:100000,ut:0},"2024":{ia:100000,ap:0,ut:0},"2025":{ia:0,ap:0,ut:100000}}},
+  {nro:9,nombre:"Ventus",titular:"M",aporteHist:125000,utilHist:0,terminado:false,byY:{"2024":{ia:0,ap:50000,ut:0},"2025":{ia:50000,ap:75000,ut:0},"2026":{ia:125000,ap:0,ut:0}}},
+  {nro:10,nombre:"TGA",titular:"M",aporteHist:100000,utilHist:0,terminado:false,byY:{"2024":{ia:0,ap:100000,ut:0},"2025":{ia:100000,ap:0,ut:0},"2026":{ia:100000,ap:0,ut:0}}},
+  {nro:11,nombre:"TGA FINANCIAL JC",titular:"FC",aporteHist:100000,utilHist:28874,terminado:false,byY:{"2025":{ia:0,ap:100000,ut:28874},"2026":{ia:100000,ap:0,ut:0}}},
+  {nro:12,nombre:"TGA FINANCIAL G",titular:"G",aporteHist:100000,utilHist:57818,terminado:false,byY:{"2025":{ia:0,ap:100000,ut:28909},"2026":{ia:100000,ap:0,ut:28909}}},
+  {nro:13,nombre:"TGA FINANCIAL FC",titular:"FC",aporteHist:102000,utilHist:73484,terminado:false,byY:{"2025":{ia:0,ap:102000,ut:45221},"2026":{ia:102000,ap:0,ut:28263}}},
+  {nro:14,nombre:"Ashland LOAN",titular:"FC",aporteHist:40000,utilHist:0,terminado:false,byY:{"2025":{ia:0,ap:40000,ut:0},"2026":{ia:40000,ap:0,ut:0}}},
+  {nro:15,nombre:"Panera Rosa",titular:"FC",aporteHist:250000,utilHist:62000,terminado:false,byY:{"2025":{ia:0,ap:250000,ut:36000},"2026":{ia:250000,ap:0,ut:26000}}},
+  {nro:16,nombre:"Panera Rosa LOAN",titular:"FC",aporteHist:390000,utilHist:93000,terminado:false,byY:{"2025":{ia:0,ap:390000,ut:54000},"2026":{ia:390000,ap:0,ut:39000}}},
+  {nro:17,nombre:"Camping",titular:"FC",aporteHist:186100,utilHist:0,terminado:false,byY:{"2025":{ia:0,ap:175000,ut:0},"2026":{ia:175000,ap:11100,ut:0}}},
+  {nro:18,nombre:"805 Streaming",titular:"FC",aporteHist:10000,utilHist:0,terminado:false,byY:{"2025":{ia:0,ap:10000,ut:0},"2026":{ia:10000,ap:0,ut:0}}},
+  {nro:19,nombre:"Ulster LOAN",titular:"FC",aporteHist:30000,utilHist:10253,terminado:false,byY:{"2025":{ia:0,ap:30000,ut:9258},"2026":{ia:30000,ap:0,ut:995}}}
+];
+
+function renderPEHist() {
+  const sel = document.getElementById('pe-hist-anio');
+  const y = sel ? sel.value : '2026';
+  const tbody = document.getElementById('tbody-historial-pe');
+  if (!tbody) return;
+  let data = PE_HIST_DATA.filter(p => p.byY[y]);
+  if (verComo) data = data.filter(p => p.titular === verComo);
+  let body = data.map(p => { const d = p.byY[y];
+    return `<tr>
+      <td style="color:var(--text3);font-size:11px">${p.nro}</td>
+      <td style="font-size:12px;font-weight:500">${p.nombre}${p.terminado?' <span style="font-size:9px;background:var(--text3);color:#fff;border-radius:4px;padding:1px 5px;margin-left:4px">TERMINADO</span>':''}</td>
+      <td style="font-size:11px;color:var(--text3)">${p.titular}</td>
+      <td class="num" style="font-size:11px">${d.ia?'$'+fmt(d.ia):'—'}</td>
+      <td class="num" style="font-size:11px;color:${d.ap?'var(--esp)':''}">${d.ap?'+$'+fmt(d.ap):'—'}</td>
+      <td class="num" style="font-size:11px;color:${d.ut?'var(--esp)':''}">${d.ut?'+$'+fmt(d.ut):'—'}</td>
+    </tr>`; }).join('');
+  const T = data.reduce((a,p) => { const d=p.byY[y]; a.ia+=d.ia; a.ap+=d.ap; a.ut+=d.ut; return a; }, {ia:0,ap:0,ut:0});
+  body += `<tr style="background:var(--bg3);border-top:2px solid var(--border2)">
+    <td colspan="3" class="bold" style="color:var(--gold)">TOTAL</td>
+    <td class="num bold" style="color:var(--gold);font-size:11px">$${fmt(T.ia)}</td>
+    <td class="num bold" style="color:var(--gold);font-size:11px">${T.ap?'+$'+fmt(T.ap):'—'}</td>
+    <td class="num bold" style="color:var(--gold);font-size:11px">${T.ut?'+$'+fmt(T.ut):'—'}</td>
+  </tr>`;
+  tbody.innerHTML = body;
+}
+
+// ============================================
 // GLOBAL SEARCH
 // ============================================
 let _searchTimeout = null;
@@ -6737,33 +6801,31 @@ function renderPE() {
     return peSortDir*(va-vb);
   });
   const colPais = { ARG:'arg', USA:'usa', URU:'uru', ESP:'esp', PAR:'par', PY:'par' };
+  const norm = s => String(s||'').toLowerCase().replace(/\s+/g,' ').trim();
+  const histMap = {}; PE_HIST_DATA.forEach(p => histMap[norm(p.nombre)] = p);
   tbody.innerHTML = rows.map(r => {
-    const var2526 = r.valor_2025 > 0 ? ((r.valor_2026 - r.valor_2025)/r.valor_2025*100) : 0;
+    const h = histMap[norm(r.nombre)] || {aporteHist:0, utilHist:0};
+    const varr = h.aporteHist>0 ? (h.utilHist/h.aporteHist*100) : 0;
     return `<tr class="row-${colPais[r.pais]||'arg'}">
       <td style="color:var(--text3)">${r.nro||'—'}</td>
       <td class="bold">${r.nombre}</td>
       <td>${r.titular}</td>
       <td><span class="badge badge-${colPais[r.pais]||'arg'}">${r.pais||'—'}</span></td>
+      <td class="num">$${fmt(h.aporteHist)}</td>
+      <td class="num" style="color:${h.utilHist>0?'var(--esp)':''}">${h.utilHist>0?'+$'+fmt(h.utilHist):'—'}</td>
       <td class="num">${r.share > 0 ? (r.share*100).toFixed(2)+'%' : '—'}</td>
-      <td class="num">$${fmt(r.valor_2024)}</td>
-      <td class="num">$${fmt(r.valor_2025)}</td>
-      <td class="num">$${fmt(r.valor_2026)}</td>
-      <td class="num ${var2526 >= 0 ? 'positive':'negative'}">${var2526.toFixed(1)}%</td>
+      <td class="num ${varr>=0?'positive':'negative'}">${h.aporteHist>0?varr.toFixed(1)+'%':'—'}</td>
       <td><button class="btn-secondary" style="padding:3px 8px;font-size:11px" onclick="editPE('${r.id}')">Editar</button></td>
     </tr>`;
   }).join('');
-  
-  // Totals row
-  const tot24 = rows.reduce((a,b)=>a+(b.valor_2024||0),0);
-  const tot25 = rows.reduce((a,b)=>a+(b.valor_2025||0),0);
-  const tot26 = rows.reduce((a,b)=>a+(b.valor_2026||0),0);
-  const totVar = tot25>0?((tot26-tot25)/tot25*100):0;
+  const totAp = rows.reduce((a,b)=>a+((histMap[norm(b.nombre)]||{}).aporteHist||0),0);
+  const totUt = rows.reduce((a,b)=>a+((histMap[norm(b.nombre)]||{}).utilHist||0),0);
   tbody.innerHTML += `<tr style="background:var(--bg3);border-top:2px solid var(--border2)">
-    <td colspan="5" class="bold" style="color:var(--gold)">TOTAL</td>
-    <td class="num bold" style="color:var(--gold)">$${fmt(tot24)}</td>
-    <td class="num bold" style="color:var(--gold)">$${fmt(tot25)}</td>
-    <td class="num bold" style="color:var(--gold)">$${fmt(tot26)}</td>
-    <td class="num" style="color:var(--text3)">—</td>
+    <td colspan="4" class="bold" style="color:var(--gold)">TOTAL</td>
+    <td class="num bold" style="color:var(--gold)">$${fmt(totAp)}</td>
+    <td class="num bold" style="color:var(--gold)">+$${fmt(totUt)}</td>
+    <td></td>
+    <td class="num" style="color:var(--text3)">${totAp>0?(totUt/totAp*100).toFixed(1)+'%':'—'}</td>
     <td></td>
   </tr>`;
 }
@@ -9548,7 +9610,7 @@ function toggleTheme() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260708-067';
+const APP_VERSION = '20260708-068';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
