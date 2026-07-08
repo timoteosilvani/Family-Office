@@ -1926,15 +1926,18 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
       <div id="page-autos" class="page">
         <div class="tabs">
           <button class="tab-btn active" onclick="switchTab('aut','info',this)">Información</button>
-          <button class="tab-btn" onclick="switchTab('aut','vendidos',this)">Vendidos</button>
-          <button class="tab-btn" onclick="switchTab('aut','evolucion',this)">Gastos Mensuales</button>
           <button class="tab-btn" onclick="switchTab('aut','historial',this);renderAutosHist()">📈 Historial</button>
+          <button class="tab-btn" onclick="switchTab('aut','evolucion',this)">Gastos Mensuales</button>
+          <button class="tab-btn" onclick="switchTab('aut','vendidos',this)">Vendidos</button>
           <button class="tab-btn" onclick="switchTab('aut','carga',this)">Carga</button>
         </div>
         <div id="aut-info" class="tab-content" style="display:block">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
           <div class="section-title" style="margin:0">Vehículos</div>
-          <button class="btn-secondary" onclick="openModal('modal-auto-nuevo')">+ Nuevo Vehículo</button>
+          <div style="display:flex;gap:8px">
+            <button class="btn-secondary" onclick="abrirVentaAuto()">Venta de auto</button>
+            <button class="btn-secondary" onclick="openModal('modal-auto-nuevo')">+ Nuevo Vehículo</button>
+          </div>
         </div>
         <div class="card">
           <div class="table-wrap">
@@ -3635,6 +3638,27 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
     <div class="modal-footer">
       <button class="btn-secondary" onclick="closeModal('modal-auto-nuevo')">Cancelar</button>
       <button class="btn-primary" style="width:auto;padding:10px 24px" onclick="guardarAuto()">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-auto-venta">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">Venta de vehículo</div>
+      <button class="modal-close" onclick="closeModal('modal-auto-venta')">×</button>
+    </div>
+    <div class="modal-body">
+      <div><label class="fld">Vehículo</label><select class="fld" id="nv-auto"></select></div>
+      <div class="form-row cols-2" style="margin-top:10px">
+        <div><label class="fld">Valor de venta (USD)</label><input class="fld" type="number" id="nv-valor" value="0"></div>
+        <div><label class="fld">Fecha de venta</label><input class="fld" type="date" id="nv-fecha"></div>
+      </div>
+      <p style="color:var(--text3);font-size:11px;margin-top:8px">El vehículo pasa a la solapa Vendidos y deja de contar en el patrimonio.</p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closeModal('modal-auto-venta')">Cancelar</button>
+      <button class="btn-primary" style="width:auto;padding:10px 24px" onclick="venderAuto()">Registrar venta</button>
     </div>
   </div>
 </div>
@@ -6727,7 +6751,11 @@ async function loadAutos() {
   const colPais = { ARG:'arg', USA:'usa', URU:'uru', ESP:'esp', PAR:'par', PY:'par' };
   // Active autos in main table
   const activos = rows.filter(r => r.activo !== false && !r.vendido);
-  const vendidos = rows.filter(r => r.activo === false || r.vendido);
+  const vendidosSup = rows.filter(r => r.activo === false || r.vendido);
+  const supNames = new Set(vendidosSup.map(r => (r.nombre||'').trim().toLowerCase()));
+  const vendidos = [...vendidosSup, ...AUTOS_HIST_DATA
+    .filter(a => a.vendida && !supNames.has(a.nombre.trim().toLowerCase()))
+    .map(a => ({ nro:a.nro, nombre:a.nombre, titular:a.titular, anio_modelo:null, pais:a.pais, valor_2026:a.valor_venta||0 }))];
   // Conectar con renderAutos (para que el orden por columna funcione)
   window._autosRows = activos;
   window._autosGasMap = gasMap;
@@ -6790,6 +6818,31 @@ async function guardarAuto() {
   if (error) return toast('Error: ' + error.message, 'error');
   toast('Vehículo guardado ✓', 'success');
   closeModal('modal-auto-nuevo');
+  await loadAutos();
+}
+
+function abrirVentaAuto() {
+  const sel = document.getElementById('nv-auto');
+  const activos = (window._autosCache || []).filter(r => r.activo !== false && !r.vendido);
+  sel.innerHTML = activos.length
+    ? activos.map(r => `<option value="${r.id}">${r.nombre} (${r.titular})</option>`).join('')
+    : '<option value="">Sin vehículos activos</option>';
+  document.getElementById('nv-valor').value = 0;
+  document.getElementById('nv-fecha').value = '';
+  openModal('modal-auto-venta');
+}
+async function venderAuto() {
+  const id = document.getElementById('nv-auto').value;
+  if (!id) return toast('Elegí un vehículo', 'error');
+  const upd = { vendido: true, activo: false };
+  const vv = parseFloat(document.getElementById('nv-valor').value);
+  const fv = document.getElementById('nv-fecha').value;
+  if (!isNaN(vv) && vv > 0) upd.valor_venta = vv;
+  if (fv) upd.fecha_venta = fv;
+  const { error } = await sb.from('autos').update(upd).eq('id', id);
+  if (error) return toast('Error: ' + error.message, 'error');
+  toast('Venta registrada ✓', 'success');
+  closeModal('modal-auto-venta');
   await loadAutos();
 }
 
@@ -9401,7 +9454,7 @@ function toggleTheme() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260708-065';
+const APP_VERSION = '20260708-066';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
