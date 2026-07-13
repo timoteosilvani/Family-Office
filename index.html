@@ -5634,6 +5634,7 @@ function renderPropiedades(paisFiltro) {
       </td>
     </tr>`;
   }).join('') || '<tr><td colspan="9" style="color:var(--text3);text-align:center">Sin propiedades</td></tr>';
+  renderPropClientes(rows);
 }
 
 function filtroProp(val, btn) {
@@ -6121,6 +6122,7 @@ function renderBancos(paisFiltro) {
     <td class="num negative bold">$${fmt(tCred)}</td>
     <td class="num bold" style="color:var(--gold)">$${fmt(tNeto)}</td>
   </tr>`;
+  renderBancoClientes(rows, usdMap);
 }
 
 function filtroBanco(val, btn) {
@@ -6894,6 +6896,7 @@ function renderPE() {
     <td class="num" style="color:var(--text3)">${totAp>0?((totUt-totAp)/totAp*100).toFixed(1)+'%':'—'}</td>
     <td></td>
   </tr>`;
+  renderPEClientes(rows, histMap, norm);
 }
 
 function editPE(id) {
@@ -6995,6 +6998,7 @@ async function loadAutos() {
       <td class="num negative" style="font-size:11px">${g.tot>0?'$'+fmt(g.tot):'—'}</td>
       <td><button class="btn-secondary" style="padding:3px 8px;font-size:11px" onclick="editAuto('${r.id}','${r.nombre}','${r.titular}',${r.anio_modelo||0},'${r.pais}',${r.valor_2026||0})">Editar</button></td>
     </tr>`;}).join('') || '<tr><td colspan="8" style="color:var(--text3);text-align:center">Sin datos</td></tr>';
+  renderAutoClientes(activos, gasMap);
 
   // Vendidos table
   const tbodyVend = document.getElementById('tbody-autos-vendidos');
@@ -9252,6 +9256,7 @@ function renderSociedades(filtro) {
     <td class="num negative bold">$${fmt(totOt)}</td>
     <td class="num negative bold">$${fmt(totAp+totIm+totOt)}</td>
   </tr>`;
+  renderSocClientes(rows, getMovTotals);
 }
 
 async function loadSocEvolucion() {
@@ -9736,9 +9741,134 @@ function toggleTheme() {
 
 
 // ============================================
+// CUADROS POR CLIENTE (al pie de cada solapa Info)
+// Se redibujan junto con cada cuadro principal, con
+// los MISMOS datos ya filtrados. Reparten la "H" ÷3
+// entre FC/FCC/YAC vía splitTitular().
+// ============================================
+const CLI_ORD = ['JC','FC','FCC','MFL','YAC','M','G'];
+const CLI_NOM = { JC:'Juan Cocci', FC:'Franco Cocci', FCC:'Fiorella Cocci', MFL:'María F. Lorenzo', YAC:'Yanina Cocci', M:'Martona', G:'Grupillo' };
+
+// Crea (o reutiliza) el contenedor al final de la tab-content
+function cliBox(parentId, boxId) {
+  const parent = document.getElementById(parentId);
+  if (!parent) return null;
+  let box = document.getElementById(boxId);
+  if (!box) {
+    box = document.createElement('div');
+    box.id = boxId;
+    box.className = 'card';
+    box.style.marginTop = '18px';
+    parent.appendChild(box);
+  }
+  return box;
+}
+const _cc = v => (v > 0.005 ? '$'+fmt(v) : (v < -0.005 ? '-$'+fmt(-v) : '—')); // celda dinero
+function cliAcc() { const o = {}; CLI_ORD.forEach(c => o[c] = {}); return o; }
+// Suma las métricas de "obj" al/los cliente(s) del titular, aplicando el reparto de la H.
+function cliAdd(acc, titular, obj) {
+  splitTitular(titular, 1).forEach(s => {
+    const f = s.valor; // fracción: 1 (titular directo) ó 1/3 (parte de una "H")
+    if (!(s.titular in acc)) return;
+    for (const k in obj) acc[s.titular][k] = (acc[s.titular][k] || 0) + (obj[k] || 0) * f;
+  });
+}
+// Dibuja la tabla genérica cliente×columnas dentro de "box".
+function cliTable(box, titulo, cols, acc) {
+  const totals = {}; cols.forEach(c => totals[c.key] = 0);
+  const filas = CLI_ORD.filter(c => cols.some(col => Math.abs(acc[c][col.key] || 0) > 0.005))
+    .map(c => {
+      const d = acc[c];
+      cols.forEach(col => totals[col.key] += (d[col.key] || 0));
+      return `<tr><td class="bold">${CLI_NOM[c]} <span style="color:var(--text3);font-size:10px">${c}</span></td>` +
+        cols.map(col => `<td class="num ${col.cls || ''}">${_cc(d[col.key] || 0)}</td>`).join('') + `</tr>`;
+    }).join('');
+  const totRow = `<tr style="background:var(--bg3);border-top:2px solid var(--border2)"><td class="bold" style="color:var(--gold)">TOTAL</td>` +
+    cols.map(col => `<td class="num bold" style="color:var(--gold)">${_cc(totals[col.key])}</td>`).join('') + `</tr>`;
+  box.innerHTML = `<div class="section-title" style="font-size:14px;margin-bottom:12px">${titulo}</div>
+    <div class="table-wrap"><table><thead><tr><th>Cliente</th>${cols.map(c => `<th class="num">${c.label}</th>`).join('')}</tr></thead>
+    <tbody>${filas || `<tr><td colspan="${cols.length + 1}" style="color:var(--text3);text-align:center">Sin datos</td></tr>`}${totRow}</tbody></table></div>`;
+}
+
+// ---- Propiedades: valor (Renta/No-Renta) + resultado operativo. Solo vigentes. ----
+function renderPropClientes(rows) {
+  const box = cliBox('prop-info', 'prop-info-cli'); if (!box) return;
+  const acc = cliAcc();
+  (rows || []).filter(p => p.vendida !== true).forEach(p => {
+    const esR = p.tipo === 'R';
+    cliAdd(acc, p.titular, {
+      valR: esR ? (p.valor_2026 || 0) : 0,
+      valNR: !esR ? (p.valor_2026 || 0) : 0,
+      valT: p.valor_2026 || 0,
+      renta: p._renta || 0, gastos: p._gastos || 0, imp: p._imp || 0, neto: p._neto || 0
+    });
+  });
+  cliTable(box, 'Por cliente', [
+    {key:'valR',label:'Valor Renta'}, {key:'valNR',label:'Valor No-Renta'}, {key:'valT',label:'Valor Total'},
+    {key:'renta',label:'Renta',cls:'positive'}, {key:'gastos',label:'Gastos',cls:'negative'},
+    {key:'imp',label:'Impuestos',cls:'negative'}, {key:'neto',label:'Neto'}
+  ], acc);
+}
+
+// ---- Bancos: mismas columnas del cuadro principal (USD). ----
+function renderBancoClientes(rows, usdMap) {
+  const box = cliBox('banco-info', 'banco-info-cli'); if (!box) return;
+  const acc = cliAcc();
+  (rows || []).forEach(b => {
+    const u = usdMap[b.id] || {};
+    cliAdd(acc, b.titular, { inv:u.inv||0, cash:u.cash||0, sub:u.sub||0, cred:u.cred||0, neto:u.neto||0 });
+  });
+  cliTable(box, 'Por cliente', [
+    {key:'inv',label:'Inversión'}, {key:'cash',label:'Cash'}, {key:'sub',label:'Subtotal'},
+    {key:'cred',label:'Crédito',cls:'negative'}, {key:'neto',label:'Neto'}
+  ], acc);
+}
+
+// ---- PE: total invertido = aporte histórico + aporte 2026. Excluye terminados. ----
+function renderPEClientes(rows, histMap, norm) {
+  const box = cliBox('pe-info', 'pe-info-cli'); if (!box) return;
+  const acc = cliAcc();
+  (rows || []).forEach(r => {
+    const h = histMap[norm(r.nombre)] || {};
+    if (h.terminado === true) return;
+    const ap26 = ((h.byY || {})['2026'] || {}).ap || 0;
+    cliAdd(acc, r.titular, { hist:h.aporteHist||0, y26:ap26, total:(h.aporteHist||0)+ap26 });
+  });
+  cliTable(box, 'Por cliente', [
+    {key:'hist',label:'Aporte Histórico'}, {key:'y26',label:'Aporte 2026'}, {key:'total',label:'Total Invertido'}
+  ], acc);
+}
+
+// ---- Autos: valor del auto + gastos. Solo activos. ----
+function renderAutoClientes(activos, gasMap) {
+  const box = cliBox('aut-info', 'aut-info-cli'); if (!box) return;
+  const acc = cliAcc();
+  (activos || []).forEach(r => {
+    const g = gasMap[r.id] || {};
+    cliAdd(acc, r.titular, { valor:r.valor_2026||0, gastos:g.tot||0 });
+  });
+  cliTable(box, 'Por cliente', [
+    {key:'valor',label:'Valor'}, {key:'gastos',label:'Gastos',cls:'negative'}
+  ], acc);
+}
+
+// ---- Sociedades: total de gastos = impuestos + otros (sin aportes). ----
+function renderSocClientes(rows, getMovTotals) {
+  const box = cliBox('soc-info', 'soc-info-cli'); if (!box) return;
+  const acc = cliAcc();
+  (rows || []).forEach(s => {
+    const t = getMovTotals(s.id);
+    cliAdd(acc, s.titular, { gastos:(t.impuestos||0)+(t.otros||0) });
+  });
+  cliTable(box, 'Por cliente', [
+    {key:'gastos',label:'Total Gastos',cls:'negative'}
+  ], acc);
+}
+
+// ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260713-076';
+const APP_VERSION = '20260713-077';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
