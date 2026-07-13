@@ -351,7 +351,7 @@ body.vista-cliente .tc-edit-btn { display:none !important; }
   padding-bottom: max(20px, env(safe-area-inset-bottom));
   flex: 1;
   min-width: 0;
-  overflow-x: hidden;
+  overflow-x: clip;
 }
 
 /* Páginas */
@@ -491,8 +491,8 @@ body.vista-cliente .tc-edit-btn { display:none !important; }
 
 /* Tabla */
 .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; max-width: 100%; }
-.page { overflow-x: hidden; }
-.content { overflow-x: hidden; }
+.page { overflow-x: clip; }
+.content { overflow-x: clip; }
 
 /* Split screen / narrow viewport - allow horizontal scroll inside cards */
 @media (max-width: 900px) {
@@ -630,7 +630,7 @@ textarea.fld { resize: vertical; min-height: 70px; }
 .tc-edit-btn:hover { border-color: var(--gold); color: var(--gold); }
 
 /* Tabs */
-.tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 20px; }
+.tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 20px; position: sticky; top: var(--topbar-h, 72px); z-index: 40; background: var(--bg); }
 .tab-btn {
   background: none; border: none; cursor: pointer;
   padding: 10px 20px; font-size: 13px;
@@ -9738,7 +9738,7 @@ function toggleTheme() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260708-075';
+const APP_VERSION = '20260713-076';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
@@ -9760,6 +9760,24 @@ if ('serviceWorker' in navigator) {
     if (e.data === 'RELOAD') window.location.reload();
   });
 }
+
+// ============================================
+// STICKY TABS — mide la altura real de la topbar
+// (varía por safe-area en iPhone) y la expone como
+// --topbar-h para que las filas .tabs se peguen justo debajo.
+// ============================================
+(function () {
+  function setTopbarH() {
+    var tb = document.querySelector('.topbar');
+    if (!tb) return;
+    document.documentElement.style.setProperty('--topbar-h', tb.offsetHeight + 'px');
+  }
+  window.addEventListener('load', setTopbarH);
+  window.addEventListener('resize', setTopbarH);
+  window.addEventListener('orientationchange', setTopbarH);
+  if (document.readyState !== 'loading') setTopbarH();
+  else document.addEventListener('DOMContentLoaded', setTopbarH);
+})();
 </script>
 </body>
 </html>
