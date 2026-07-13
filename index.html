@@ -6441,6 +6441,9 @@ async function generarReporte() {
   const acumulado = patrimonioActual - capitalInvertido;
   const resultadoSemestre = rentaNeta + rendimientoBancos;
   const rendSemPct = capitalInvertido > 0 ? (resultadoSemestre / capitalInvertido * 100) : 0;
+  // Resultado histórico de bancos (cuentas de inversión) = valor actual − total aportado.
+  // Misma definición que la tabla "Rendimiento desde el ingreso".
+  const histBancos = bancosDietz.filter(d => !d.oper).reduce((a, d) => a + (d.vEnd - d.apTot), 0);
 
   // Patrimonio histórico por año (tabla + gráficos)
   let histAnios = [];
@@ -6618,6 +6621,7 @@ async function generarReporte() {
           ${rrow('Invertido','$'+fmt(aportesBancos))}
           ${rrow('Saldo actual','$'+fmt(bancosActual))}
           ${rrow('Result. semestre', (rendimientoBancos>=0?'+':'')+'$'+fmt(rendimientoBancos), rendimientoBancos>=0?'var(--esp)':'var(--usa)')}
+          ${rrow('Result. histórico', (histBancos>=0?'+':'')+'$'+fmt(histBancos), histBancos>=0?'var(--esp)':'var(--usa)')}
           ${rrow('Cuentas inversión', bancosDietz.filter(d=>!d.oper).length)}
           ${rrow('Cuentas operativas', bancosDietz.filter(d=>d.oper).length)}
         </div>
@@ -9868,7 +9872,7 @@ function renderSocClientes(rows, getMovTotals) {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260713-077';
+const APP_VERSION = '20260713-078';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
