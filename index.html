@@ -8288,7 +8288,7 @@ async function verGastosTabla() {
   const RENTAS = [['Renta','renta'],['Otro Ingreso','otro_ingreso']];
   const GASTOS = [['Gas','gas'],['Luz','luz'],['Cable','cable'],['Teléfono','telefono'],
     ['Expensas','expensas'],['Jardinero','jardinero'],['Limpieza','limpieza'],
-    ['Mantenimiento','mantenimiento'],['Depósito','deposito'],['Comisión','comision'],
+    ['Mantenimiento','mantenimiento'],['Alarma','alarma'],['Depósito','deposito'],['Comisión','comision'],
     ['Seguros','seguros'],['Administración','administracion'],['Otros Gastos','otros_gastos']];
   const IMPUESTOS = [['ARBA/ABL','arba_abl'],['Mun. Tigre','municipalidad_tigre'],
     ['Property Tax','property_tax'],['Trib. Dom.','tributo_domiciliario'],
@@ -9738,7 +9738,7 @@ function toggleTheme() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260708-074';
+const APP_VERSION = '20260708-075';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
