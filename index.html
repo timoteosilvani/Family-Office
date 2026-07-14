@@ -5468,7 +5468,7 @@ async function guardarMovPE() {
   toast('Movimiento guardado ✓', 'success');
   // Recargar los valores guardados (en vez de poner todo en 0) y refrescar evolución
   await loadMovPE();
-  await loadPEEvolucion();
+  await refrescarVistaActual();
 }
 
 // ============================================
@@ -6258,6 +6258,7 @@ async function guardarAporte() {
   document.getElementById('ap-monto').value = 0;
   document.getElementById('ap-notas').value = '';
   await loadAportes();
+  await refrescarVistaActual();
 }
 
 async function borrarAporte(id) {
@@ -6266,6 +6267,7 @@ async function borrarAporte(id) {
   if (error) return toast('Error: ' + error.message, 'error');
   toast('Borrado ✓', 'success');
   await loadAportes();
+  await refrescarVistaActual();
 }
 
 async function toggleOperativa(id, actual) {
@@ -6936,7 +6938,7 @@ async function guardarPE() {
     .update({ valor_2026: valor, distribucion: dist, notas, titular, pais, share }).eq('id', id);
   if (error) return toast('Error: ' + error.message, 'error');
   toast('Private Equity actualizado ✓', 'success');
-  await loadPE();
+  await refrescarVistaActual();
 }
 
 async function guardarNuevaPE() {
@@ -9872,7 +9874,7 @@ function renderSocClientes(rows, getMovTotals) {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260713-078';
+const APP_VERSION = '20260713-079';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
