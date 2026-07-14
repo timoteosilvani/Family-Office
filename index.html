@@ -1714,7 +1714,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
         <div id="banco-aportes" class="tab-content">
           <div style="display:inline-block;background:var(--gold-soft);border:1px solid var(--gold);color:var(--gold);border-radius:20px;padding:4px 14px;font-size:11px;font-weight:600;letter-spacing:0.5px;margin-bottom:14px">💰 APORTES Y MOVIMIENTOS DE CAPITAL</div>
           <p style="color:var(--text3);font-size:12px;margin-bottom:16px">Registrá incorporaciones, aportes y retiros por cuenta, con fecha. Se usan para separar el rendimiento genuino de los movimientos de capital (método Dietz) en los informes.</p>
-          <div class="card" style="margin-bottom:20px">
+          <div class="card" id="ap-form-card" style="margin-bottom:20px">
             <div class="grid-2">
               <div><label class="fld">Cuenta</label><select class="fld" id="ap-banco"></select></div>
               <div><label class="fld">Fecha</label><input class="fld" type="date" id="ap-fecha"></div>
@@ -6227,7 +6227,10 @@ async function loadAportes() {
     const neto = aps.reduce((a,r) => a + (neg(r.tipo) ? -1 : 1) * Math.abs(r.monto||0), 0);
     return `<div class="card" style="margin:0">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-        <div class="section-title" style="margin:0;font-size:14px">${_apBancosNombre[bid] || '—'}</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <div class="section-title" style="margin:0;font-size:14px">${_apBancosNombre[bid] || '—'}</div>
+          <button class="btn-secondary" title="Agregar movimiento a esta cuenta" style="padding:1px 9px;font-size:15px;font-weight:700;line-height:1.1" onclick="nuevoAporteCuenta('${bid}')">+</button>
+        </div>
         <div style="font-size:12px;color:var(--text3)">Neto aportado: <b style="color:${neto<0?'var(--usa)':'var(--esp)'}">$${fmt(neto)}</b></div>
       </div>
       <div class="table-wrap"><table>
@@ -6241,6 +6244,24 @@ async function loadAportes() {
       </table></div>
     </div>`;
   }).join('') + '</div>';
+}
+
+// "+" de cada cuenta: preselecciona el banco y lleva al form de carga arriba.
+// Deja el tipo en "aporte" (el uso habitual): solo falta poner fecha y monto.
+function nuevoAporteCuenta(bid) {
+  const sel = document.getElementById('ap-banco');
+  if (sel) sel.value = String(bid);
+  const tipo = document.getElementById('ap-tipo'); if (tipo) tipo.value = 'aporte';
+  const card = document.getElementById('ap-form-card');
+  if (card) {
+    const topbar = document.querySelector('.topbar');
+    const tabs = document.querySelector('#page-bancos .tabs');
+    const off = (topbar?.offsetHeight || 0) + (tabs?.offsetHeight || 0) + 16;
+    const y = card.getBoundingClientRect().top + window.scrollY - off;
+    window.scrollTo({ top: Math.max(0, y), behavior: 'smooth' });
+  }
+  const fecha = document.getElementById('ap-fecha');
+  if (fecha) setTimeout(() => fecha.focus(), 350);
 }
 
 async function guardarAporte() {
@@ -9874,7 +9895,7 @@ function renderSocClientes(rows, getMovTotals) {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260713-079';
+const APP_VERSION = '20260713-080';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
