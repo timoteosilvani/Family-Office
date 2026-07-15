@@ -6459,6 +6459,16 @@ async function generarReporte() {
   const autosActual = sum(autos,'valor_2026');
   const propsCierre = sum(props,'valor_2025'), peCierre = sum(pe,'valor_2025'), autosCierre = sum(autos,'valor_2025');
   const autosInvertido = sum(autos,'valor_compra');
+  // Autos: gastos por año (movimientos_autos, todos los años) + valor por año (AUTOS_HIST_DATA)
+  const AUTO_YEARS = [2017,2018,2019,2020,2021,2022,2023,2024,2025,2026];
+  const autoGastos = {}; const autoIds = autos.map(a=>a.id);
+  if (autoIds.length) {
+    const { data: ma } = await sb.from('movimientos_autos').select('auto_id,anio,total_usd').in('auto_id', autoIds);
+    (ma||[]).forEach(m => { (autoGastos[m.auto_id] = autoGastos[m.auto_id]||{}); autoGastos[m.auto_id][m.anio] = (autoGastos[m.auto_id][m.anio]||0) + (Number(m.total_usd)||0); });
+  }
+  const autoValByNro = {}; AUTOS_HIST_DATA.forEach(a => autoValByNro[a.nro] = a.valores||{});
+  const autoAnios = [...new Set(Object.values(autoGastos).flatMap(o=>Object.keys(o).map(Number)))].sort((a,b)=>a-b);
+  const autosGastoTot = autos.reduce((s,a)=>s+autoAnios.reduce((ss,y)=>ss+((autoGastos[a.id]||{})[y]||0)*share(a),0),0);
   const patrimonioActual = propsActual + bancosActual + peActual + autosActual;
   const capitalInvertido = propsInvertido + aportesBancos + peInvertido;
   const acumulado = patrimonioActual - capitalInvertido;
@@ -6628,7 +6638,7 @@ async function generarReporte() {
     <div class="rep-h2">Resumen</div>
     <div class="card" style="margin-top:20px">
       <div class="section-title" style="font-size:14px;margin-bottom:14px">Resumen por tipo de activo</div>
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px">
+      <div style="display:grid;grid-template-columns:repeat(${autos.length?4:3},1fr);gap:16px">
         <div style="border:1px solid var(--border);border-top:3px solid var(--navy);border-radius:8px;padding:14px">
           <div style="font-weight:700;color:var(--navy);font-size:11px;letter-spacing:.5px;margin-bottom:10px">PROPIEDADES</div>
           ${rrow('Invertido','$'+fmt(propsInvertido))}
@@ -6656,6 +6666,14 @@ async function generarReporte() {
           ${rrow('Sociedades', pe.length)}
           ${rrow('Estado', peRecupero>=0?'Recuperado':'En recupero')}
         </div>
+        ${autos.length ? `<div style="border:1px solid var(--border);border-top:3px solid #7a5c9e;border-radius:8px;padding:14px">
+          <div style="font-weight:700;color:#7a5c9e;font-size:11px;letter-spacing:.5px;margin-bottom:10px">AUTOS</div>
+          ${rrow('Invertido','$'+fmt(autosInvertido))}
+          ${rrow('Valor actual','$'+fmt(autosActual))}
+          ${rrow('Valorización', ((autosActual-autosInvertido)>=0?'+':'')+'$'+fmt(autosActual-autosInvertido), (autosActual-autosInvertido)>=0?'var(--esp)':'var(--usa)')}
+          ${rrow('Gastos registrados', '$'+fmt(autosGastoTot), 'var(--usa)')}
+          ${rrow('Cantidad', autos.length+(autos.length===1?' vehículo':' vehículos'))}
+        </div>` : ''}
       </div>
     </div>
     <div class="card pgbreak" style="margin-top:20px">
@@ -6774,6 +6792,26 @@ async function generarReporte() {
           </div>
         </div>`}).join('')}
       <p style="color:var(--text3);font-size:11px;margin-top:12px">Criterio de recupero: la utilidad cobrada recupera primero el capital invertido antes de computarse como resultado. La utilidad ingresa a las cuentas pero no es resultado del semestre por este criterio.</p>
+    </div>` : ''}
+
+    ${autos.length ? `<div class="rep-h2 pgbreak">Autos</div>
+    <div class="card" style="margin-top:20px">
+      <div style="display:flex;gap:22px;flex-wrap:wrap;margin-bottom:14px">
+        <div><div style="font-size:10px;color:var(--text3);letter-spacing:.5px">VALOR ACTUAL FLOTA</div><div style="font-size:16px;font-weight:700">$${fmt(autosActual)}</div></div>
+        <div><div style="font-size:10px;color:var(--text3);letter-spacing:.5px">GASTOS REGISTRADOS</div><div style="font-size:16px;font-weight:700;color:var(--usa)">$${fmt(autosGastoTot)}</div></div>
+        <div><div style="font-size:10px;color:var(--text3);letter-spacing:.5px">GASTO / VALOR</div><div style="font-size:16px;font-weight:700">${autosActual>0?(autosGastoTot/autosActual*100).toFixed(1)+'%':'—'}</div></div>
+      </div>
+      <div class="section-title" style="font-size:14px;margin-bottom:12px">Autos · valorización por año</div>
+      <div class="table-wrap"><table><thead><tr><th>Vehículo</th>${AUTO_YEARS.map(y=>`<th class="num">${y}</th>`).join('')}<th class="num">Var.</th></tr></thead><tbody>
+      ${autos.map(a=>{ const vv=autoValByNro[a.nro]||{}; const sh=share(a); const vals=AUTO_YEARS.map(y=>vv[String(y)]!=null?vv[String(y)]*sh:null); const first=vals.find(v=>v!=null); const last=[...vals].reverse().find(v=>v!=null); const vp=(first&&last&&first!==0)?((last-first)/first*100):null;
+        return `<tr><td>${a.nombre}</td>${AUTO_YEARS.map(y=>{const v=vv[String(y)]!=null?vv[String(y)]*sh:null; return `<td class="num" style="color:${v!=null?'var(--text)':'var(--border2)'}">${v!=null?'$'+fmt(v):'—'}</td>`;}).join('')}<td class="num" style="color:${vp>0?'var(--esp)':(vp<0?'var(--usa)':'')}">${vp!=null?(vp>0?'+':'')+vp.toFixed(1)+'%':'—'}</td></tr>`;}).join('')}
+      </tbody></table></div>
+      <div class="section-title" style="font-size:14px;margin:18px 0 12px">Autos · gastos totales por auto y año</div>
+      ${autoAnios.length ? `<div class="table-wrap"><table><thead><tr><th>Vehículo</th>${autoAnios.map(y=>`<th class="num">${y}</th>`).join('')}<th class="num">Total</th></tr></thead><tbody>
+      ${autos.map(a=>{ const g=autoGastos[a.id]||{}; const sh=share(a); const tot=autoAnios.reduce((s,y)=>s+((g[y]||0)*sh),0);
+        return `<tr><td>${a.nombre}</td>${autoAnios.map(y=>`<td class="num negative">${g[y]?'$'+fmt(g[y]*sh):'—'}</td>`).join('')}<td class="num bold negative">${tot?'$'+fmt(tot):'—'}</td></tr>`;}).join('')}
+      <tr style="font-weight:700;border-top:2px solid var(--navy)"><td>Total</td>${autoAnios.map(y=>{const t=autos.reduce((s,a)=>s+((autoGastos[a.id]||{})[y]||0)*share(a),0);return `<td class="num">$${fmt(t)}</td>`;}).join('')}<td class="num">$${fmt(autosGastoTot)}</td></tr>
+      </tbody></table></div>` : '<p style="color:var(--text3);font-size:12px">Sin gastos de autos cargados todavía. La tabla se completa a medida que cargás movimientos por año.</p>'}
     </div>` : ''}
 
     <p style="color:var(--text3);font-size:11px;margin-top:16px">Acumulado = patrimonio actual − capital invertido. Rendimiento por método Dietz modificado sobre las cuentas de inversión.</p>
@@ -9895,7 +9933,7 @@ function renderSocClientes(rows, getMovTotals) {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260713-080';
+const APP_VERSION = '20260713-081';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
