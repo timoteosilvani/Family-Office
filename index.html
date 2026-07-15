@@ -4109,10 +4109,15 @@ async function initApp() {
 }
 
 async function populateAllSelects() {
-  const [{ data: props }, { data: bancos }, { data: pe }] = await Promise.all([
+  const [{ data: props }, { data: bancos }, { data: pe }, { data: autosAll }, { data: socsAll }, { data: contratosAll }, { data: deudasAll }, { data: tarjetasAll }] = await Promise.all([
     aplicarFiltroTit(sb.from('propiedades').select('id,nombre,titular,pais,nro').eq('activa',true).eq('vendida',false).order('nro')),
     aplicarFiltroTit(sb.from('bancos').select('id,nombre,titular,pais').eq('activo',true).order('nro')),
-    aplicarFiltroTit(sb.from('private_equity').select('id,nombre,titular').eq('activo',true).order('nro')),
+    aplicarFiltroTit(sb.from('private_equity').select('id,nombre,titular,pais').eq('activo',true).order('nro')),
+    aplicarFiltroTit(sb.from('autos').select('*').order('nro')),
+    aplicarFiltroTit(sb.from('sociedades').select('*').order('nro')),
+    sb.from('contratos_alquiler').select('inquilino,moneda,precio_base,propiedad:propiedad_id(nombre,titular,pais)'),
+    sb.from('deudas').select('*'),
+    sb.from('tarjetas').select('id,tarjeta,cliente,banco,numero,pais,activo').eq('activo', true),
   ]);
 
   // Props select
@@ -4130,10 +4135,15 @@ async function populateAllSelects() {
   if (peSel) peSel.innerHTML = '<option value="">Seleccionar...</option>' +
     (pe||[]).map(r => `<option value="${r.id}">${r.nombre} (${r.titular})</option>`).join('');
 
-  // Cache for later use
+  // Cache for later use (para que el buscador global tenga TODO desde el arranque)
   window._propsCache = props || [];
   window._bancosCache = bancos || [];
   window._peCache = pe || [];
+  window._autosCache = autosAll || [];
+  window._sociedadesCache = socsAll || [];
+  window._contratosCache = contratosAll || [];
+  window._deudasCache = deudasAll || [];
+  window._tarjetasCache = tarjetasAll || [];
   
   // Populate gastos selects
   ['gastos-prop-sel','gastos-prop-anual'].forEach(id => {
@@ -5134,7 +5144,7 @@ function globalSearch(query) {
     });
 
     // Search alquileres (inquilinos)
-    (contratosData||[]).forEach(ct => {
+    (window._contratosCache||contratosData||[]).forEach(ct => {
       if ((ct.inquilino||'').toLowerCase().includes(q)) {
         results.push({
           tipo: 'Inquilino', icono: '👤',
@@ -5181,6 +5191,32 @@ function globalSearch(query) {
           sub: `${s.titular||''} · ${s.pais||''}`,
           color: {ARG:'var(--arg)',USA:'var(--usa)',URU:'var(--uru)',ESP:'var(--esp)',PY:'var(--par)'}[s.pais]||'var(--text)',
           action: `navTo('sociedades')`
+        });
+      }
+    });
+
+    // Search deudas / créditos
+    (window._deudasCache||[]).forEach(d => {
+      if ((d.nombre_contraparte||'').toLowerCase().includes(q) || (d.sociedad||'').toLowerCase().includes(q) || (d.origen||'').toLowerCase().includes(q)) {
+        results.push({
+          tipo: d.tipo || 'Deuda', icono: d.tipo==='Credito' ? '📈' : '📉',
+          titulo: d.nombre_contraparte || '—',
+          sub: `${d.tipo||''}${d.sociedad?' · '+d.sociedad:''} · $${fmt(Math.abs(d.saldo!=null?d.saldo:(d.monto||0)))}`,
+          color: d.tipo==='Credito' ? 'var(--esp)' : 'var(--usa)',
+          action: `navTo('deudas')`
+        });
+      }
+    });
+
+    // Search tarjetas
+    (window._tarjetasCache||[]).forEach(t => {
+      if ((t.tarjeta||'').toLowerCase().includes(q) || (t.cliente||'').toLowerCase().includes(q) || (t.banco||'').toLowerCase().includes(q) || String(t.numero||'').includes(q)) {
+        results.push({
+          tipo: 'Tarjeta', icono: '💳',
+          titulo: `${t.tarjeta||''}${t.numero?' ••'+t.numero:''}`,
+          sub: `${t.cliente||''}${t.banco?' · '+t.banco:''}`,
+          color: 'var(--gold)',
+          action: `navTo('tarjetas')`
         });
       }
     });
@@ -10027,7 +10063,7 @@ function renderSocClientes(rows, getMovTotals) {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260713-084';
+const APP_VERSION = '20260713-086';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
