@@ -2085,58 +2085,61 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
           <div id="form-mov-auto" style="display:none">
             <div id="auto-periodo-ind" style="background:var(--gold-soft);border:1px solid var(--gold);color:var(--gold);border-radius:var(--radius);padding:10px 16px;font-size:13px;font-weight:500;margin-bottom:12px"></div>
             <div class="card">
-          <div class="form-row cols-2" style="margin-bottom:12px">
-            <div>
-              <label class="fld">Moneda de carga</label>
-              <select class="fld" id="ma-moneda" onchange="updateCargaTotals('ma')">
-                <option value="USD">USD - Dólar</option>
-                <option value="ARS">ARS - Peso Argentino</option>
-                <option value="UYU">UYU - Peso Uruguayo</option>
-                <option value="EUR">EUR - Euro</option>
-              </select>
-            </div>
-          </div>
+          <input type="hidden" id="ma-moneda" value="USD">
+          <p style="color:var(--text3);font-size:11px;margin:0 0 10px">Cada rubro con su moneda y medio de pago. En Transferencia/Débito elegís la cuenta; en Tarjeta, la tarjeta.</p>
           <div class="table-wrap">
             <table style="width:100%;border-collapse:collapse">
               <thead>
                 <tr style="background:var(--bg2)">
-                  <th style="min-width:150px;font-size:10px;letter-spacing:1px;padding:8px 10px">CONCEPTO</th>
-                  <th style="min-width:130px;font-size:10px;letter-spacing:1px;padding:8px 6px">MONTO</th>
-                  <th style="min-width:180px;font-size:10px;letter-spacing:1px;padding:8px 6px">MEDIO DE PAGO</th>
+                  <th style="min-width:130px;font-size:10px;letter-spacing:1px;padding:8px 10px">CONCEPTO</th>
+                  <th style="min-width:110px;font-size:10px;letter-spacing:1px;padding:8px 6px">MONTO</th>
+                  <th style="min-width:70px;font-size:10px;letter-spacing:1px;padding:8px 6px">MONEDA</th>
+                  <th style="min-width:150px;font-size:10px;letter-spacing:1px;padding:8px 6px">MEDIO DE PAGO</th>
+                  <th style="min-width:160px;font-size:10px;letter-spacing:1px;padding:8px 6px">DE (CUENTA/TARJETA)</th>
                 </tr>
               </thead>
               <tbody>
                     <tr style="background:var(--bg3)">
-                      <td colspan="3" style="font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#c0392b;padding:8px 10px">🔴 GASTOS DE VEHÍCULO</td>
+                      <td colspan="5" style="font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#c0392b;padding:8px 10px">🔴 GASTOS DE VEHÍCULO</td>
                     </tr>
                     <tr>
                       <td style="font-size:12px;padding:5px 10px;color:var(--text2)">Patente</td>
                       <td style="padding:3px 6px"><input class="fld" type="number" id="ma-patente" value="0" style="padding:5px 8px;font-size:12px" oninput="updateCargaTotals('ma')"></td>
-                      <td style="padding:3px 6px"><select class="fld" id="ma-mp-patente" style="padding:4px 8px;font-size:11px"><option value="">—</option><option>Efectivo</option><option>Transferencia</option><option>Tarjeta de Débito</option><option>Débito Automático</option><option>Tarjeta de Crédito</option><option>Cheque</option><option>Pago Mis Cuentas</option><option>Itaú Pagos</option></select></td>
+                      <td style="padding:3px 6px"><select class="fld" id="ma-mon-patente" style="padding:4px 6px;font-size:11px" onchange="updateCargaTotals('ma')"><option value="USD">USD</option><option value="ARS">ARS</option><option value="UYU">UYU</option><option value="EUR">EUR</option></select></td>
+                      <td style="padding:3px 6px"><select class="fld" id="ma-mp-patente" style="padding:4px 6px;font-size:11px" onchange="toggleMedioRef('patente')"><option value="">—</option><option>Efectivo</option><option>Transferencia</option><option>Tarjeta</option><option>Débito Automático</option><option>Cheque</option></select></td>
+                      <td style="padding:3px 6px"><select class="fld" id="ma-ref-patente" style="padding:4px 6px;font-size:11px;display:none"></select></td>
                     </tr>
                     <tr>
                       <td style="font-size:12px;padding:5px 10px;color:var(--text2)">Seguro</td>
                       <td style="padding:3px 6px"><input class="fld" type="number" id="ma-seguro" value="0" style="padding:5px 8px;font-size:12px" oninput="updateCargaTotals('ma')"></td>
-                      <td style="padding:3px 6px"><select class="fld" id="ma-mp-seguro" style="padding:4px 8px;font-size:11px"><option value="">—</option><option>Efectivo</option><option>Transferencia</option><option>Tarjeta de Débito</option><option>Débito Automático</option><option>Tarjeta de Crédito</option><option>Cheque</option><option>Pago Mis Cuentas</option><option>Itaú Pagos</option></select></td>
+                      <td style="padding:3px 6px"><select class="fld" id="ma-mon-seguro" style="padding:4px 6px;font-size:11px" onchange="updateCargaTotals('ma')"><option value="USD">USD</option><option value="ARS">ARS</option><option value="UYU">UYU</option><option value="EUR">EUR</option></select></td>
+                      <td style="padding:3px 6px"><select class="fld" id="ma-mp-seguro" style="padding:4px 6px;font-size:11px" onchange="toggleMedioRef('seguro')"><option value="">—</option><option>Efectivo</option><option>Transferencia</option><option>Tarjeta</option><option>Débito Automático</option><option>Cheque</option></select></td>
+                      <td style="padding:3px 6px"><select class="fld" id="ma-ref-seguro" style="padding:4px 6px;font-size:11px;display:none"></select></td>
                     </tr>
                     <tr>
                       <td style="font-size:12px;padding:5px 10px;color:var(--text2)">Service</td>
                       <td style="padding:3px 6px"><input class="fld" type="number" id="ma-service" value="0" style="padding:5px 8px;font-size:12px" oninput="updateCargaTotals('ma')"></td>
-                      <td style="padding:3px 6px"><select class="fld" id="ma-mp-service" style="padding:4px 8px;font-size:11px"><option value="">—</option><option>Efectivo</option><option>Transferencia</option><option>Tarjeta de Débito</option><option>Débito Automático</option><option>Tarjeta de Crédito</option><option>Cheque</option><option>Pago Mis Cuentas</option><option>Itaú Pagos</option></select></td>
+                      <td style="padding:3px 6px"><select class="fld" id="ma-mon-service" style="padding:4px 6px;font-size:11px" onchange="updateCargaTotals('ma')"><option value="USD">USD</option><option value="ARS">ARS</option><option value="UYU">UYU</option><option value="EUR">EUR</option></select></td>
+                      <td style="padding:3px 6px"><select class="fld" id="ma-mp-service" style="padding:4px 6px;font-size:11px" onchange="toggleMedioRef('service')"><option value="">—</option><option>Efectivo</option><option>Transferencia</option><option>Tarjeta</option><option>Débito Automático</option><option>Cheque</option></select></td>
+                      <td style="padding:3px 6px"><select class="fld" id="ma-ref-service" style="padding:4px 6px;font-size:11px;display:none"></select></td>
                     </tr>
                     <tr>
                       <td style="font-size:12px;padding:5px 10px;color:var(--text2)">Arreglos</td>
                       <td style="padding:3px 6px"><input class="fld" type="number" id="ma-arreglos" value="0" style="padding:5px 8px;font-size:12px" oninput="updateCargaTotals('ma')"></td>
-                      <td style="padding:3px 6px"><select class="fld" id="ma-mp-arreglos" style="padding:4px 8px;font-size:11px"><option value="">—</option><option>Efectivo</option><option>Transferencia</option><option>Tarjeta de Débito</option><option>Débito Automático</option><option>Tarjeta de Crédito</option><option>Cheque</option><option>Pago Mis Cuentas</option><option>Itaú Pagos</option></select></td>
+                      <td style="padding:3px 6px"><select class="fld" id="ma-mon-arreglos" style="padding:4px 6px;font-size:11px" onchange="updateCargaTotals('ma')"><option value="USD">USD</option><option value="ARS">ARS</option><option value="UYU">UYU</option><option value="EUR">EUR</option></select></td>
+                      <td style="padding:3px 6px"><select class="fld" id="ma-mp-arreglos" style="padding:4px 6px;font-size:11px" onchange="toggleMedioRef('arreglos')"><option value="">—</option><option>Efectivo</option><option>Transferencia</option><option>Tarjeta</option><option>Débito Automático</option><option>Cheque</option></select></td>
+                      <td style="padding:3px 6px"><select class="fld" id="ma-ref-arreglos" style="padding:4px 6px;font-size:11px;display:none"></select></td>
                     </tr>
                     <tr>
                       <td style="font-size:12px;padding:5px 10px;color:var(--text2)">Otros Gastos</td>
                       <td style="padding:3px 6px"><input class="fld" type="number" id="ma-otros" value="0" style="padding:5px 8px;font-size:12px" oninput="updateCargaTotals('ma')"></td>
-                      <td style="padding:3px 6px"><select class="fld" id="ma-mp-otros" style="padding:4px 8px;font-size:11px"><option value="">—</option><option>Efectivo</option><option>Transferencia</option><option>Tarjeta de Débito</option><option>Débito Automático</option><option>Tarjeta de Crédito</option><option>Cheque</option><option>Pago Mis Cuentas</option><option>Itaú Pagos</option></select></td>
+                      <td style="padding:3px 6px"><select class="fld" id="ma-mon-otros" style="padding:4px 6px;font-size:11px" onchange="updateCargaTotals('ma')"><option value="USD">USD</option><option value="ARS">ARS</option><option value="UYU">UYU</option><option value="EUR">EUR</option></select></td>
+                      <td style="padding:3px 6px"><select class="fld" id="ma-mp-otros" style="padding:4px 6px;font-size:11px" onchange="toggleMedioRef('otros')"><option value="">—</option><option>Efectivo</option><option>Transferencia</option><option>Tarjeta</option><option>Débito Automático</option><option>Cheque</option></select></td>
+                      <td style="padding:3px 6px"><select class="fld" id="ma-ref-otros" style="padding:4px 6px;font-size:11px;display:none"></select></td>
                     </tr>
                 <tr style="border-top:2px solid var(--border2);background:var(--bg3)">
                   <td class="bold" style="font-size:12px;padding:7px 10px">NETO USD</td>
-                  <td colspan="2" style="padding:7px 10px"><span id="ma-neto" style="font-size:15px;font-weight:600">$0</span></td>
+                  <td colspan="4" style="padding:7px 10px"><span id="ma-neto" style="font-size:15px;font-weight:600">$0</span></td>
                 </tr>
               </tbody>
             </table>
@@ -6466,6 +6469,13 @@ async function generarReporte() {
     const { data: ma } = await sb.from('movimientos_autos').select('auto_id,anio,total_usd').in('auto_id', autoIds);
     (ma||[]).forEach(m => { (autoGastos[m.auto_id] = autoGastos[m.auto_id]||{}); autoGastos[m.auto_id][m.anio] = (autoGastos[m.auto_id][m.anio]||0) + (Number(m.total_usd)||0); });
   }
+  // Gastos históricos por año (tabla gastos_anual_auto, keyed por nro). 2026 ya viene de movimientos_autos.
+  const autoNros = autos.map(a=>a.nro).filter(x=>x!=null);
+  if (autoNros.length) {
+    const { data: gha } = await sb.from('gastos_anual_auto').select('nro,anio,total_usd').in('nro', autoNros);
+    const idByNro = {}; autos.forEach(a => idByNro[a.nro] = a.id);
+    (gha||[]).forEach(g => { const aid = idByNro[g.nro]; if(!aid) return; (autoGastos[aid] = autoGastos[aid]||{}); autoGastos[aid][g.anio] = (autoGastos[aid][g.anio]||0) + (Number(g.total_usd)||0); });
+  }
   const autoValByNro = {}; AUTOS_HIST_DATA.forEach(a => autoValByNro[a.nro] = a.valores||{});
   const autoAnios = [...new Set(Object.values(autoGastos).flatMap(o=>Object.keys(o).map(Number)))].sort((a,b)=>a-b);
   const autosGastoTot = autos.reduce((s,a)=>s+autoAnios.reduce((ss,y)=>ss+((autoGastos[a.id]||{})[y]||0)*share(a),0),0);
@@ -8972,7 +8982,13 @@ function updateCargaTotals(formId) {
       if (netoEl) { netoEl.textContent = '$' + fmt(neto); netoEl.style.color = neto>=0?'#5cb85c':'#c0392b'; }
     }
     if (formId === 'ma') {
-      const tot = toUSD(['ma-patente','ma-seguro','ma-service','ma-arreglos','ma-otros'].reduce((a,id)=>a+g(id),0));
+      const af = document.getElementById('form-mov-auto');
+      const ay = parseInt(af?.dataset.anio)||_anio, am = parseInt(af?.dataset.mes)||_mes;
+      const tot = ['patente','seguro','service','arreglos','otros'].reduce((a,rb)=>{
+        const v = g('ma-'+rb); if (!v) return a;
+        const m = document.getElementById('ma-mon-'+rb)?.value || 'USD';
+        return a + convUSD(v, m, ay, am);
+      }, 0);
       const netoEl = document.getElementById('ma-neto');
       if (netoEl) { netoEl.textContent = '$' + fmt(tot); netoEl.style.color = '#c0392b'; }
     }
@@ -9654,6 +9670,29 @@ async function guardarMovSoc() {
 // ============================================
 // AUTOS - GASTOS
 // ============================================
+// Select dinámico de la carga de autos: según el medio de pago muestra cuenta o tarjeta.
+function toggleMedioRef(rb) {
+  const medio = document.getElementById('ma-mp-'+rb)?.value;
+  const ref = document.getElementById('ma-ref-'+rb); if (!ref) return;
+  if (medio === 'Transferencia' || medio === 'Débito Automático') {
+    ref.dataset.tipo = 'cuenta'; ref.innerHTML = '<option value="">— cuenta —</option>' + (window._maCuentasOpts||''); ref.style.display = '';
+  } else if (medio === 'Tarjeta') {
+    ref.dataset.tipo = 'tarjeta'; ref.innerHTML = '<option value="">— tarjeta —</option>' + (window._maTarjetasOpts||''); ref.style.display = '';
+  } else {
+    ref.dataset.tipo = ''; ref.style.display = 'none'; ref.value = '';
+  }
+}
+async function autoCargaLoadRefs() {
+  if (!window._maCuentasOpts) {
+    let bcs = (typeof bancosData !== 'undefined' && bancosData && bancosData.length) ? bancosData : null;
+    if (!bcs) { const { data } = await sb.from('bancos').select('id,nombre,titular').eq('activo',true).order('nro'); bcs = data||[]; }
+    window._maCuentasOpts = (bcs||[]).map(b => `<option value="${b.id}">[${b.titular}] ${b.nombre}</option>`).join('');
+  }
+  if (!window._maTarjetasOpts) {
+    const { data } = await sb.from('tarjetas').select('id,tarjeta,cliente,banco').eq('activo',true).order('cliente');
+    window._maTarjetasOpts = (data||[]).map(t => `<option value="${t.id}">${t.tarjeta} — ${t.cliente}${t.banco?' ('+t.banco+')':''}</option>`).join('');
+  }
+}
 async function cargarMovAuto() {
   const autoId = document.getElementById('carga-auto-sel').value;
   if (!autoId) return toast('Seleccioná un vehículo', 'error');
@@ -9662,12 +9701,11 @@ async function cargarMovAuto() {
   const meses = ['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
   const autoNombre = document.getElementById('carga-auto-sel').options[document.getElementById('carga-auto-sel').selectedIndex].text;
   
-  ['ma-patente','ma-seguro','ma-service','ma-arreglos','ma-otros'].forEach(id => { const el=document.getElementById(id); if(el) el.value=0; });
   document.getElementById('ma-notas').value = '';
-  
+
   const { data } = await sb.from('movimientos_autos')
     .select('*').eq('auto_id', autoId).eq('anio', anio).eq('mes', mes).maybeSingle();
-  
+
   const form = document.getElementById('form-mov-auto');
   const ind = document.getElementById('auto-periodo-ind');
   if (ind) ind.textContent = `Editando: ${autoNombre} — ${meses[mes]} ${anio}`;
@@ -9675,15 +9713,18 @@ async function cargarMovAuto() {
   form.dataset.autoId = autoId; form.dataset.anio = anio; form.dataset.mes = mes;
   injectComentariosGen(['patente','seguro','service','arreglos',['otros','otros_gastos']], 'ma');
   setComentariosGen('ma', data?.comentarios);
-  
-  if (data) {
-    document.getElementById('ma-patente').value = data.patente || 0;
-    document.getElementById('ma-seguro').value = data.seguro || 0;
-    document.getElementById('ma-service').value = data.service || 0;
-    document.getElementById('ma-arreglos').value = data.arreglos || 0;
-    document.getElementById('ma-otros').value = data.otros_gastos || 0;
-    if (data.notas) document.getElementById('ma-notas').value = data.notas;
-  }
+
+  await autoCargaLoadRefs();
+  ['patente','seguro','service','arreglos','otros'].forEach(rb => {
+    const fld = (rb === 'otros') ? 'otros_gastos' : rb;
+    const inp = document.getElementById('ma-'+rb); if (inp) inp.value = (data && data[fld]) || 0;
+    const d = ((data && data.detalle) || {})[rb] || {};
+    const mon = document.getElementById('ma-mon-'+rb); if (mon) mon.value = d.moneda || (data && data.moneda) || 'USD';
+    const mp = document.getElementById('ma-mp-'+rb);
+    if (mp) { mp.value = d.medio || ''; toggleMedioRef(rb); const ref = document.getElementById('ma-ref-'+rb); if (ref) ref.value = d.tarjeta_id || d.cuenta_id || ''; }
+  });
+  if (data && data.notas) document.getElementById('ma-notas').value = data.notas;
+  updateCargaTotals('ma');
 }
 
 function renderAutos() {
@@ -9722,20 +9763,27 @@ function renderAutos() {
 async function guardarMovAuto() {
   const form = document.getElementById('form-mov-auto');
   const _anio = parseInt(form.dataset.anio), _mes = parseInt(form.dataset.mes);
-  const g = id => parseFloat(document.getElementById(id).value)||0;
-  function toUSD(val, mon) {
-    return convUSD(val, mon, _anio, _mes);
-  }
-  const moneda = document.getElementById('ma-moneda').value;
-  const patente = g('ma-patente'), seguro = g('ma-seguro'), service = g('ma-service');
-  const arreglos = g('ma-arreglos'), otros = g('ma-otros');
-  const totalUSD = toUSD(patente+seguro+service+arreglos+otros, moneda);
-  
+  const g = id => parseFloat(document.getElementById(id)?.value)||0;
+  const rubros = [['patente','patente'],['seguro','seguro'],['service','service'],['arreglos','arreglos'],['otros','otros_gastos']];
+  const detalle = {}; const montos = {}; let totalUSD = 0;
+  rubros.forEach(([rb,col]) => {
+    const monto = g('ma-'+rb);
+    const mon = document.getElementById('ma-mon-'+rb)?.value || 'USD';
+    const medio = document.getElementById('ma-mp-'+rb)?.value || '';
+    const ref = document.getElementById('ma-ref-'+rb);
+    const tipo = ref?.dataset.tipo || ''; const refId = ref?.value || null;
+    montos[col] = monto;
+    detalle[rb] = { moneda: mon, medio: medio||null, cuenta_id: tipo==='cuenta'?(refId||null):null, tarjeta_id: tipo==='tarjeta'?(refId||null):null };
+    totalUSD += convUSD(monto, mon, _anio, _mes);
+  });
+
   const { error } = await sb.from('movimientos_autos').upsert({
     auto_id: form.dataset.autoId,
-    anio: parseInt(form.dataset.anio), mes: parseInt(form.dataset.mes),
-    patente, seguro, service, arreglos, otros_gastos: otros, total_usd: totalUSD,
-    moneda, notas: document.getElementById('ma-notas').value,
+    anio: _anio, mes: _mes,
+    patente: montos.patente, seguro: montos.seguro, service: montos.service,
+    arreglos: montos.arreglos, otros_gastos: montos.otros_gastos, total_usd: totalUSD,
+    moneda: detalle.patente.moneda, detalle,
+    notas: document.getElementById('ma-notas').value,
     comentarios: getComentariosGen('ma'),
     created_by: currentUser?.id,
   }, { onConflict: 'auto_id,anio,mes' });
@@ -9933,7 +9981,7 @@ function renderSocClientes(rows, getMovTotals) {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260713-081';
+const APP_VERSION = '20260713-083';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
