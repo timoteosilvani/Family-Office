@@ -5941,8 +5941,29 @@ async function recalcPatrimonioFromMovs(propId, anio) {
 async function verFichaPropiedad(id) {
   const prop = propsData.find(p => p.id === id);
   if (!prop) return;
+  // Servicios de la propiedad (alertas recurrentes / servicios) con N° de cliente
+  let servicios = [];
+  try {
+    const { data: sv } = await sb.from('alertas').select('*').eq('propiedad_id', id).eq('activa', true);
+    servicios = (sv||[]).filter(a => a.recurrente || a.tipo === 'Servicios' || a.servicio);
+  } catch(e){}
   const win = window.open('', '_blank');
   const colPais = { ARG:'#2980b9', USA:'#c0392b', URU:'#d4a017', ESP:'#27ae60' };
+  const svHtml = servicios.length ? `
+    <div class="section">Servicios</div>
+    <table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead><tr style="text-align:left;color:#888;font-size:10px;text-transform:uppercase;letter-spacing:1px">
+        <th style="padding:6px 8px">Servicio</th><th style="padding:6px 8px">N° de cliente</th>
+        <th style="padding:6px 8px">Quién paga</th><th style="padding:6px 8px">Método</th><th style="padding:6px 8px">Vence</th>
+      </tr></thead><tbody>
+      ${servicios.map(s => `<tr style="border-top:1px solid #eee">
+        <td style="padding:6px 8px">${s.servicio || (s.descripcion||'').split(' — ')[0] || '—'}</td>
+        <td style="padding:6px 8px"><strong>${s.num_cliente||'—'}</strong></td>
+        <td style="padding:6px 8px">${s.quien_paga||'—'}</td>
+        <td style="padding:6px 8px">${s.metodo_pago||'—'}</td>
+        <td style="padding:6px 8px">${s.recurrente && s.dia_mes ? 'Día '+s.dia_mes : (s.fecha_vencimiento||'—')}</td>
+      </tr>`).join('')}
+    </tbody></table>` : '';
   win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
@@ -6000,6 +6021,7 @@ async function verFichaPropiedad(id) {
           ${prop.valor_compra>0?(((prop.valor_2026||0)/prop.valor_compra-1)*100).toFixed(1):'—'}%</p>
       </div>
     </div>
+    ${svHtml}
     <div style="margin-top:40px;font-size:10px;color:#ccc;text-align:center">
       Family Office · Generado el ${new Date().toLocaleDateString('es-AR')}
     </div>
@@ -7138,7 +7160,9 @@ async function loadAutos() {
       <td><span class="badge badge-${colPais[r.pais]||'arg'}">${r.pais}</span></td>
       <td class="num bold">$${fmt(r.valor_2026)}</td>
       <td class="num negative" style="font-size:11px">${g.tot>0?'$'+fmt(g.tot):'—'}</td>
-      <td><button class="btn-secondary" style="padding:3px 8px;font-size:11px" onclick="editAuto('${r.id}','${r.nombre}','${r.titular}',${r.anio_modelo||0},'${r.pais}',${r.valor_2026||0})">Editar</button></td>
+      <td>
+        <button class="btn-secondary" style="padding:3px 8px;font-size:11px;margin-right:4px" onclick="verFichaAuto('${r.id}')">Ficha</button>
+        <button class="btn-secondary" style="padding:3px 8px;font-size:11px" onclick="editAuto('${r.id}','${r.nombre}','${r.titular}',${r.anio_modelo||0},'${r.pais}',${r.valor_2026||0})">Editar</button></td>
     </tr>`;}).join('') || '<tr><td colspan="8" style="color:var(--text3);text-align:center">Sin datos</td></tr>';
   renderAutoClientes(activos, gasMap);
 
@@ -7212,6 +7236,89 @@ async function venderAuto() {
   toast('Venta registrada ✓', 'success');
   closeModal('modal-auto-venta');
   await loadAutos();
+}
+
+async function verFichaAuto(id) {
+  const auto = (window._autosCache || []).find(a => a.id === id);
+  if (!auto) return toast('No encontré el vehículo', 'error');
+  const norm = s => (s||'').toLowerCase().replace(/[^a-z0-9]/g,'');
+  const na = norm(auto.nombre);
+  // Match histórico por nombre (uno contiene al otro)
+  const hist = AUTOS_HIST_DATA.find(h => { const nh = norm(h.nombre); return nh && na && (nh.includes(na) || na.includes(nh)); });
+  const valores = hist ? hist.valores : {};
+  const YEARS = Object.keys(valores).map(Number).sort((a,b)=>a-b);
+  // Gastos por año (todos los años) + patente vía alertas
+  let gastos = [], patente = null;
+  try {
+    const [{ data: gg }, { data: al }] = await Promise.all([
+      sb.from('movimientos_autos').select('anio,patente,seguro,service,otros_gastos,total_usd').eq('auto_id', id).order('anio'),
+      sb.from('alertas').select('*').eq('activa', true).ilike('descripcion', '%patente%'),
+    ]);
+    gastos = gg || [];
+    patente = (al||[]).find(a => { const d = norm(a.descripcion); return d && (d.includes(na) || na.includes(d.replace('patente',''))); }) || null;
+  } catch(e){}
+  const gastosByAnio = {};
+  gastos.forEach(g => { gastosByAnio[g.anio] = (gastosByAnio[g.anio]||0) + (g.total_usd||0); });
+  const gastoAnios = Object.keys(gastosByAnio).map(Number).sort((a,b)=>a-b);
+  const totalGastos = gastos.reduce((a,g)=>a+(g.total_usd||0),0);
+  const colPais = { ARG:'#2980b9', USA:'#c0392b', URU:'#d4a017', ESP:'#27ae60', PAR:'#8e44ad', PY:'#8e44ad' };
+  const col = colPais[auto.pais] || '#333';
+  const val26 = auto.valor_2026 || valores[2026] || 0;
+  const win = window.open('', '_blank');
+  win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <title>Ficha - ${auto.nombre}</title>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <style>
+      body { font-family:'DM Sans',sans-serif; background:#fff; color:#111; max-width:680px; margin:0 auto; padding:40px; }
+      .header { border-bottom:3px solid ${col}; padding-bottom:20px; margin-bottom:28px; }
+      h1 { font-family:'DM Serif Display',serif; font-size:28px; color:#111; margin:0 0 4px; }
+      .sub { font-size:12px; color:#888; letter-spacing:1.5px; text-transform:uppercase; }
+      .grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:20px; }
+      .field label { font-size:10px; color:#888; letter-spacing:1px; text-transform:uppercase; font-weight:600; display:block; margin-bottom:3px; }
+      .field p { font-size:15px; color:#111; margin:0; }
+      .section { font-size:11px; letter-spacing:2px; text-transform:uppercase; font-weight:700; color:${col}; margin:24px 0 12px; }
+      .vals { display:grid; grid-template-columns:repeat(5,1fr); gap:8px; }
+      .val-item { background:#f8f8f8; border-radius:6px; padding:10px; text-align:center; }
+      .val-item span { display:block; font-size:9px; color:#999; margin-bottom:4px; }
+      .val-item strong { font-size:13px; }
+      table { width:100%; border-collapse:collapse; font-size:12px; }
+      th { text-align:left; color:#888; font-size:10px; text-transform:uppercase; letter-spacing:1px; padding:6px 8px; }
+      td { padding:6px 8px; border-top:1px solid #eee; }
+      .print-btn { background:${col}; color:#fff; border:none; padding:10px 24px; border-radius:6px; cursor:pointer; font-size:13px; float:right; margin-bottom:20px; }
+      @media print { .print-btn { display:none; } }
+    </style></head><body>
+    <button class="print-btn" onclick="window.print()">⬇ Guardar PDF</button>
+    <div class="header">
+      <div class="sub">${auto.pais} · ${auto.titular} · Vehículo</div>
+      <h1>${auto.nombre}</h1>
+    </div>
+    <div class="grid">
+      <div class="field"><label>Titular</label><p>${auto.titular}</p></div>
+      <div class="field"><label>País</label><p>${auto.pais}</p></div>
+      <div class="field"><label>Año / Modelo</label><p>${auto.anio_modelo||'—'}</p></div>
+      <div class="field"><label>Valor actual (2026)</label><p>USD ${fmt(val26)}</p></div>
+      <div class="field"><label>Patente (N° cliente)</label><p>${patente?(patente.num_cliente||'Sí'):'—'}</p></div>
+      <div class="field"><label>Gastos totales (${(new Date()).getFullYear()})</label><p>USD ${fmt(totalGastos)}</p></div>
+    </div>
+    ${YEARS.length ? `<div class="section">Valorización histórica (USD)</div>
+    <div class="vals">
+      ${YEARS.map(y=>`<div class="val-item"><span>${y}</span><strong>$${fmt(valores[y])}</strong></div>`).join('')}
+    </div>` : ''}
+    ${gastoAnios.length ? `<div class="section">Gastos por año (USD)</div>
+    <table><thead><tr><th>Año</th><th>Total</th></tr></thead><tbody>
+      ${gastoAnios.map(y=>`<tr><td>${y}</td><td>$${fmt(gastosByAnio[y])}</td></tr>`).join('')}
+    </tbody></table>` : '<div class="section">Gastos</div><p style="font-size:12px;color:#888">Sin gastos cargados.</p>'}
+    <div class="section">Patente / Seguros</div>
+    <table><tbody>
+      <tr><td style="color:#888;width:40%">Patente</td><td>${patente?`Día ${patente.dia_mes||'—'} · N° ${patente.num_cliente||'—'} · ${patente.metodo_pago||'—'}`:'No cargada'}</td></tr>
+      <tr><td style="color:#888">Seguro</td><td style="color:#c0392b">Próximo a cargar</td></tr>
+    </tbody></table>
+    <div style="margin-top:40px;font-size:10px;color:#ccc;text-align:center">
+      Family Office · Generado el ${new Date().toLocaleDateString('es-AR')}
+    </div>
+  </body></html>`);
+  win.document.close();
 }
 
 // ============================================
@@ -7569,8 +7676,8 @@ async function guardarHistEdit(){
 }
 async function actualizarBadgeAlertas() {
   try {
-    const { data } = await aplicarFiltroTit(sb.from('alertas').select('fecha_vencimiento').eq('activa', true));
-    const n = (data||[]).filter(a => diasHasta(a.fecha_vencimiento) <= 30).length;
+    const { data } = await aplicarFiltroTit(sb.from('alertas').select('*').eq('activa', true));
+    const n = (data||[]).filter(a => { const d=diasHastaAlerta(a); return d!=null && d<=30; }).length;
     const b = document.getElementById('alert-nav-badge');
     if (b) { b.textContent = n>0?n:''; b.style.display = n>0?'inline':'none'; }
   } catch(e){}
@@ -7587,39 +7694,61 @@ function diasHasta(fecha) {
   return Math.round((f - hoy) / (1000*60*60*24));
 }
 
-function estadoAlerta(fecha) {
-  const d = diasHasta(fecha);
+// Alertas: fecha efectiva (para mensuales recurrentes, el próximo día X) y días hasta ella.
+function fechaEfectivaAlerta(a) {
+  if (a.recurrente && a.dia_mes) {
+    const hoy = new Date(); hoy.setHours(0,0,0,0);
+    let f = new Date(hoy.getFullYear(), hoy.getMonth(), a.dia_mes);
+    if (f < hoy) f = new Date(hoy.getFullYear(), hoy.getMonth()+1, a.dia_mes);
+    return f;
+  }
+  return a.fecha_vencimiento ? new Date(a.fecha_vencimiento) : null;
+}
+function diasHastaAlerta(a) {
+  const f = fechaEfectivaAlerta(a);
+  if (!f || isNaN(f)) return null;
+  const hoy = new Date(); hoy.setHours(0,0,0,0);
+  return Math.round((f - hoy) / 86400000);
+}
+
+function estadoAlerta(d) {
+  if (d == null) return { label:'⚪ Sin fecha', cls:'', key:'sinfecha' };
   if (d < 0) return { label:'🔴 Vencida', cls:'negative', key:'vencida' };
   if (d <= 30) return { label:'🟡 Próxima', cls:'', key:'proxima' };
   return { label:'🟢 Vigente', cls:'positive', key:'vigente' };
 }
 
 function renderAlertas(filtro) {
-  const hoy = new Date(); hoy.setHours(0,0,0,0);
   let rows = alertasData;
-  if (filtro === 'vencida') rows = rows.filter(a => diasHasta(a.fecha_vencimiento) < 0);
-  else if (filtro === 'proxima') rows = rows.filter(a => { const d=diasHasta(a.fecha_vencimiento); return d>=0 && d<=30; });
-  else if (filtro === 'vigente') rows = rows.filter(a => diasHasta(a.fecha_vencimiento) > 30);
+  if (filtro === 'vencida') rows = rows.filter(a => { const d=diasHastaAlerta(a); return d!=null && d<0; });
+  else if (filtro === 'proxima') rows = rows.filter(a => { const d=diasHastaAlerta(a); return d!=null && d>=0 && d<=30; });
+  else if (filtro === 'vigente') rows = rows.filter(a => { const d=diasHastaAlerta(a); return d!=null && d>30; });
   else if (filtro !== 'all') rows = rows.filter(a => a.tipo === filtro);
 
   const tbody = document.getElementById('tbody-alertas');
   tbody.innerHTML = rows.map(a => {
-    const d = diasHasta(a.fecha_vencimiento);
-    const est = estadoAlerta(a.fecha_vencimiento);
-    const diasStr = d < 0 ? `<span class="negative">${Math.abs(d)}d vencida</span>`
+    const d = diasHastaAlerta(a);
+    const est = estadoAlerta(d);
+    const fEf = fechaEfectivaAlerta(a);
+    const diasStr = d == null ? '<span style="color:var(--text3)">revisar fecha</span>'
+      : d < 0 ? `<span class="negative">${Math.abs(d)}d vencida</span>`
       : d === 0 ? '<span class="negative">Hoy</span>'
       : d <= 30 ? `<span style="color:var(--uru)">${d} días</span>`
       : `<span style="color:var(--text3)">${d} días</span>`;
+    const fechaStr = (a.recurrente && a.dia_mes)
+      ? `Día ${a.dia_mes} <span style="font-size:9px;color:var(--text3)">mensual</span>${fEf?`<br><span style="font-size:10px;color:var(--text3)">próx ${fEf.toLocaleDateString('es-AR')}</span>`:''}`
+      : (a.fecha_vencimiento ? new Date(a.fecha_vencimiento).toLocaleDateString('es-AR') : '—');
+    const desc = `${a.descripcion||''}${a.num_cliente?` <span style="font-size:10px;color:var(--text3)">· N° ${a.num_cliente}</span>`:''}`;
     return `<tr>
       <td><span class="${est.cls}">${est.label}</span></td>
       <td style="font-size:12px">${a.tipo}</td>
-      <td class="bold" style="font-size:12px">${a.descripcion}</td>
+      <td class="bold" style="font-size:12px">${desc}</td>
       <td style="font-size:11px;color:var(--text3)">${a.propiedad?.nombre||'—'}</td>
-      <td style="font-size:12px">${a.fecha_vencimiento ? new Date(a.fecha_vencimiento).toLocaleDateString('es-AR') : '—'}</td>
+      <td style="font-size:12px">${fechaStr}</td>
       <td>${diasStr}</td>
       <td style="font-size:11px;color:var(--text3)">${a.notas||'—'}</td>
       <td>
-        <button class="btn-secondary" style="padding:3px 8px;font-size:11px" onclick="resolverAlerta('${a.id}')">✓</button>
+        ${a.recurrente ? '' : `<button class="btn-secondary" style="padding:3px 8px;font-size:11px" onclick="resolverAlerta('${a.id}')">✓</button>`}
         <button class="btn-secondary" style="padding:3px 8px;font-size:11px;margin-left:4px" onclick="editarAlerta('${a.id}')">✎</button>
       </td>
     </tr>`;
@@ -7627,9 +7756,9 @@ function renderAlertas(filtro) {
 }
 
 function updateAlertKPIs() {
-  const vencidas = alertasData.filter(a => diasHasta(a.fecha_vencimiento) < 0).length;
-  const proximas = alertasData.filter(a => { const d=diasHasta(a.fecha_vencimiento); return d>=0&&d<=30; }).length;
-  const vigentes = alertasData.filter(a => diasHasta(a.fecha_vencimiento) > 30).length;
+  const vencidas = alertasData.filter(a => { const d=diasHastaAlerta(a); return d!=null && d<0; }).length;
+  const proximas = alertasData.filter(a => { const d=diasHastaAlerta(a); return d!=null && d>=0 && d<=30; }).length;
+  const vigentes = alertasData.filter(a => { const d=diasHastaAlerta(a); return d!=null && d>30; }).length;
   document.getElementById('alert-vencidas').textContent = vencidas;
   document.getElementById('alert-proximas').textContent = proximas;
   document.getElementById('alert-vigentes').textContent = vigentes;
@@ -9830,7 +9959,9 @@ function renderAutos() {
       <td><span class="badge badge-${colPais[r.pais]||'arg'}">${r.pais}</span></td>
       <td class="num bold">$${fmt(r.valor_2026)}</td>
       <td class="num negative" style="font-size:11px">${g.tot>0?'$'+fmt(g.tot):'—'}</td>
-      <td><button class="btn-secondary" style="padding:3px 8px;font-size:11px" onclick="editAuto('${r.id}','${r.nombre}','${r.titular}',${r.anio_modelo||0},'${r.pais}',${r.valor_2026||0})">Editar</button></td>
+      <td>
+        <button class="btn-secondary" style="padding:3px 8px;font-size:11px;margin-right:4px" onclick="verFichaAuto('${r.id}')">Ficha</button>
+        <button class="btn-secondary" style="padding:3px 8px;font-size:11px" onclick="editAuto('${r.id}','${r.nombre}','${r.titular}',${r.anio_modelo||0},'${r.pais}',${r.valor_2026||0})">Editar</button></td>
     </tr>`;
   }).join('');
   // Update totals row
@@ -10063,7 +10194,7 @@ function renderSocClientes(rows, getMovTotals) {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260713-087';
+const APP_VERSION = '20260713-089';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
