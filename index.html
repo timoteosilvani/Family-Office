@@ -6458,11 +6458,12 @@ async function generarReporte() {
   const titFilter = esH ? [tit, 'H'] : [tit];
   const share = r => (r.titular === 'H' && esH) ? 1/3 : 1;
 
-  const [propsR, peR, autosR, bancosR] = await Promise.all([
+  const [propsR, peR, autosR, bancosR, prestamosR] = await Promise.all([
     sb.from('propiedades').select('*').in('titular', titFilter),
     sb.from('private_equity').select('*').in('titular', titFilter),
     sb.from('autos').select('*').in('titular', titFilter),
     sb.from('bancos').select('*').eq('titular', tit),
+    sb.from('prestamos').select('*, propiedad:propiedad_id(nombre)').in('titular', titFilter).then(r=>r, ()=>({data:[]})),
   ]);
   const props = (propsR.data||[]).filter(p => p.activa !== false && p.vendida !== true);
   const pe = peR.data||[], autos = autosR.data||[], bancos = (bancosR.data||[]).filter(b => b.activo !== false);
@@ -6579,6 +6580,13 @@ async function generarReporte() {
   const autoAnios = [...new Set(Object.values(autoGastos).flatMap(o=>Object.keys(o).map(Number)))].sort((a,b)=>a-b);
   const autosGastoTot = autos.reduce((s,a)=>s+autoAnios.reduce((ss,y)=>ss+((autoGastos[a.id]||{})[y]||0)*share(a),0),0);
   const patrimonioActual = propsActual + bancosActual + peActual + autosActual;
+  // Apalancamiento: deuda total (préstamos) sobre el patrimonio del cliente.
+  const prestamos = ((prestamosR && prestamosR.data) || []).filter(x => x.activo !== false);
+  const _tcP = { USD:1, ARS:(tcCache.ars_usd||1220), UYU:(tcCache.uyu_usd||42.415), EUR:(tcCache.eur_usd||0.9638) };
+  const prestUSD = p => (Number(p.saldo_actual)||0) / (_tcP[p.moneda]||1);
+  const deudaTotal = prestamos.reduce((a,p)=> a + prestUSD(p), 0);
+  const apalancamiento = patrimonioActual>0 ? (deudaTotal/patrimonioActual*100) : 0;
+  const apalColor = apalancamiento>50 ? 'var(--usa)' : apalancamiento>25 ? 'var(--gold)' : 'var(--esp)';
   const capitalInvertido = propsInvertido + aportesBancos + peInvertido;
   const acumulado = patrimonioActual - capitalInvertido;
   const resultadoSemestre = rentaNeta + rendimientoBancos;
@@ -6708,6 +6716,10 @@ async function generarReporte() {
       ${kpi('Patrimonio actual', patrimonioActual, 'al 30/06/2026')}
       ${kpi('Resultado acumulado', acumulado, 'desde el ingreso', acumulado>=0?'var(--esp)':'var(--usa)')}
       ${kpi('Resultado del semestre', resultadoSemestre, (resultadoSemestre>=0?'+':'')+rendSemPct.toFixed(2)+'% · ganancia genuina', resultadoSemestre>=0?'var(--esp)':'var(--usa)')}
+      ${deudaTotal>0 ? `<div class="rep-kpi">
+        <div class="l">Apalancamiento</div>
+        <div class="v" style="color:${apalColor}">${apalancamiento.toFixed(1)}%</div>
+        <div class="s">deuda $${fmt(deudaTotal)} · patrim. neto $${fmt(patrimonioActual-deudaTotal)}</div></div>` : ''}
     </div>
     <div class="card" style="margin-bottom:12px">
       <div class="section-title" style="font-size:14px;margin-bottom:12px">Patrimonio por tipo de activo</div>
@@ -6719,6 +6731,25 @@ async function generarReporte() {
         </tbody></table></div>
       <p style="color:var(--text3);font-size:10px;margin-top:5px">Invertido = capital aportado (valor de compra de propiedades · aportes a cuentas de inversión · inversión en PE). La variación de bancos incluye movimientos de capital.</p>
     </div>
+    ${prestamos.length ? `<div class="card" style="margin-bottom:12px">
+      <div class="section-title" style="font-size:14px;margin-bottom:12px">Apalancamiento / Deuda</div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Préstamo</th><th>Atado a</th><th class="num">Saldo</th><th>Moneda</th><th class="num">Saldo USD</th><th class="num">Tasa</th><th>Vencimiento</th></tr></thead>
+        <tbody>
+        ${prestamos.map(p=>`<tr>
+          <td>${p.descripcion||'—'}</td>
+          <td style="font-size:11px;color:var(--text3)">${p.propiedad?.nombre||'Personal'}</td>
+          <td class="num">${fmt(p.saldo_actual)}</td>
+          <td style="font-size:11px">${p.moneda||'USD'}</td>
+          <td class="num">$${fmt(prestUSD(p))}</td>
+          <td class="num">${p.tasa!=null?p.tasa+'%':'—'}</td>
+          <td style="font-size:11px">${p.fecha_vencimiento||'—'}</td></tr>`).join('')}
+        <tr style="font-weight:600;border-top:2px solid var(--border)">
+          <td colspan="4">Total deuda</td><td class="num">$${fmt(deudaTotal)}</td>
+          <td class="num" colspan="2" style="color:${apalColor}">${apalancamiento.toFixed(1)}% apalanc.</td></tr>
+        </tbody></table></div>
+      <p style="color:var(--text3);font-size:10px;margin-top:5px">Apalancamiento = deuda total ÷ patrimonio actual. Patrimonio neto (descontada la deuda): $${fmt(patrimonioActual-deudaTotal)}.</p>
+    </div>` : ''}
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;page-break-inside:avoid;break-inside:avoid">
       <div class="card"><div class="section-title" style="font-size:14px;margin-bottom:12px">Distribución por tipo de activo</div>
         <div class="table-wrap"><table><thead><tr><th>Activo</th><th class="num">Valor</th><th class="num">%</th></tr></thead><tbody>
@@ -7639,20 +7670,14 @@ async function loadAlertas() {
     data = [];
   }
   alertasData = data || [];
-
-  // Sumar los vencimientos de contratos de alquiler activos como alertas (sintéticas, no editables).
-  try {
-    const { data: cts } = await sb.from('contratos_alquiler')
-      .select('id, inquilino, fecha_fin, propiedad:propiedad_id(nombre,pais)')
-      .eq('activo', true).not('fecha_fin', 'is', null);
-    (cts||[]).forEach(c => alertasData.push({
-      id: 'ct-' + c.id, tipo: 'Alquiler', _sintetico: true,
-      descripcion: 'Fin de contrato — ' + (c.inquilino || ''),
-      fecha_vencimiento: c.fecha_fin, recurrente: false,
-      propiedad: c.propiedad, activa: true,
-    }));
-  } catch(e) { console.warn('alertas alquileres:', e.message); }
-
+  // Orden predeterminado: por días faltantes ascendente (los sin fecha, al final).
+  alertasData.sort((a,b) => {
+    const da = diasHastaAlerta(a), db = diasHastaAlerta(b);
+    if (da == null && db == null) return 0;
+    if (da == null) return 1;
+    if (db == null) return -1;
+    return da - db;
+  });
   renderAlertas('all');
   updateAlertKPIs();
 }
@@ -7701,7 +7726,7 @@ async function guardarHistEdit(){
 async function actualizarBadgeAlertas() {
   try {
     const { data } = await aplicarFiltroTit(sb.from('alertas').select('*').eq('activa', true));
-    const n = (data||[]).filter(a => { const d=diasHastaAlerta(a); return d!=null && d<=30; }).length;
+    const n = (data||[]).filter(a => { const d=diasHastaAlerta(a); return d!=null && d<=7; }).length;
     const b = document.getElementById('alert-nav-badge');
     if (b) { b.textContent = n>0?n:''; b.style.display = n>0?'inline':'none'; }
   } catch(e){}
@@ -7736,17 +7761,17 @@ function diasHastaAlerta(a) {
 }
 
 function estadoAlerta(d) {
-  if (d == null) return { label:'⚪ Sin fecha', cls:'', key:'sinfecha' };
-  if (d < 0) return { label:'🔴 Vencida', cls:'negative', key:'vencida' };
-  if (d <= 30) return { label:'🟡 Próxima', cls:'', key:'proxima' };
-  return { label:'🟢 Vigente', cls:'positive', key:'vigente' };
+  if (d == null) return { label:'⚪ Sin fecha', cls:'', color:'var(--text3)', key:'sinfecha' };
+  if (d < 0)     return { label:'🔴 Vencida', cls:'negative', color:'var(--usa)', key:'vencida' };
+  if (d <= 7)    return { label:'🟡 Próxima', cls:'', color:'var(--uru)', key:'proxima' };
+  return { label:'Vigente', cls:'', color:'var(--text)', key:'vigente' };  // más de 7 días: negro
 }
 
 function renderAlertas(filtro) {
   let rows = alertasData;
   if (filtro === 'vencida') rows = rows.filter(a => { const d=diasHastaAlerta(a); return d!=null && d<0; });
-  else if (filtro === 'proxima') rows = rows.filter(a => { const d=diasHastaAlerta(a); return d!=null && d>=0 && d<=30; });
-  else if (filtro === 'vigente') rows = rows.filter(a => { const d=diasHastaAlerta(a); return d!=null && d>30; });
+  else if (filtro === 'proxima') rows = rows.filter(a => { const d=diasHastaAlerta(a); return d!=null && d>=0 && d<=7; });
+  else if (filtro === 'vigente') rows = rows.filter(a => { const d=diasHastaAlerta(a); return d!=null && d>7; });
   else if (filtro !== 'all') rows = rows.filter(a => a.tipo === filtro);
 
   const tbody = document.getElementById('tbody-alertas');
@@ -7756,15 +7781,15 @@ function renderAlertas(filtro) {
     const fEf = fechaEfectivaAlerta(a);
     const diasStr = d == null ? '<span style="color:var(--text3)">revisar fecha</span>'
       : d < 0 ? `<span class="negative">${Math.abs(d)}d vencida</span>`
-      : d === 0 ? '<span class="negative">Hoy</span>'
-      : d <= 30 ? `<span style="color:var(--uru)">${d} días</span>`
-      : `<span style="color:var(--text3)">${d} días</span>`;
+      : d === 0 ? '<span style="color:var(--uru)">Hoy</span>'
+      : d <= 7 ? `<span style="color:var(--uru)">${d} días</span>`
+      : `<span style="color:var(--text)">${d} días</span>`;
     const fechaStr = (a.recurrente && a.dia_mes)
       ? `Día ${a.dia_mes} <span style="font-size:9px;color:var(--text3)">mensual</span>${fEf?`<br><span style="font-size:10px;color:var(--text3)">próx ${fEf.toLocaleDateString('es-AR')}</span>`:''}`
       : (a.fecha_vencimiento ? new Date(a.fecha_vencimiento).toLocaleDateString('es-AR') : '—');
     const desc = `${a.descripcion||''}${a.num_cliente?` <span style="font-size:10px;color:var(--text3)">· N° ${a.num_cliente}</span>`:''}`;
     return `<tr>
-      <td><span class="${est.cls}">${est.label}</span></td>
+      <td><span class="${est.cls}" style="color:${est.color}">${est.label}</span></td>
       <td style="font-size:12px">${a.tipo}</td>
       <td class="bold" style="font-size:12px">${desc}</td>
       <td style="font-size:11px;color:var(--text3)">${a.propiedad?.nombre||'—'}</td>
@@ -7782,8 +7807,8 @@ function renderAlertas(filtro) {
 
 function updateAlertKPIs() {
   const vencidas = alertasData.filter(a => { const d=diasHastaAlerta(a); return d!=null && d<0; }).length;
-  const proximas = alertasData.filter(a => { const d=diasHastaAlerta(a); return d!=null && d>=0 && d<=30; }).length;
-  const vigentes = alertasData.filter(a => { const d=diasHastaAlerta(a); return d!=null && d>30; }).length;
+  const proximas = alertasData.filter(a => { const d=diasHastaAlerta(a); return d!=null && d>=0 && d<=7; }).length;
+  const vigentes = alertasData.filter(a => { const d=diasHastaAlerta(a); return d!=null && d>7; }).length;
   document.getElementById('alert-vencidas').textContent = vencidas;
   document.getElementById('alert-proximas').textContent = proximas;
   document.getElementById('alert-vigentes').textContent = vigentes;
@@ -10251,7 +10276,7 @@ function renderSocClientes(rows, getMovTotals) {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260713-090';
+const APP_VERSION = '20260713-092';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
