@@ -1008,12 +1008,19 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
             <div id="tabla-titulares" style="margin-top:16px"></div>
           </div>
           <div class="card">
-            <div class="section-title" style="margin-bottom:16px">Propiedades por País — Renta vs No Renta</div>
+            <div class="section-title" style="margin-bottom:16px">Propiedades — Renta vs No Renta</div>
             <div style="position:relative;height:220px;display:flex;align-items:center;justify-content:center">
               <canvas id="chart-rentanr"></canvas>
             </div>
             <div id="tabla-activos" style="margin-top:16px"></div>
           </div>
+        </div>
+
+        <!-- Renta de propiedades: total + por cliente -->
+        <div class="card" style="margin-bottom:24px">
+          <div class="section-title" style="margin-bottom:16px">Renta de Propiedades · 2026</div>
+          <div id="dash-renta-boxes" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px"></div>
+          <div id="dash-renta-clientes"></div>
         </div>
 
         <!-- Matriz País × Clase -->
@@ -1210,11 +1217,10 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
                     <th>País</th><th onclick="sortAlq('titular')" style="cursor:pointer">Titular <span id="srt-alq-titular"></span></th>
                     <th>Inquilino</th>
                     <th class="num" onclick="sortAlq('precio_base')" style="cursor:pointer">Renta <span id="srt-alq-precio_base"></span></th>
+                    <th class="num">Mejor precio</th>
                     <th>Moneda</th>
                     <th onclick="sortAlq('fecha_inicio')" style="cursor:pointer">Inicio <span id="srt-alq-fecha_inicio"></span></th>
                     <th onclick="sortAlq('fecha_fin')" style="cursor:pointer">Fin contrato <span id="srt-alq-fecha_fin" style="color:var(--gold)">↕</span></th>
-                    <th class="num">Mín</th>
-                    <th class="num">Máx</th>
                     <th onclick="sortAlq('_dias')" style="cursor:pointer">Días <span id="srt-alq-_dias"></span></th>
                     <th onclick="sortAlq('_estado')" style="cursor:pointer">Estado <span id="srt-alq-_estado"></span></th>
                     <th>Contrato</th>
@@ -1222,7 +1228,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
                   </tr>
                 </thead>
                 <tbody id="tbody-alquileres">
-                  <tr><td colspan="13"><div class="loader"><div class="spinner"></div></div></td></tr>
+                  <tr><td colspan="12"><div class="loader"><div class="spinner"></div></div></td></tr>
                 </tbody>
               </table>
             </div>
@@ -1287,17 +1293,13 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
                   </select>
                 </div>
               </div>
-              <div class="form-row cols-3">
+              <div class="form-row cols-2">
                 <div>
-                  <label class="fld">Precio Base</label>
+                  <label class="fld">Renta (precio actual)</label>
                   <input class="fld" type="number" id="nc-precio" placeholder="0">
                 </div>
                 <div>
-                  <label class="fld">Alquiler mínimo</label>
-                  <input class="fld" type="number" id="nc-min" placeholder="0">
-                </div>
-                <div>
-                  <label class="fld">Alquiler máximo</label>
+                  <label class="fld">Mejor precio</label>
                   <input class="fld" type="number" id="nc-max" placeholder="0">
                 </div>
               </div>
@@ -4450,12 +4452,13 @@ function makeLegend(containerId, labels, colors, values, total) {
 }
 
 async function loadDashboard() {
-  const [{ data: props }, { data: bancosMovsRaw }, { data: pe }, { data: autos }, { data: bancosCat }] = await Promise.all([
-    aplicarFiltroTit(sb.from('propiedades').select('pais, valor_2026, titular, tipo').eq('activa', true).eq('vendida', false)),
+  const [{ data: props }, { data: bancosMovsRaw }, { data: pe }, { data: autos }, { data: bancosCat }, { data: propMovs }] = await Promise.all([
+    aplicarFiltroTit(sb.from('propiedades').select('id, pais, valor_2026, titular, tipo').eq('activa', true).eq('vendida', false)),
     sb.from('movimientos_bancos').select('*').eq('anio', 2026),
     aplicarFiltroTit(sb.from('private_equity').select('titular, pais, valor_2026').eq('activo', true)),
     aplicarFiltroTit(sb.from('autos').select('titular, pais, valor_2026').eq('activo', true)),
     aplicarFiltroTit(sb.from('bancos').select('id, pais, activo, titular')),
+    sb.from('movimientos_propiedades').select('propiedad_id,total_renta_usd,total_gastos_usd,total_impuestos_usd').eq('anio', 2026),
   ]);
 
   // Map banco_id -> pais / titular (+ set de activos)
@@ -4589,6 +4592,42 @@ async function loadDashboard() {
       <div style="text-align:center"><div style="color:var(--text2);font-size:18px;font-weight:300">$${fmt(noRenta)}</div><div style="color:var(--text3)">No Renta</div></div>
     </div>`;
 
+  // ===== Renta / Gastos / Impuestos / Renta Neta de propiedades (2026) — total y por cliente =====
+  const _titOf = {}; props?.forEach(p => _titOf[p.id] = p.titular);
+  const rgTotal = { renta:0, gastos:0, imp:0 };
+  const rgByTit = {};
+  (propMovs||[]).forEach(m => {
+    const tit = _titOf[m.propiedad_id]; if (!tit) return;      // solo propiedades visibles (respeta filtro)
+    const r = m.total_renta_usd||0, g = m.total_gastos_usd||0, im = m.total_impuestos_usd||0;
+    rgTotal.renta += r; rgTotal.gastos += g; rgTotal.imp += im;
+    splitTitular(tit, 1).forEach(s => {                         // reparte la "H" ÷3
+      const o = rgByTit[s.titular] = rgByTit[s.titular] || { renta:0, gastos:0, imp:0 };
+      o.renta += r*s.valor; o.gastos += g*s.valor; o.imp += im*s.valor;
+    });
+  });
+  const _box = (lbl, val, color) => `<div style="border:1px solid var(--border);border-radius:8px;padding:14px;text-align:center">
+    <div style="font-size:10px;letter-spacing:1px;color:var(--text3);text-transform:uppercase;margin-bottom:6px">${lbl}</div>
+    <div style="font-size:22px;font-weight:300;color:${color}">$${fmt(val)}</div></div>`;
+  const netaTot = rgTotal.renta - rgTotal.gastos - rgTotal.imp;
+  const rbEl = document.getElementById('dash-renta-boxes');
+  if (rbEl) rbEl.innerHTML =
+    _box('Renta total', rgTotal.renta, 'var(--gold)') +
+    _box('Gastos', rgTotal.gastos, 'var(--usa)') +
+    _box('Impuestos', rgTotal.imp, 'var(--usa)') +
+    _box('Renta neta', netaTot, netaTot>=0?'var(--esp)':'var(--usa)');
+  const _titNom = { JC:'Juan Cocci', FC:'Franco Cocci', M:'Martona', MFL:'M.F. Lorenzo', YAC:'Y.A. Cocci', FCC:'F.C. Cocci', G:'Grupillo' };
+  const rcEl = document.getElementById('dash-renta-clientes');
+  const cliOrden = Object.entries(rgByTit).sort((a,b) => (b[1].renta-b[1].gastos-b[1].imp)-(a[1].renta-a[1].gastos-a[1].imp));
+  if (rcEl) rcEl.innerHTML = `<div class="table-wrap"><table>
+    <thead><tr><th>Cliente</th><th class="num">Renta</th><th class="num">Gastos</th><th class="num">Impuestos</th><th class="num">Renta Neta</th></tr></thead>
+    <tbody>${cliOrden.map(([k,o]) => { const n = o.renta-o.gastos-o.imp; return `<tr>
+      <td class="bold">${k} <span style="color:var(--text3);font-weight:400;font-size:11px">${_titNom[k]||''}</span></td>
+      <td class="num positive">$${fmt(o.renta)}</td>
+      <td class="num negative">$${fmt(o.gastos)}</td>
+      <td class="num negative">$${fmt(o.imp)}</td>
+      <td class="num ${n>=0?'positive':'negative'} bold">$${fmt(n)}</td></tr>`; }).join('') || '<tr><td colspan="5" style="text-align:center;color:var(--text3)">Sin datos de renta 2026</td></tr>'}
+    </tbody></table></div>`;
+
   // ===== Matriz País × Clase =====
   const clasesM = [
     { k:'Propiedades',    color:'#c9a84c', vals:{ARG:0,USA:0,URU:0,ESP:0} },
@@ -4648,8 +4687,8 @@ function filtroPatTipo(tipo, btn) {
 function renderPatrimonioPivot() {
   if (!patData.length) return;
   const anios = [...new Set(patData.map(r=>r.anio))].sort();
+  // FO no va como fila (duplicaba el TOTAL). Queda solo como gráfico abajo y en la fila TOTAL.
   const titulares = [...new Set(patData.map(r=>r.titular))];
-  { const _i = titulares.indexOf('FC'); titulares.splice(_i>=0?_i:0, 0, 'FO'); }
   const campo = patTipoActivo;
 
   // Header: Titular | 2017 | 2018 | ... | 2026 | Var%
@@ -4694,12 +4733,11 @@ function renderPatrimonioPivot() {
 
   tbody.innerHTML = rows.join('') + `
     <tr style="border-top:2px solid var(--border2);background:var(--bg3)">
-      <td class="bold" style="color:var(--gold)">TOTAL</td>
+      <td class="bold" style="color:var(--gold);font-size:15px">TOTAL</td>
       ${totals.map((v,i) => {
-        const isLast = i===totals.length-1;
-        return `<td class="num bold" style="color:var(--gold)">$${fmt(v)}</td>`;
+        return `<td class="num bold" style="color:var(--gold);font-size:15px">$${fmt(v)}</td>`;
       }).join('')}
-      <td class="num ${tVar>=0?'positive':'negative'}" style="font-weight:600">${tVar>0?'+':''}${tVar.toFixed(1)}%</td>
+      <td class="num ${tVar>=0?'positive':'negative'}" style="font-weight:700;font-size:15px">${tVar>0?'+':''}${tVar.toFixed(1)}%</td>
     </tr>`;
 }
 
@@ -8926,7 +8964,7 @@ async function loadAlquileres() {
   } catch(e) {
     console.warn('loadAlquileres error:', e.message);
     document.getElementById('tbody-alquileres').innerHTML = 
-      '<tr><td colspan="13" style="color:var(--text3);text-align:center;padding:20px">Corré el SQL de alquileres primero</td></tr>';
+      '<tr><td colspan="12" style="color:var(--text3);text-align:center;padding:20px">Corré el SQL de alquileres primero</td></tr>';
   }
 }
 
@@ -8955,11 +8993,10 @@ function renderAlquileres(contratos) {
       <td style="font-size:11px">${p.titular||'—'}</td>
       <td style="font-size:12px">${ct.inquilino}</td>
       <td class="num">${fmt(ct.precio_base)}</td>
+      <td class="num" style="font-size:11px;color:var(--text3)">${ct.alquiler_max?fmt(ct.alquiler_max):'—'}</td>
       <td style="font-size:11px;color:var(--text3)">${ct.moneda}</td>
       <td style="font-size:11px">${ct.fecha_inicio ? new Date(ct.fecha_inicio).toLocaleDateString('es-AR') : '—'}</td>
       <td style="font-size:11px">${ct.fecha_fin ? new Date(ct.fecha_fin).toLocaleDateString('es-AR') : 'Sin fecha'}</td>
-      <td class="num" style="font-size:11px;color:var(--text3)">${ct.alquiler_min?fmt(ct.alquiler_min):'—'}</td>
-      <td class="num" style="font-size:11px;color:var(--text3)">${ct.alquiler_max?fmt(ct.alquiler_max):'—'}</td>
       <td style="font-size:11px;color:${estadoColor}">${diasStr}</td>
       <td><span style="font-size:11px;color:${estadoColor}">${estadoLabel}</span></td>
       <td>
@@ -8974,7 +9011,7 @@ function renderAlquileres(contratos) {
         </label>`}
       </td>
     </tr>`;
-  }).join('') || '<tr><td colspan="13" style="color:var(--text3);text-align:center;padding:24px">Sin contratos. Usá "+ Nuevo Contrato" para agregar.</td></tr>';
+  }).join('') || '<tr><td colspan="12" style="color:var(--text3);text-align:center;padding:24px">Sin contratos. Usá "+ Nuevo Contrato" para agregar.</td></tr>';
 }
 
 async function verCobros(contratoId, inquilino) {
@@ -9077,7 +9114,7 @@ async function archivarContrato(id) {
 function nuevoContrato() {
   const modal = document.getElementById('modal-nuevo-contrato');
   delete modal.dataset.editId;
-  ['nc-inquilino','nc-inicio','nc-fin','nc-precio','nc-min','nc-max','nc-notas'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  ['nc-inquilino','nc-inicio','nc-fin','nc-precio','nc-max','nc-notas'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
   const prop = document.getElementById('nc-prop'); if (prop) prop.value = '';
   const mon = document.getElementById('nc-moneda'); if (mon) mon.value = 'USD';
   openModal('modal-nuevo-contrato');
@@ -9097,7 +9134,6 @@ async function guardarContrato() {
     fecha_inicio: inicio,
     fecha_fin: document.getElementById('nc-fin').value || null,
     precio_base: parseFloat(document.getElementById('nc-precio').value)||0,
-    alquiler_min: parseFloat(document.getElementById('nc-min').value)||null,
     alquiler_max: parseFloat(document.getElementById('nc-max').value)||null,
     moneda: document.getElementById('nc-moneda').value,
     notas: document.getElementById('nc-notas').value,
@@ -9129,7 +9165,6 @@ async function editarContrato(id) {
   document.getElementById('nc-inicio').value = ct.fecha_inicio || '';
   document.getElementById('nc-fin').value = ct.fecha_fin || '';
   document.getElementById('nc-precio').value = ct.precio_base || 0;
-  document.getElementById('nc-min').value = ct.alquiler_min || '';
   document.getElementById('nc-max').value = ct.alquiler_max || '';
   document.getElementById('nc-moneda').value = ct.moneda || 'USD';
   document.getElementById('nc-notas').value = ct.notas || '';
@@ -10193,15 +10228,25 @@ function cliAdd(acc, titular, obj) {
 // Dibuja la tabla genérica cliente×columnas dentro de "box".
 function cliTable(box, titulo, cols, acc) {
   const totals = {}; cols.forEach(c => totals[c.key] = 0);
-  const filas = CLI_ORD.filter(c => cols.some(col => Math.abs(acc[c][col.key] || 0) > 0.005))
+  // Celda de porcentaje (ej. apalancamiento = deuda/activos). col.pct = [claveNumerador, claveDenominador].
+  const _pctCell = (d, col) => {
+    const num = Math.abs(d[col.pct[0]] || 0), den = d[col.pct[1]] || 0;
+    const p = den > 0 ? num/den*100 : 0;
+    return p > 0.05 ? p.toFixed(1)+'%' : '—';
+  };
+  const filas = CLI_ORD.filter(c => cols.some(col => !col.pct && Math.abs(acc[c][col.key] || 0) > 0.005))
     .map(c => {
       const d = acc[c];
-      cols.forEach(col => totals[col.key] += (d[col.key] || 0));
+      cols.forEach(col => { if (!col.pct) totals[col.key] += (d[col.key] || 0); });
       return `<tr><td class="bold">${CLI_NOM[c]} <span style="color:var(--text3);font-size:10px">${c}</span></td>` +
-        cols.map(col => `<td class="num ${col.cls || ''}">${_cc(d[col.key] || 0)}</td>`).join('') + `</tr>`;
+        cols.map(col => col.pct
+          ? `<td class="num ${col.cls || ''}">${_pctCell(d, col)}</td>`
+          : `<td class="num ${col.cls || ''}">${_cc(d[col.key] || 0)}</td>`).join('') + `</tr>`;
     }).join('');
   const totRow = `<tr style="background:var(--bg3);border-top:2px solid var(--border2)"><td class="bold" style="color:var(--gold)">TOTAL</td>` +
-    cols.map(col => `<td class="num bold" style="color:var(--gold)">${_cc(totals[col.key])}</td>`).join('') + `</tr>`;
+    cols.map(col => col.pct
+      ? `<td class="num bold" style="color:var(--gold)">${_pctCell(totals, col)}</td>`
+      : `<td class="num bold" style="color:var(--gold)">${_cc(totals[col.key])}</td>`).join('') + `</tr>`;
   box.innerHTML = `<div class="section-title" style="font-size:14px;margin-bottom:12px">${titulo}</div>
     <div class="table-wrap"><table><thead><tr><th>Cliente</th>${cols.map(c => `<th class="num">${c.label}</th>`).join('')}</tr></thead>
     <tbody>${filas || `<tr><td colspan="${cols.length + 1}" style="color:var(--text3);text-align:center">Sin datos</td></tr>`}${totRow}</tbody></table></div>`;
@@ -10237,7 +10282,8 @@ function renderBancoClientes(rows, usdMap) {
   });
   cliTable(box, 'Por cliente', [
     {key:'inv',label:'Inversión'}, {key:'cash',label:'Cash'}, {key:'sub',label:'Subtotal'},
-    {key:'cred',label:'Crédito',cls:'negative'}, {key:'neto',label:'Neto'}
+    {key:'cred',label:'Crédito',cls:'negative'}, {key:'neto',label:'Neto'},
+    {label:'% Apal.', pct:['cred','sub']}
   ], acc);
 }
 
@@ -10249,10 +10295,13 @@ function renderPEClientes(rows, histMap, norm) {
     const h = histMap[norm(r.nombre)] || {};
     if (h.terminado === true) return;
     const ap26 = ((h.byY || {})['2026'] || {}).ap || 0;
-    cliAdd(acc, r.titular, { hist:h.aporteHist||0, y26:ap26, total:(h.aporteHist||0)+ap26 });
+    const ut26 = ((h.byY || {})['2026'] || {}).ut || 0;
+    cliAdd(acc, r.titular, { hist:h.aporteHist||0, y26:ap26, total:(h.aporteHist||0)+ap26,
+      utilHist:h.utilHist||0, ut26:ut26 });
   });
   cliTable(box, 'Por cliente', [
-    {key:'hist',label:'Aporte Histórico'}, {key:'y26',label:'Aporte 2026'}, {key:'total',label:'Total Invertido'}
+    {key:'hist',label:'Aporte Histórico'}, {key:'y26',label:'Aporte 2026'}, {key:'total',label:'Total Invertido'},
+    {key:'utilHist',label:'Utilidad Hist.',cls:'positive'}, {key:'ut26',label:'Utilidad 2026',cls:'positive'}
   ], acc);
 }
 
@@ -10285,7 +10334,7 @@ function renderSocClientes(rows, getMovTotals) {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260713-093';
+const APP_VERSION = '20260713-095';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
