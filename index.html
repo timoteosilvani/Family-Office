@@ -3345,10 +3345,11 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
           <button class="filter-btn f-usa" onclick="filtroAlertas('vencida',this)">🔴 Vencidas</button>
           <button class="filter-btn f-uru" onclick="filtroAlertas('proxima',this)">🟡 Próximas</button>
           <button class="filter-btn f-arg" onclick="filtroAlertas('vigente',this)">🟢 Vigentes</button>
-          <button class="filter-btn f-arg" onclick="filtroAlertas('Alquiler',this)">Alquileres</button>
-          <button class="filter-btn f-arg" onclick="filtroAlertas('Seguro',this)">Seguros</button>
-          <button class="filter-btn f-arg" onclick="filtroAlertas('Vencimiento',this)">Vencimientos</button>
+          <button class="filter-btn f-arg" onclick="filtroAlertas('Servicios',this)">Servicios</button>
           <button class="filter-btn f-arg" onclick="filtroAlertas('Impuesto',this)">Impuestos</button>
+          <button class="filter-btn f-arg" onclick="filtroAlertas('Tarjeta',this)">Tarjetas</button>
+          <button class="filter-btn f-arg" onclick="filtroAlertas('Patente',this)">Patentes</button>
+          <button class="filter-btn f-arg" onclick="filtroAlertas('Seguro',this)">Seguros</button>
         </div>
 
         <div class="card">
@@ -3380,12 +3381,11 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
               <div>
                 <label class="fld">Tipo</label>
                 <select class="fld" id="na-tipo" onchange="toggleServicioAlerta()">
-                  <option value="Alquiler">Alquiler</option>
-                  <option value="Seguro">Seguro de auto</option>
-                  <option value="Patente">Patente de auto</option>
                   <option value="Servicios">Servicios</option>
-                  <option value="Vencimiento">Vencimiento contrato</option>
-                  <option value="Impuesto">Impuesto</option>
+                  <option value="Impuesto">Impuesto (ABL / ARBA)</option>
+                  <option value="Tarjeta">Tarjeta</option>
+                  <option value="Patente">Patente de auto</option>
+                  <option value="Seguro">Seguro de auto</option>
                   <option value="Mantenimiento">Mantenimiento</option>
                   <option value="Renovacion">Renovación</option>
                   <option value="Otro">Otro</option>
@@ -7669,7 +7669,8 @@ async function loadAlertas() {
     console.warn('alertas table not found:', e.message);
     data = [];
   }
-  alertasData = data || [];
+  // Los alquileres NO van en Alertas (viven solo en su solapa). Excluir cualquier fila de contrato.
+  alertasData = (data || []).filter(a => a.tipo !== 'Alquiler' && a.tipo !== 'Vencimiento');
   // Orden predeterminado: por días faltantes ascendente (los sin fecha, al final).
   alertasData.sort((a,b) => {
     const da = diasHastaAlerta(a), db = diasHastaAlerta(b);
@@ -7767,11 +7768,19 @@ function estadoAlerta(d) {
   return { label:'Vigente', cls:'', color:'var(--text)', key:'vigente' };  // más de 7 días: negro
 }
 
+// ABL / ARBA (inmobiliario) se consideran impuestos, aunque estén cargados como Servicios.
+function _esImpuestoAlerta(a) {
+  const s = ((a.servicio||'') + ' ' + (a.descripcion||'')).toLowerCase();
+  return /\babl\b|\barba\b|inmobiliar|rentas|impuesto/.test(s);
+}
+
 function renderAlertas(filtro) {
   let rows = alertasData;
   if (filtro === 'vencida') rows = rows.filter(a => { const d=diasHastaAlerta(a); return d!=null && d<0; });
   else if (filtro === 'proxima') rows = rows.filter(a => { const d=diasHastaAlerta(a); return d!=null && d>=0 && d<=7; });
   else if (filtro === 'vigente') rows = rows.filter(a => { const d=diasHastaAlerta(a); return d!=null && d>7; });
+  else if (filtro === 'Impuesto') rows = rows.filter(a => a.tipo === 'Impuesto' || _esImpuestoAlerta(a));
+  else if (filtro === 'Servicios') rows = rows.filter(a => a.tipo === 'Servicios' && !_esImpuestoAlerta(a));
   else if (filtro !== 'all') rows = rows.filter(a => a.tipo === filtro);
 
   const tbody = document.getElementById('tbody-alertas');
@@ -10276,7 +10285,7 @@ function renderSocClientes(rows, getMovTotals) {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260713-092';
+const APP_VERSION = '20260713-093';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
