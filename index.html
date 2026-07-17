@@ -1148,7 +1148,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
               <div class="section-title" style="margin:0">Alquileres</div>
               <p style="color:var(--text3);font-size:12px;margin:4px 0 0">Contratos, inquilinos y cobros por propiedad.</p>
             </div>
-            <button class="btn-secondary" onclick="openModal('modal-nuevo-contrato')">+ Nuevo Contrato</button>
+            <button class="btn-secondary" onclick="nuevoContrato()">+ Nuevo Contrato</button>
           </div>
 
           <!-- Filtro por propiedad -->
@@ -1213,6 +1213,8 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
                     <th>Moneda</th>
                     <th onclick="sortAlq('fecha_inicio')" style="cursor:pointer">Inicio <span id="srt-alq-fecha_inicio"></span></th>
                     <th onclick="sortAlq('fecha_fin')" style="cursor:pointer">Fin contrato <span id="srt-alq-fecha_fin" style="color:var(--gold)">↕</span></th>
+                    <th class="num">Mín</th>
+                    <th class="num">Máx</th>
                     <th onclick="sortAlq('_dias')" style="cursor:pointer">Días <span id="srt-alq-_dias"></span></th>
                     <th onclick="sortAlq('_estado')" style="cursor:pointer">Estado <span id="srt-alq-_estado"></span></th>
                     <th>Contrato</th>
@@ -1220,7 +1222,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
                   </tr>
                 </thead>
                 <tbody id="tbody-alquileres">
-                  <tr><td colspan="11"><div class="loader"><div class="spinner"></div></div></td></tr>
+                  <tr><td colspan="13"><div class="loader"><div class="spinner"></div></div></td></tr>
                 </tbody>
               </table>
             </div>
@@ -1285,10 +1287,18 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
                   </select>
                 </div>
               </div>
-              <div class="form-row cols-2">
+              <div class="form-row cols-3">
                 <div>
                   <label class="fld">Precio Base</label>
                   <input class="fld" type="number" id="nc-precio" placeholder="0">
+                </div>
+                <div>
+                  <label class="fld">Alquiler mínimo</label>
+                  <input class="fld" type="number" id="nc-min" placeholder="0">
+                </div>
+                <div>
+                  <label class="fld">Alquiler máximo</label>
+                  <input class="fld" type="number" id="nc-max" placeholder="0">
                 </div>
               </div>
               <div class="form-row cols-1">
@@ -7629,6 +7639,20 @@ async function loadAlertas() {
     data = [];
   }
   alertasData = data || [];
+
+  // Sumar los vencimientos de contratos de alquiler activos como alertas (sintéticas, no editables).
+  try {
+    const { data: cts } = await sb.from('contratos_alquiler')
+      .select('id, inquilino, fecha_fin, propiedad:propiedad_id(nombre,pais)')
+      .eq('activo', true).not('fecha_fin', 'is', null);
+    (cts||[]).forEach(c => alertasData.push({
+      id: 'ct-' + c.id, tipo: 'Alquiler', _sintetico: true,
+      descripcion: 'Fin de contrato — ' + (c.inquilino || ''),
+      fecha_vencimiento: c.fecha_fin, recurrente: false,
+      propiedad: c.propiedad, activa: true,
+    }));
+  } catch(e) { console.warn('alertas alquileres:', e.message); }
+
   renderAlertas('all');
   updateAlertKPIs();
 }
@@ -7748,8 +7772,9 @@ function renderAlertas(filtro) {
       <td>${diasStr}</td>
       <td style="font-size:11px;color:var(--text3)">${a.notas||'—'}</td>
       <td>
-        ${a.recurrente ? '' : `<button class="btn-secondary" style="padding:3px 8px;font-size:11px" onclick="resolverAlerta('${a.id}')">✓</button>`}
-        <button class="btn-secondary" style="padding:3px 8px;font-size:11px;margin-left:4px" onclick="editarAlerta('${a.id}')">✎</button>
+        ${a._sintetico ? '<span style="font-size:10px;color:var(--text3)">alquiler ↗</span>'
+          : `${a.recurrente ? '' : `<button class="btn-secondary" style="padding:3px 8px;font-size:11px" onclick="resolverAlerta('${a.id}')">✓</button>`}
+        <button class="btn-secondary" style="padding:3px 8px;font-size:11px;margin-left:4px" onclick="editarAlerta('${a.id}')">✎</button>`}
       </td>
     </tr>`;
   }).join('') || '<tr><td colspan="8" style="color:var(--text3);text-align:center;padding:32px">Sin alertas en esta categoría</td></tr>';
@@ -8828,12 +8853,14 @@ async function loadAlquileres() {
     let filtered = contratosData;
     if (propFiltro) filtered = filtered.filter(c => c.propiedad_id === propFiltro);
     if (titFiltro) filtered = filtered.filter(c => c.propiedad?.titular === titFiltro);
-    if (alqView === 'activos') filtered = filtered.filter(c => c.activo && (!c.fecha_fin || new Date(c.fecha_fin) >= hoy));
-    if (alqView === 'historicos') filtered = filtered.filter(c => !c.activo || (c.fecha_fin && new Date(c.fecha_fin) < hoy));
+    // Activos = todos los que siguen marcados activos (aunque estén vencidos: quedan en rojo hasta que se cargue un nuevo inquilino).
+    // Históricos = solo los dados de baja (activo=false), que es lo que pasa al cargar un inquilino nuevo.
+    if (alqView === 'activos') filtered = filtered.filter(c => c.activo !== false);
+    if (alqView === 'historicos') filtered = filtered.filter(c => c.activo === false);
 
     // KPIs
-    const activos = contratosData.filter(c => !c.fecha_fin || new Date(c.fecha_fin) >= hoy);
-    const vencidos = contratosData.filter(c => c.fecha_fin && new Date(c.fecha_fin) < hoy);
+    const activos = contratosData.filter(c => c.activo !== false);
+    const vencidos = activos.filter(c => c.fecha_fin && new Date(c.fecha_fin) < hoy);
     const tc = tcCache.ars_usd || 1220;
     const rentaTotal = activos.reduce((sum, c) => {
       const p = c.precio_base || 0;
@@ -8865,7 +8892,7 @@ async function loadAlquileres() {
   } catch(e) {
     console.warn('loadAlquileres error:', e.message);
     document.getElementById('tbody-alquileres').innerHTML = 
-      '<tr><td colspan="11" style="color:var(--text3);text-align:center;padding:20px">Corré el SQL de alquileres primero</td></tr>';
+      '<tr><td colspan="13" style="color:var(--text3);text-align:center;padding:20px">Corré el SQL de alquileres primero</td></tr>';
   }
 }
 
@@ -8879,14 +8906,16 @@ function renderAlquileres(contratos) {
     const p = ct.propiedad || {};
     const fechaFin = ct.fecha_fin ? new Date(ct.fecha_fin) : null;
     const dias = fechaFin ? Math.round((fechaFin - hoy) / 86400000) : null;
+    // Vencido y todavía activo = vacante / sin renovar (rojo). Solo pasa a históricos cuando se carga un nuevo inquilino (activo=false).
     const vencido = fechaFin && fechaFin < hoy;
-    const proximos = dias !== null && dias >= 0 && dias <= 60;
+    const proximos = dias !== null && dias >= 0 && dias <= 90;
 
     const estadoColor = vencido ? 'var(--usa)' : proximos ? 'var(--uru)' : 'var(--esp)';
-    const estadoLabel = vencido ? '🔴 Vencido' : proximos ? '🟡 Próximo' : '🟢 Vigente';
+    const estadoLabel = vencido ? '🔴 Vencido — sin renovar' : proximos ? '🟡 Próximo' : '🟢 Vigente';
     const diasStr = dias === null ? '∞' : vencido ? `${Math.abs(dias)}d atrás` : `${dias}d`;
+    const rowStyle = vencido ? 'background:rgba(192,57,43,.07)' : '';
 
-    return `<tr class="row-${colPais[p.pais]||'arg'}">
+    return `<tr class="row-${colPais[p.pais]||'arg'}" style="${rowStyle}">
       <td class="bold" style="font-size:12px">${p.nombre||'—'}</td>
       <td><span class="badge badge-${colPais[p.pais]||'arg'}">${p.pais||'—'}</span></td>
       <td style="font-size:11px">${p.titular||'—'}</td>
@@ -8895,6 +8924,8 @@ function renderAlquileres(contratos) {
       <td style="font-size:11px;color:var(--text3)">${ct.moneda}</td>
       <td style="font-size:11px">${ct.fecha_inicio ? new Date(ct.fecha_inicio).toLocaleDateString('es-AR') : '—'}</td>
       <td style="font-size:11px">${ct.fecha_fin ? new Date(ct.fecha_fin).toLocaleDateString('es-AR') : 'Sin fecha'}</td>
+      <td class="num" style="font-size:11px;color:var(--text3)">${ct.alquiler_min?fmt(ct.alquiler_min):'—'}</td>
+      <td class="num" style="font-size:11px;color:var(--text3)">${ct.alquiler_max?fmt(ct.alquiler_max):'—'}</td>
       <td style="font-size:11px;color:${estadoColor}">${diasStr}</td>
       <td><span style="font-size:11px;color:${estadoColor}">${estadoLabel}</span></td>
       <td>
@@ -8909,7 +8940,7 @@ function renderAlquileres(contratos) {
         </label>`}
       </td>
     </tr>`;
-  }).join('') || '<tr><td colspan="11" style="color:var(--text3);text-align:center;padding:24px">Sin contratos. Usá "+ Nuevo Contrato" para agregar.</td></tr>';
+  }).join('') || '<tr><td colspan="13" style="color:var(--text3);text-align:center;padding:24px">Sin contratos. Usá "+ Nuevo Contrato" para agregar.</td></tr>';
 }
 
 async function verCobros(contratoId, inquilino) {
@@ -9009,24 +9040,48 @@ async function archivarContrato(id) {
   await loadAlquileres();
 }
 
+function nuevoContrato() {
+  const modal = document.getElementById('modal-nuevo-contrato');
+  delete modal.dataset.editId;
+  ['nc-inquilino','nc-inicio','nc-fin','nc-precio','nc-min','nc-max','nc-notas'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  const prop = document.getElementById('nc-prop'); if (prop) prop.value = '';
+  const mon = document.getElementById('nc-moneda'); if (mon) mon.value = 'USD';
+  openModal('modal-nuevo-contrato');
+}
+
 async function guardarContrato() {
+  const modal = document.getElementById('modal-nuevo-contrato');
+  const editId = modal.dataset.editId || null;
   const propId = document.getElementById('nc-prop').value;
   const inquilino = document.getElementById('nc-inquilino').value.trim();
   const inicio = document.getElementById('nc-inicio').value;
   if (!propId || !inquilino || !inicio) return toast('Completá propiedad, inquilino y fecha de inicio', 'error');
 
-  const { error } = await sb.from('contratos_alquiler').insert({
+  const payload = {
     propiedad_id: propId,
     inquilino,
     fecha_inicio: inicio,
     fecha_fin: document.getElementById('nc-fin').value || null,
     precio_base: parseFloat(document.getElementById('nc-precio').value)||0,
+    alquiler_min: parseFloat(document.getElementById('nc-min').value)||null,
+    alquiler_max: parseFloat(document.getElementById('nc-max').value)||null,
     moneda: document.getElementById('nc-moneda').value,
     notas: document.getElementById('nc-notas').value,
-    created_by: currentUser?.id,
-  });
+  };
+
+  let error;
+  if (editId) {
+    ({ error } = await sb.from('contratos_alquiler').update(payload).eq('id', editId));
+  } else {
+    // Nuevo inquilino: los contratos activos anteriores de esta propiedad pasan a históricos (activo=false).
+    await sb.from('contratos_alquiler').update({ activo: false }).eq('propiedad_id', propId).eq('activo', true);
+    payload.activo = true;
+    payload.created_by = currentUser?.id;
+    ({ error } = await sb.from('contratos_alquiler').insert(payload));
+  }
   if (error) return toast('Error: ' + error.message, 'error');
-  toast('Contrato guardado ✓', 'success');
+  toast(editId ? 'Contrato actualizado ✓' : 'Contrato guardado ✓ (el anterior pasó a históricos)', 'success');
+  delete modal.dataset.editId;
   closeModal('modal-nuevo-contrato');
   await loadAlquileres();
 }
@@ -9040,6 +9095,8 @@ async function editarContrato(id) {
   document.getElementById('nc-inicio').value = ct.fecha_inicio || '';
   document.getElementById('nc-fin').value = ct.fecha_fin || '';
   document.getElementById('nc-precio').value = ct.precio_base || 0;
+  document.getElementById('nc-min').value = ct.alquiler_min || '';
+  document.getElementById('nc-max').value = ct.alquiler_max || '';
   document.getElementById('nc-moneda').value = ct.moneda || 'USD';
   document.getElementById('nc-notas').value = ct.notas || '';
   document.getElementById('modal-nuevo-contrato').dataset.editId = id;
@@ -10194,7 +10251,7 @@ function renderSocClientes(rows, getMovTotals) {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260713-089';
+const APP_VERSION = '20260713-090';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
