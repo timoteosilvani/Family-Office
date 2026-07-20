@@ -1139,6 +1139,10 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
                       País <span id="sort-pais"></span></th>
                     <th onclick="sortProps('tipo')" style="cursor:pointer" title="Ordenar">
                       Tipo <span id="sort-tipo"></span></th>
+                    <th class="num" onclick="sortProps('valor_compra')" style="cursor:pointer" title="Ordenar">
+                      V. Compra <span id="sort-valor_compra"></span></th>
+                    <th class="num" onclick="sortProps('inversion')" style="cursor:pointer" title="Ordenar">
+                      Inversión <span id="sort-inversion"></span></th>
                     <th class="num" onclick="sortProps('valor_2026')" style="cursor:pointer" title="Ordenar">
                       Valor 2026 <span id="sort-valor_2026"></span></th>
                     <th class="num" onclick="sortProps('_renta')" style="cursor:pointer" title="Ordenar">
@@ -1153,7 +1157,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
                   </tr>
                 </thead>
                 <tbody id="tbody-propiedades">
-                  <tr><td colspan="9"><div class="loader"><div class="spinner"></div></div></td></tr>
+                  <tr><td colspan="11"><div class="loader"><div class="spinner"></div></div></td></tr>
                 </tbody>
               </table>
             </div>
@@ -5915,6 +5919,8 @@ function renderPropiedades(paisFiltro) {
       <td style="${textStyle}">${p.titular}</td>
       <td><span class="badge badge-${colPais[p.pais]||'arg'}">${p.pais}</span></td>
       <td><span style="font-size:11px">${p.tipo === 'R' ? '🔵 R' : '⚪ NR'}</span></td>
+      <td class="num" style="font-size:11px;${textStyle}">${p.valor_compra>0?'$'+fmt(p.valor_compra):'—'}</td>
+      <td class="num" style="font-size:11px;${textStyle}">${p.inversion>0?'$'+fmt(p.inversion):'—'}</td>
       <td class="num bold" style="${textStyle}">$${fmt(p.valor_2026)}</td>
       <td class="num positive" style="font-size:11px">${p._renta>0?'$'+fmt(p._renta):'—'}</td>
       <td class="num negative" style="font-size:11px">${p._gastos>0?'$'+fmt(p._gastos):'—'}</td>
@@ -5925,7 +5931,7 @@ function renderPropiedades(paisFiltro) {
         <button class="btn-secondary" style="padding:3px 8px;font-size:11px" onclick="editarValorProp('${p.id}','${p.nombre}',${p.valor_2026||0})">Val.</button>
       </td>
     </tr>`;
-  }).join('') || '<tr><td colspan="9" style="color:var(--text3);text-align:center">Sin propiedades</td></tr>';
+  }).join('') || '<tr><td colspan="11" style="color:var(--text3);text-align:center">Sin propiedades</td></tr>';
   renderPropClientes(rows);
 }
 
@@ -6209,11 +6215,11 @@ async function verFichaPropiedad(id) {
       .print-btn { background:${colPais[prop.pais]||'#333'}; color:#fff; border:none; padding:10px 24px; border-radius:6px; cursor:pointer; font-size:13px; float:right; margin-bottom:20px; }
       @media print { .print-btn { display:none; } }
     </style></head><body>
-    <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
-      <img src="${OFFIDA_LOGO}" style="height:46px;width:auto">
-      <div style="font-family:'DM Serif Display',serif;font-size:24px;letter-spacing:3px;color:#c9a84c">OFFIDA</div>
-    </div>
     <button class="print-btn" onclick="window.print()">⬇ Guardar PDF</button>
+    <div style="text-align:center;margin-bottom:18px">
+      <img src="${OFFIDA_LOGO}" style="height:82px;width:auto">
+      <div style="font-family:'DM Serif Display',serif;font-size:26px;letter-spacing:4px;color:#c9a84c;margin-top:2px">OFFIDA</div>
+    </div>
     <div class="header">
       <div class="sub">${prop.pais} · ${prop.titular} · ${prop.tipo === 'R' ? 'Renta' : 'No Renta'}</div>
       <h1>${prop.nombre}</h1>
@@ -6228,8 +6234,8 @@ async function verFichaPropiedad(id) {
       <div class="field"><label>Valor de Venta</label><p>${prop.valor_venta?('USD '+fmt(prop.valor_venta)):'—'}</p></div>
       <div class="field"><label>Inversión Adicional</label><p>USD ${fmt(prop.inversion)}</p></div>
       <div class="field"><label>Superficie</label><p>${prop.m2||'—'} m²</p></div>
-      <div class="field"><label>Inquilino Actual</label><p>${prop.inquilino_actual||'—'}</p></div>
-      <div class="field"><label>Precio Alquiler</label><p>USD ${fmt(prop.precio_alquiler)}/mes</p></div>
+      ${prop.tipo === 'R' ? `<div class="field"><label>Inquilino Actual</label><p>${prop.inquilino_actual||'—'}</p></div>
+      <div class="field"><label>Precio Alquiler</label><p>USD ${fmt(prop.precio_alquiler)}/mes</p></div>` : ''}
     </div>
     <div class="section">Valuaciones Históricas (USD)</div>
     <div class="vals">
@@ -7567,11 +7573,11 @@ async function verFichaAuto(id) {
       .print-btn { background:${col}; color:#fff; border:none; padding:10px 24px; border-radius:6px; cursor:pointer; font-size:13px; float:right; margin-bottom:20px; }
       @media print { .print-btn { display:none; } }
     </style></head><body>
-    <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
-      <img src="${OFFIDA_LOGO}" style="height:46px;width:auto">
-      <div style="font-family:'DM Serif Display',serif;font-size:24px;letter-spacing:3px;color:#c9a84c">OFFIDA</div>
-    </div>
     <button class="print-btn" onclick="window.print()">⬇ Guardar PDF</button>
+    <div style="text-align:center;margin-bottom:18px">
+      <img src="${OFFIDA_LOGO}" style="height:82px;width:auto">
+      <div style="font-family:'DM Serif Display',serif;font-size:26px;letter-spacing:4px;color:#c9a84c;margin-top:2px">OFFIDA</div>
+    </div>
     <div class="header">
       <div class="sub">${auto.pais} · ${auto.titular} · Vehículo</div>
       <h1>${auto.nombre}</h1>
@@ -8002,7 +8008,7 @@ let alertClienteFiltro = '';   // filtro por cliente (titular)
 let _alertFiltroActual = 'all'; // filtro de tipo/estado activo
 
 // Cliente de una alerta: el titular propio, o el de la propiedad si tiene.
-function _alertaCli(a) { return a.titular || (a.propiedad && a.propiedad.titular) || null; }
+function _alertaCli(a) { return a.titular || (a.propiedad && a.propiedad.titular) || (a.auto && a.auto.titular) || null; }
 // Recurrente ya pagada en el mes en curso → se oculta de la lista activa hasta el mes siguiente.
 function _alertaPagadaEsteMes(a) {
   if (!a.recurrente) return false;
@@ -8022,8 +8028,8 @@ async function loadAlertas() {
     props.map(p => `<option value="${p.id}">[${p.titular}] ${p.nombre}</option>`).join('');
 
   let data = null;
-  // Traemos activas Y pagadas (para la solapa Pagadas). Incluye titular de la propiedad.
-  const result = await sb.from('alertas').select('*, propiedad:propiedad_id(nombre,pais,titular)')
+  // Traemos activas Y pagadas (para la solapa Pagadas). Incluye titular de la propiedad y el auto (patentes).
+  const result = await sb.from('alertas').select('*, propiedad:propiedad_id(nombre,pais,titular), auto:auto_id(nombre,titular)')
     .or('activa.eq.true,pagada.eq.true').order('fecha_vencimiento');
   if (result.error) {
     // Fallback: si aún no existen las columnas de "pagada" (falta correr alertas_pagadas.sql)
@@ -8181,7 +8187,7 @@ function renderAlertas(filtro) {
       <td style="font-size:12px">${a.tipo}</td>
       <td class="bold" style="font-size:12px">${desc}</td>
       <td style="font-size:11px">${cli || '—'}</td>
-      <td style="font-size:11px;color:var(--text3)">${a.propiedad?.nombre||'—'}</td>
+      <td style="font-size:11px;color:var(--text3)">${a.propiedad?.nombre || a.auto?.nombre || '—'}</td>
       <td style="font-size:12px">${fechaStr}</td>
       <td>${pagadasView && a.fecha_pago ? `<span style="font-size:10px;color:var(--esp)">pagó ${new Date(a.fecha_pago).toLocaleDateString('es-AR')}</span>` : diasStr}</td>
       <td style="font-size:11px;color:var(--text3)">${a.notas||'—'}</td>
@@ -10792,7 +10798,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260720-105';
+const APP_VERSION = '20260720-107';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
