@@ -4994,17 +4994,18 @@ function renderHistorialProps(filtro) {
     const sy = isVendida ? Math.max(...Object.keys(p.valores).map(Number)) : null;
     const rowStyle = isVendida ? 'opacity:0.55;' : '';
     const textStyle = isVendida ? 'text-decoration:line-through;color:var(--text3)' : '';
+    const numStrike = isVendida ? 'text-decoration:line-through;' : ''; // tacha TODA la fila si está vendida
 
     return `<tr class="row-${colPais[p.pais]||'arg'}" style="${rowStyle}">
-      <td style="color:var(--text3);font-size:11px">${p.nro}</td>
+      <td style="color:var(--text3);font-size:11px;${numStrike}">${p.nro}</td>
       <td style="font-size:12px;font-weight:500;${textStyle}">${p.nombre}${isVendida?' <span style="font-size:9px;background:var(--usa);color:#fff;border-radius:4px;padding:1px 5px;margin-left:4px;font-weight:400">VENDIDA</span>':''}<button onclick="abrirEditHist('prop',${p.nro})" style="background:none;border:none;cursor:pointer;color:var(--gold);font-size:12px;margin-left:6px;padding:0" title="Editar valor histórico">✎</button></td>
-      <td style="font-size:11px;color:var(--text3)">${p.titular}</td>
+      <td style="font-size:11px;color:var(--text3);${numStrike}">${p.titular}</td>
       ${YEARS.map(y => {
         const v = p.valores[String(y)];
         if (sy !== null && y === sy) { const vv = (p.valor_venta!=null)?p.valor_venta:v; return `<td class="num" style="font-size:11px;font-style:italic;font-weight:700;text-decoration:line-through;color:var(--usa)">${vv?'$'+fmt(vv):'—'}</td>`; }
-        return `<td class="num" style="font-size:11px;color:${v?'var(--text)':'var(--border2)'}">${v?'$'+fmt(v):'—'}</td>`;
+        return `<td class="num" style="font-size:11px;color:${isVendida?'var(--text3)':(v?'var(--text)':'var(--border2)')};${numStrike}">${v?'$'+fmt(v):'—'}</td>`;
       }).join('')}
-      <td class="num ${varPct>0?'positive':(varPct<0?'negative':'')}" style="font-size:11px;font-weight:600">
+      <td class="num ${varPct>0?'positive':(varPct<0?'negative':'')}" style="font-size:11px;font-weight:600;${numStrike}">
         ${varPct!==null?(varPct>0?'+':'')+varPct+'%':'—'}
       </td>
     </tr>`;
@@ -5074,12 +5075,18 @@ function renderAutosHist() {
     const isV = a.vendida === true;
     const rs = isV ? 'opacity:0.55;' : '';
     const ts = isV ? 'text-decoration:line-through;color:var(--text3)' : '';
+    const numStrike = isV ? 'text-decoration:line-through;' : ''; // tacha TODA la fila si está vendido
+    const syA = isV ? Math.max(...Object.keys(a.valores).map(Number)) : null;
     return `<tr class="row-${({ARG:'arg',USA:'usa',URU:'uru',ESP:'esp',PAR:'par'})[a.pais]||'arg'}" style="${rs}">
-      <td style="color:var(--text3);font-size:11px">${a.nro}</td>
+      <td style="color:var(--text3);font-size:11px;${numStrike}">${a.nro}</td>
       <td style="font-size:12px;font-weight:500;${ts}">${a.nombre}${isV?' <span style="font-size:9px;background:var(--usa);color:#fff;border-radius:4px;padding:1px 5px;margin-left:4px;font-weight:400">VENDIDO</span>':''}<button onclick="abrirEditHist('auto',${a.nro})" style="background:none;border:none;cursor:pointer;color:var(--gold);font-size:12px;margin-left:6px;padding:0" title="Editar valor histórico">✎</button></td>
-      <td style="font-size:11px;color:var(--text3)">${a.titular}</td>
-      ${YEARS.map(y => { const v = a.valores[String(y)]; return `<td class="num" style="font-size:11px;color:${v?'var(--text)':'var(--border2)'}">${v?'$'+fmt(v):'—'}</td>`; }).join('')}
-      <td class="num ${varPct>0?'positive':(varPct<0?'negative':'')}" style="font-size:11px;font-weight:600">${varPct!==null?(varPct>0?'+':'')+varPct+'%':'—'}</td>
+      <td style="font-size:11px;color:var(--text3);${numStrike}">${a.titular}</td>
+      ${YEARS.map(y => {
+        const v = a.valores[String(y)];
+        if (syA !== null && y === syA) { const vv = (a.valor_venta!=null)?a.valor_venta:v; return `<td class="num" style="font-size:11px;font-style:italic;font-weight:700;text-decoration:line-through;color:var(--usa)">${vv?'$'+fmt(vv):'—'}</td>`; }
+        return `<td class="num" style="font-size:11px;color:${isV?'var(--text3)':(v?'var(--text)':'var(--border2)')};${numStrike}">${v?'$'+fmt(v):'—'}</td>`;
+      }).join('')}
+      <td class="num ${varPct>0?'positive':(varPct<0?'negative':'')}" style="font-size:11px;font-weight:600;${numStrike}">${varPct!==null?(varPct>0?'+':'')+varPct+'%':'—'}</td>
     </tr>`;
   }).join('');
   const totals = YEARS.map(y => data.reduce((s, a) => s + (a.valores[String(y)] || 0), 0));
@@ -5206,14 +5213,17 @@ function renderPEHist() {
   let data = PE_HIST_DATA.filter(p => p.byY[y]);
   if (verComo) data = data.filter(p => p.titular === verComo);
   let body = data.map(p => { const d = p.byY[y]; const ua = _utAc(p);
-    return `<tr class="row-${_cpP(p.nombre)}">
-      <td style="color:var(--text3);font-size:11px">${p.nro}</td>
-      <td style="font-size:12px;font-weight:500">${p.nombre}${p.terminado?' <span style="font-size:9px;background:var(--text3);color:#fff;border-radius:4px;padding:1px 5px;margin-left:4px">TERMINADO</span>':''}<button onclick="abrirEditHist('pe',${p.nro},${y})" style="background:none;border:none;cursor:pointer;color:var(--gold);font-size:12px;margin-left:6px;padding:0" title="Editar valor histórico">✎</button></td>
-      <td style="font-size:11px;color:var(--text3)">${p.titular}</td>
-      <td class="num" style="font-size:11px">${d.ia?'$'+fmt(d.ia):'—'}</td>
-      <td class="num" style="font-size:11px;color:${ua?'var(--esp)':''}">${ua?'+$'+fmt(ua):'—'}</td>
-      <td class="num" style="font-size:11px;border-left:2px solid var(--border2);color:${d.ap?'var(--esp)':''}">${d.ap?'+$'+fmt(d.ap):'—'}</td>
-      <td class="num" style="font-size:11px;color:${d.ut?'var(--esp)':''}">${d.ut?'+$'+fmt(d.ut):'—'}</td>
+    const isT = p.terminado === true;
+    const rs = isT ? 'opacity:0.55;' : '';
+    const ns = isT ? 'text-decoration:line-through;' : ''; // tacha TODA la fila si está terminado
+    return `<tr class="row-${_cpP(p.nombre)}" style="${rs}">
+      <td style="color:var(--text3);font-size:11px;${ns}">${p.nro}</td>
+      <td style="font-size:12px;font-weight:500;${isT?'text-decoration:line-through;color:var(--text3)':''}">${p.nombre}${p.terminado?' <span style="font-size:9px;background:var(--text3);color:#fff;border-radius:4px;padding:1px 5px;margin-left:4px">TERMINADO</span>':''}<button onclick="abrirEditHist('pe',${p.nro},${y})" style="background:none;border:none;cursor:pointer;color:var(--gold);font-size:12px;margin-left:6px;padding:0" title="Editar valor histórico">✎</button></td>
+      <td style="font-size:11px;color:var(--text3);${ns}">${p.titular}</td>
+      <td class="num" style="font-size:11px;${ns}">${d.ia?'$'+fmt(d.ia):'—'}</td>
+      <td class="num" style="font-size:11px;color:${ua?'var(--esp)':''};${ns}">${ua?'+$'+fmt(ua):'—'}</td>
+      <td class="num" style="font-size:11px;border-left:2px solid var(--border2);color:${d.ap?'var(--esp)':''};${ns}">${d.ap?'+$'+fmt(d.ap):'—'}</td>
+      <td class="num" style="font-size:11px;color:${d.ut?'var(--esp)':''};${ns}">${d.ut?'+$'+fmt(d.ut):'—'}</td>
     </tr>`; }).join('');
   const T = data.reduce((a,p) => { const d=p.byY[y]; a.ia+=d.ia; a.ap+=d.ap; a.ut+=d.ut; a.ua+=_utAc(p); return a; }, {ia:0,ap:0,ut:0,ua:0});
   body += `<tr style="background:var(--bg3);border-top:2px solid var(--border2)">
@@ -10413,7 +10423,7 @@ function renderSocClientes(rows, getMovTotals) {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260720-099';
+const APP_VERSION = '20260720-100';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
