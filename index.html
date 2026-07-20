@@ -3503,54 +3503,42 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
 
       <!-- ======== TIPO DE CAMBIO ======== -->
       <div id="page-tipo_cambio" class="page">
-        <div class="section-title">Tipo de Cambio Mensual</div>
-        <p style="color:var(--text3);font-size:13px;margin-bottom:20px">Se actualiza una vez por mes. Base: USD.</p>
+        <div class="section-title">Tipo de Cambio Semanal</div>
+        <p style="color:var(--text3);font-size:13px;margin-bottom:20px">Cierre semanal (domingo); se usa toda la semana (dom→sáb). Base: USD.</p>
         <div class="card">
           <div class="table-wrap">
             <table>
               <thead>
-                <tr><th>Año</th><th>Mes</th><th class="num">ARS/USD</th>
-                <th class="num">UYU/USD</th><th class="num">EUR/USD</th><th></th></tr>
+                <tr><th>Semana</th><th class="num">USD/ARS</th>
+                <th class="num">USD/UYU</th><th class="num">USD/EUR</th><th></th></tr>
               </thead>
               <tbody id="tbody-tc">
-                <tr><td colspan="6"><div class="loader"><div class="spinner"></div></div></td></tr>
+                <tr><td colspan="5"><div class="loader"><div class="spinner"></div></div></td></tr>
               </tbody>
             </table>
           </div>
         </div>
         <div class="card" style="margin-top:16px">
-          <div class="section-title" style="font-size:14px">Actualizar TC <span style="font-size:10px;color:var(--gold);font-weight:400">· editor v12</span></div>
+          <div class="section-title" style="font-size:14px">Actualizar TC semanal</div>
           <div class="form-row cols-2">
             <div>
-              <label class="fld">Año</label>
-              <select class="fld" id="tc-anio" onchange="loadTCInputs()">
-                <option value="2026">2026</option>
-                <option value="2025">2025</option>
-                <option value="2024">2024</option>
-                <option value="2023">2023</option>
-                <option value="2022">2022</option>
-              </select>
+              <label class="fld">Semana (se ancla al domingo)</label>
+              <input class="fld" type="date" id="tc-fecha" onchange="onTcFechaChange()">
             </div>
             <div>
-              <label class="fld">Mes</label>
-              <select class="fld" id="tc-mes" onchange="loadTCInputs()">
-                <option value="1">Enero</option><option value="2">Febrero</option>
-                <option value="3">Marzo</option><option value="4">Abril</option>
-                <option value="5">Mayo</option><option value="6">Junio</option>
-                <option value="7">Julio</option><option value="8">Agosto</option>
-                <option value="9">Septiembre</option><option value="10">Octubre</option>
-                <option value="11">Noviembre</option><option value="12">Diciembre</option>
-              </select>
+              <label class="fld">Semana seleccionada</label>
+              <input class="fld" id="tc-semana-lbl" readonly style="color:var(--text3)">
             </div>
           </div>
           <div class="form-row cols-3">
-            <div><label class="fld">ARS/USD</label><input class="fld" type="number" id="tc-ars-in" step="0.01" placeholder="1220"></div>
-            <div><label class="fld">UYU/USD</label><input class="fld" type="number" id="tc-uyu-in" step="0.001" placeholder="42.415"></div>
-            <div><label class="fld">EUR/USD</label><input class="fld" type="number" id="tc-eur-in" step="0.0001" placeholder="0.9638"></div>
+            <div><label class="fld">USD/ARS</label><input class="fld" type="number" id="tc-ars-in" step="0.01" placeholder="1220"></div>
+            <div><label class="fld">USD/UYU</label><input class="fld" type="number" id="tc-uyu-in" step="0.001" placeholder="42.415"></div>
+            <div><label class="fld">USD/EUR</label><input class="fld" type="number" id="tc-eur-in" step="0.0001" placeholder="0.9638"></div>
           </div>
           <div style="display:flex;justify-content:flex-end;margin-top:8px">
-            <button class="btn-primary" style="width:auto;padding:10px 24px" onclick="guardarTC()">Guardar TC</button>
+            <button class="btn-primary" style="width:auto;padding:10px 24px" onclick="guardarTCSemana()">Guardar semana</button>
           </div>
+          <p style="color:var(--text3);font-size:11px;margin-top:6px">Cargá los valores de cierre del domingo mirando investing (USD/ARS, USD/UYU, USD/EUR). Se usan toda la semana y refrescan el mes en curso para las conversiones.</p>
         </div>
       </div>
 
@@ -4036,7 +4024,7 @@ const pagesMeta = {
   autos: { title: 'Vehículos', subtitle: 'Valuación del parque automotor' },
   deudas: { title: 'Deudas y Créditos', subtitle: 'Registro de préstamos y compensaciones' },
   organigramas: { title: 'Organigramas', subtitle: 'Estructura societaria' },
-  tipo_cambio: { title: 'Tipo de Cambio', subtitle: 'Paridades mensuales ARS · UYU · EUR vs USD' },
+  tipo_cambio: { title: 'Tipo de Cambio', subtitle: 'Paridades semanales (cierre domingo) USD/ARS · USD/UYU · USD/EUR' },
   gastos: { title: 'Gastos por Propiedad', subtitle: 'Vista mensual y anual de rentas, gastos e impuestos' },
   alertas: { title: 'Alertas', subtitle: 'Vencimientos, renovaciones y avisos importantes' },
   sociedades: { title: 'Sociedades', subtitle: 'Gastos y movimientos de las sociedades' },
@@ -4250,20 +4238,28 @@ async function refrescarVistaActual() {
 // TIPO DE CAMBIO
 // ============================================
 async function loadTC() {
-  const now = new Date();
-  const { data } = await sb.from('tipo_de_cambio')
-    .select('*')
-    .eq('anio', now.getFullYear())
-    .eq('mes', now.getMonth() + 1)
-    .maybeSingle();
-  if (data) {
-    const ars = parseFloat(data.ars_usd), uyu = parseFloat(data.uyu_usd), eur = parseFloat(data.eur_usd);
-    // Guardar números (no strings) para que las conversiones funcionen bien
-    tcCache = { ...data, ars_usd: ars, uyu_usd: uyu, eur_usd: eur };
-    const set = (id, txt) => { const el = document.getElementById(id); if (el) el.textContent = txt; };
+  // Banner + tcCache = semana más reciente cargada (tc_semanal).
+  // Fallback (compat / tabla aún no creada): mes actual de tipo_de_cambio.
+  let src = null;
+  try {
+    const { data } = await sb.from('tc_semanal').select('*').order('fecha', { ascending: false }).limit(1);
+    if (data && data[0]) src = data[0];
+  } catch (e) { /* tc_semanal puede no existir todavía */ }
+  if (!src) {
+    const now = new Date();
+    const { data } = await sb.from('tipo_de_cambio')
+      .select('*').eq('anio', now.getFullYear()).eq('mes', now.getMonth() + 1).maybeSingle();
+    src = data;
+  }
+  const set = (id, txt) => { const el = document.getElementById(id); if (el) el.textContent = txt; };
+  if (src) {
+    const ars = parseFloat(src.ars_usd), uyu = parseFloat(src.uyu_usd), eur = parseFloat(src.eur_usd);
+    tcCache = { ars_usd: ars, uyu_usd: uyu, eur_usd: eur };
     set('tc-ars', '$' + (isNaN(ars) ? '—' : ars.toLocaleString('es-AR')));
     set('tc-uyu', '$' + (isNaN(uyu) ? '—' : uyu.toFixed(3)));
     set('tc-eur', isNaN(eur) ? '—' : eur.toFixed(4));
+  } else {
+    set('tc-ars', '—'); set('tc-uyu', '—'); set('tc-eur', '—');
   }
   await loadAllTC();
 }
@@ -4328,86 +4324,86 @@ function latestMovByBanco(movs) {
   return map;
 }
 
+// ---- Helpers de fecha para el TC semanal (todo en fecha local, sin desfase UTC) ----
+let _tcSemCache = [];  // filas de tc_semanal cargadas (para editar/pre-llenar sin refetch)
+function _ymd(dt) { const p = n => String(n).padStart(2,'0'); return dt.getFullYear() + '-' + p(dt.getMonth()+1) + '-' + p(dt.getDate()); }
+function _parseYmd(s) { const [y,m,d] = String(s).split('-').map(Number); return new Date(y, (m||1)-1, d||1); }
+function _domingoDe(s) { const dt = _parseYmd(s); dt.setDate(dt.getDate() - dt.getDay()); return _ymd(dt); } // getDay 0=domingo
+function _rangoSemana(s) {
+  const ini = _parseYmd(s), fin = _parseYmd(s); fin.setDate(fin.getDate() + 6);
+  const M = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+  const f = dt => dt.getDate() + ' ' + M[dt.getMonth()];
+  return f(ini) + ' – ' + f(fin) + ' ' + fin.getFullYear();
+}
+
+// Al cambiar la fecha: engancha al domingo, muestra el rango y pre-llena si esa semana ya existe.
+function onTcFechaChange() {
+  const el = document.getElementById('tc-fecha'); if (!el || !el.value) return;
+  const dom = _domingoDe(el.value); el.value = dom;
+  const lbl = document.getElementById('tc-semana-lbl'); if (lbl) lbl.value = 'Semana ' + _rangoSemana(dom);
+  const r = (_tcSemCache || []).find(x => x.fecha === dom);
+  const g = (id, v) => { const e = document.getElementById(id); if (e) e.value = (v ?? ''); };
+  g('tc-ars-in', r ? r.ars_usd : ''); g('tc-uyu-in', r ? r.uyu_usd : ''); g('tc-eur-in', r ? r.eur_usd : '');
+}
+
 async function loadTC_tabla() {
-  let data = null;
+  let data = [];
   try {
-    const result = await sb.from('tipo_de_cambio').select('*').order('anio', { ascending: false }).order('mes', { ascending: false });
-    data = result.data;
-  } catch(e) {
-    console.warn('tipo_de_cambio error:', e.message);
-    data = [];
-  }
-  const meses = ['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+    const result = await sb.from('tc_semanal').select('*').order('fecha', { ascending: false });
+    data = result.data || [];
+  } catch(e) { console.warn('tc_semanal error:', e.message); data = []; }
+  _tcSemCache = data;
   const tbody = document.getElementById('tbody-tc');
   const num = (v, dec) => (v===null||v===undefined||isNaN(parseFloat(v))) ? '—' : parseFloat(v).toLocaleString('es-AR',{minimumFractionDigits:dec,maximumFractionDigits:dec});
-  tbody.innerHTML = data?.map(r => `
+  tbody.innerHTML = (data.length ? data.map(r => `
     <tr>
-      <td>${r.anio}</td><td>${meses[r.mes]}</td>
+      <td>${_rangoSemana(r.fecha)}</td>
       <td class="num">${num(r.ars_usd,2)}</td>
       <td class="num">${num(r.uyu_usd,3)}</td>
       <td class="num">${num(r.eur_usd,4)}</td>
-      <td><button class="btn-secondary" style="padding:4px 10px;font-size:11px" onclick="editTC(${r.anio},${r.mes},${r.ars_usd},${r.uyu_usd},${r.eur_usd})">Editar</button></td>
-    </tr>`).join('') || '<tr><td colspan="6" style="color:var(--text3);text-align:center">Sin datos</td></tr>';
+      <td><button class="btn-secondary" style="padding:4px 10px;font-size:11px" onclick="editTC('${r.fecha}')">Editar</button></td>
+    </tr>`).join('') : '<tr><td colspan="5" style="color:var(--text3);text-align:center">Sin semanas cargadas</td></tr>');
+  // Default: domingo de la semana en curso, si el campo está vacío
+  const fEl = document.getElementById('tc-fecha');
+  if (fEl && !fEl.value) { fEl.value = _domingoDe(_ymd(new Date())); onTcFechaChange(); }
 }
 
-function editTC(anio, mes, ars, uyu, eur) {
-  document.getElementById('tc-anio').value = anio;
-  document.getElementById('tc-mes').value = mes;
-  document.getElementById('tc-ars-in').value = ars;
-  document.getElementById('tc-uyu-in').value = uyu;
-  document.getElementById('tc-eur-in').value = eur;
+// Carga una semana existente en el editor (por fecha del domingo).
+function editTC(fecha) {
+  const fEl = document.getElementById('tc-fecha'); if (fEl) fEl.value = fecha;
+  onTcFechaChange();
 }
 
-async function guardarTC() {
-  const anio = parseInt(document.getElementById('tc-anio').value);
-  const mes = parseInt(document.getElementById('tc-mes').value);
-  if (!anio || !mes) return toast('Elegí año y mes', 'error');
+async function guardarTCSemana() {
+  const fEl = document.getElementById('tc-fecha');
+  if (!fEl || !fEl.value) return toast('Elegí la semana', 'error');
+  const fecha = _domingoDe(fEl.value);
   const ars = parseFloat(document.getElementById('tc-ars-in').value);
   const uyu = parseFloat(document.getElementById('tc-uyu-in').value);
   const eur = parseFloat(document.getElementById('tc-eur-in').value);
-  if (isNaN(ars) && isNaN(uyu) && isNaN(eur)) return toast('Cargá al menos un tipo de cambio', 'error');
+  if (isNaN(ars) && isNaN(uyu) && isNaN(eur)) return toast('Cargá al menos un valor', 'error');
 
-  // Fila existente del mismo mes
-  const { data: existing } = await sb.from('tipo_de_cambio')
-    .select('*').eq('anio', anio).eq('mes', mes).maybeSingle();
-  // Fallback: último TC cargado (para arrastrar valores faltantes en filas nuevas)
-  let fb = existing;
-  if (!fb) {
-    const { data: latest } = await sb.from('tipo_de_cambio')
-      .select('*').order('anio', { ascending: false }).order('mes', { ascending: false }).limit(1);
-    fb = (latest && latest[0]) || {};
-  }
-
+  // Arrastra valores faltantes desde la semana previa más reciente (o defaults).
+  const prev = (_tcSemCache || []).filter(x => x.fecha <= fecha).sort((a,b) => b.fecha.localeCompare(a.fecha))[0] || {};
   const vals = {
-    ars_usd: !isNaN(ars) ? ars : (fb.ars_usd ?? 1220),
-    uyu_usd: !isNaN(uyu) ? uyu : (fb.uyu_usd ?? 42),
-    eur_usd: !isNaN(eur) ? eur : (fb.eur_usd ?? 0.92),
+    ars: !isNaN(ars) ? ars : (parseFloat(prev.ars_usd) || 1220),
+    uyu: !isNaN(uyu) ? uyu : (parseFloat(prev.uyu_usd) || 42.415),
+    eur: !isNaN(eur) ? eur : (parseFloat(prev.eur_usd) || 0.9638),
   };
 
-  // Guardado vía función SECURITY DEFINER (saltea RLS, siempre persiste)
-  const { data: rpcRow, error } = await sb.rpc('set_tipo_cambio', {
-    p_anio: anio, p_mes: mes,
-    p_ars: vals.ars_usd, p_uyu: vals.uyu_usd, p_eur: vals.eur_usd
+  // RPC SECURITY DEFINER: guarda la semana Y refresca el mes en tipo_de_cambio.
+  const { data: row, error } = await sb.rpc('set_tc_semanal', {
+    p_fecha: fecha, p_ars: vals.ars, p_uyu: vals.uyu, p_eur: vals.eur
   });
-  if (error) return toast('Error: ' + error.message + ' (¿corriste fix_tc_rpc.sql?)', 'error');
-  const real = rpcRow ? parseFloat(rpcRow.ars_usd) : null;
-  if (real != null && Math.abs(real - vals.ars_usd) < 0.001) {
-    toast(`Guardado ✓ — ARS en base: ${real.toLocaleString('es-AR')}`, 'success');
+  if (error) return toast('Error: ' + error.message + ' (¿corriste crear_tc_semanal.sql?)', 'error');
+  const real = row ? parseFloat(row.ars_usd) : null;
+  if (real != null && Math.abs(real - vals.ars) < 0.001) {
+    toast('Semana guardada ✓ ' + _rangoSemana(fecha), 'success');
   } else {
-    toast('No se guardó. Corré fix_tc_rpc.sql en Supabase.', 'error');
+    toast('No se guardó bien. Revisá que crear_tc_semanal.sql esté corrido.', 'error');
   }
   try { await loadTC(); } catch(e) { console.warn('loadTC:', e.message); }
   try { await loadTC_tabla(); } catch(e) { console.warn('loadTC_tabla:', e.message); }
-}
-
-async function loadTCInputs() {
-  const anio = parseInt(document.getElementById('tc-anio').value);
-  const mes = parseInt(document.getElementById('tc-mes').value);
-  const { data } = await sb.from('tipo_de_cambio')
-    .select('*').eq('anio', anio).eq('mes', mes).maybeSingle();
-  document.getElementById('tc-ars-in').value = data?.ars_usd ?? '';
-  document.getElementById('tc-uyu-in').value = data?.uyu_usd ?? '';
-  document.getElementById('tc-eur-in').value = data?.eur_usd ?? '';
 }
 
 // ============================================
@@ -4549,12 +4545,18 @@ async function loadDashboard() {
     </div>`).join('');
 
   // Bar titulares (patrimonio total por titular: props + bancos + PE + autos; reparte la "H")
+  // Se acumula por componente para poder mostrar las 4 columnas (Prop/Bancos/PE/Autos) en la tabla.
+  const byTitC = {};
+  const addTitC = (titular, valor, comp) => splitTitular(titular, valor).forEach(s => {
+    const o = byTitC[s.titular] = byTitC[s.titular] || { prop:0, banco:0, pe:0, autos:0 };
+    o[comp] += s.valor;
+  });
+  props?.forEach(p => addTitC(p.titular, p.valor_2026||0, 'prop'));
+  bancosMovs.forEach(m => { const t = bancosTitMap[m.banco_id]; if (t) addTitC(t, bancoNetoMap[m.banco_id]||0, 'banco'); });
+  pe?.forEach(p => addTitC(p.titular, p.valor_2026||0, 'pe'));
+  autos?.forEach(a => addTitC(a.titular, a.valor_2026||0, 'autos'));
   const byTit = {};
-  const addTit = (titular, valor) => splitTitular(titular, valor).forEach(s => { byTit[s.titular] = (byTit[s.titular]||0) + s.valor; });
-  props?.forEach(p => addTit(p.titular, p.valor_2026||0));
-  bancosMovs.forEach(m => { const t = bancosTitMap[m.banco_id]; if (t) addTit(t, bancoNetoMap[m.banco_id]||0); });
-  pe?.forEach(p => addTit(p.titular, p.valor_2026||0));
-  autos?.forEach(a => addTit(a.titular, a.valor_2026||0));
+  Object.entries(byTitC).forEach(([k,o]) => byTit[k] = o.prop + o.banco + o.pe + o.autos);
   const titSorted = Object.entries(byTit).sort((a,b)=>b[1]-a[1]);
   chartTitulares = destroyChart(chartTitulares);
   const ctxT = document.getElementById('chart-titulares')?.getContext('2d');
@@ -4573,12 +4575,24 @@ async function loadDashboard() {
     });
   }
   const titNames = { JC:'Juan Cocci', FC:'Franco Cocci', M:'Martona', MFL:'M.F. Lorenzo', YAC:'Y.A. Cocci', FCC:'F.C. Cocci', G:'Grupillo' };
+  const _sumC = comp => Object.values(byTitC).reduce((a,o)=>a+(o[comp]||0),0);
   document.getElementById('tabla-titulares').innerHTML = `<div class="table-wrap"><table>
-    <thead><tr><th>Titular</th><th class="num">USD Total</th><th class="num">%</th></tr></thead>
-    <tbody>${titSorted.map(([k,v])=>`
+    <thead><tr><th>Titular</th><th class="num">Propiedades</th><th class="num">Bancos</th><th class="num">Private Equity</th><th class="num">Autos</th><th class="num">USD Total</th><th class="num">%</th></tr></thead>
+    <tbody>${titSorted.map(([k,v])=>{ const o=byTitC[k]||{prop:0,banco:0,pe:0,autos:0}; return `
       <tr><td class="bold">${k} <span style="color:var(--text3);font-weight:400;font-size:11px">${titNames[k]||''}</span></td>
-      <td class="num">$${fmt(v)}</td>
-      <td class="num" style="color:var(--text3)">${pct(v,total)}</td></tr>`).join('')}
+      <td class="num">$${fmt(o.prop)}</td>
+      <td class="num">$${fmt(o.banco)}</td>
+      <td class="num">$${fmt(o.pe)}</td>
+      <td class="num">$${fmt(o.autos)}</td>
+      <td class="num bold">$${fmt(v)}</td>
+      <td class="num" style="color:var(--text3)">${pct(v,total)}</td></tr>`;}).join('')}
+      <tr style="border-top:2px solid var(--border2)"><td class="bold" style="color:var(--gold)">TOTAL</td>
+      <td class="num bold">$${fmt(_sumC('prop'))}</td>
+      <td class="num bold">$${fmt(_sumC('banco'))}</td>
+      <td class="num bold">$${fmt(_sumC('pe'))}</td>
+      <td class="num bold">$${fmt(_sumC('autos'))}</td>
+      <td class="num bold" style="color:var(--gold)">$${fmt(total)}</td>
+      <td class="num" style="color:var(--text3)">100%</td></tr>
     </tbody></table></div>`;
 
   // Donut Renta vs No Renta
@@ -4669,6 +4683,9 @@ async function loadPatrimonio() {
   (data || []).forEach(r => { if (r.anio <= 2025) {
     r.propiedades = (_propDer[r.titular] && _propDer[r.titular][r.anio]) || 0;
     r.banco = (_act.banco[r.titular]||{})[r.anio] || 0;
+    // 2017: no hay data de bancos → se usa por default lo mismo que 2018 (por cliente),
+    // para que la curva del patrimonio histórico sea más representativa.
+    if (r.anio === 2017) r.banco = (_act.banco[r.titular]||{})[2018] || 0;
     r.private_equity = (_act.pe[r.titular]||{})[r.anio] || 0;
     r.autos = (_act.autos[r.titular]||{})[r.anio] || 0;
   } });
@@ -10282,8 +10299,7 @@ function renderBancoClientes(rows, usdMap) {
   });
   cliTable(box, 'Por cliente', [
     {key:'inv',label:'Inversión'}, {key:'cash',label:'Cash'}, {key:'sub',label:'Subtotal'},
-    {key:'cred',label:'Crédito',cls:'negative'}, {key:'neto',label:'Neto'},
-    {label:'% Apal.', pct:['cred','sub']}
+    {key:'cred',label:'Crédito',cls:'negative'}, {label:'% Apal.', pct:['cred','sub']}, {key:'neto',label:'Neto'}
   ], acc);
 }
 
@@ -10334,7 +10350,7 @@ function renderSocClientes(rows, getMovTotals) {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260713-095';
+const APP_VERSION = '20260720-098';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
