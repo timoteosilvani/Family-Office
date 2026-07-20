@@ -3540,6 +3540,20 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
           </div>
           <p style="color:var(--text3);font-size:11px;margin-top:6px">Cargá los valores de cierre del domingo mirando investing (USD/ARS, USD/UYU, USD/EUR). Se usan toda la semana y refrescan el mes en curso para las conversiones.</p>
         </div>
+
+        <!-- Histórico mensual (compacto) con filtro por año -->
+        <div class="card" style="margin-top:16px;max-width:520px">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px">
+            <div class="section-title" style="font-size:13px;margin:0">TC mensual histórico</div>
+            <select class="fld" id="tc-hist-anio" style="width:auto;padding:4px 8px;font-size:12px" onchange="renderTCHist()"></select>
+          </div>
+          <div class="table-wrap">
+            <table style="font-size:12px">
+              <thead><tr><th>Mes</th><th class="num">USD/ARS</th><th class="num">USD/UYU</th><th class="num">USD/EUR</th></tr></thead>
+              <tbody id="tbody-tc-hist"><tr><td colspan="4" style="color:var(--text3);text-align:center">—</td></tr></tbody>
+            </table>
+          </div>
+        </div>
       </div>
 
     </div><!-- /content -->
@@ -4366,6 +4380,7 @@ async function loadTC_tabla() {
   // Default: domingo de la semana en curso, si el campo está vacío
   const fEl = document.getElementById('tc-fecha');
   if (fEl && !fEl.value) { fEl.value = _domingoDe(_ymd(new Date())); onTcFechaChange(); }
+  try { await loadTCHist(); } catch(e) { console.warn('loadTCHist:', e.message); }
 }
 
 // Carga una semana existente en el editor (por fecha del domingo).
@@ -4404,6 +4419,37 @@ async function guardarTCSemana() {
   }
   try { await loadTC(); } catch(e) { console.warn('loadTC:', e.message); }
   try { await loadTC_tabla(); } catch(e) { console.warn('loadTC_tabla:', e.message); }
+}
+
+// ---- TC mensual histórico (compacto, filtro por año) — lee la tabla mensual tipo_de_cambio ----
+let _tcMensualCache = [];
+async function loadTCHist() {
+  try {
+    const { data } = await sb.from('tipo_de_cambio').select('*').order('anio', { ascending: false }).order('mes', { ascending: false });
+    _tcMensualCache = data || [];
+  } catch(e) { _tcMensualCache = []; }
+  const sel = document.getElementById('tc-hist-anio');
+  if (sel) {
+    const anios = [...new Set(_tcMensualCache.map(r => r.anio))].sort((a,b) => b - a);
+    const prev = sel.value;
+    sel.innerHTML = anios.length ? anios.map(a => `<option value="${a}">${a}</option>`).join('') : '<option value="">—</option>';
+    if (prev && anios.includes(parseInt(prev))) sel.value = prev;
+  }
+  renderTCHist();
+}
+function renderTCHist() {
+  const meses = ['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  const sel = document.getElementById('tc-hist-anio');
+  const anio = sel ? parseInt(sel.value) : null;
+  const num = (v, dec) => (v===null||v===undefined||isNaN(parseFloat(v))) ? '—' : parseFloat(v).toLocaleString('es-AR',{minimumFractionDigits:dec,maximumFractionDigits:dec});
+  const rows = _tcMensualCache.filter(r => r.anio === anio).sort((a,b) => a.mes - b.mes);
+  const tb = document.getElementById('tbody-tc-hist');
+  if (tb) tb.innerHTML = rows.length ? rows.map(r => `
+    <tr><td>${meses[r.mes] || r.mes}</td>
+      <td class="num">${num(r.ars_usd,2)}</td>
+      <td class="num">${num(r.uyu_usd,3)}</td>
+      <td class="num">${num(r.eur_usd,4)}</td></tr>`).join('')
+    : '<tr><td colspan="4" style="color:var(--text3);text-align:center">Sin datos</td></tr>';
 }
 
 // ============================================
@@ -4680,16 +4726,33 @@ async function loadPatrimonio() {
   // Propiedades derivadas de PROP_HIST_DATA + banco/PE/autos del COMPLETO definitivo (2017-2025); 2026 en vivo.
   const _propDer = derivePropsHistByTit();
   const _act = deriveActivosByTit();
-  (data || []).forEach(r => { if (r.anio <= 2025) {
-    r.propiedades = (_propDer[r.titular] && _propDer[r.titular][r.anio]) || 0;
-    r.banco = (_act.banco[r.titular]||{})[r.anio] || 0;
-    // 2017: no hay data de bancos → se usa por default lo mismo que 2018 (por cliente),
-    // para que la curva del patrimonio histórico sea más representativa.
-    if (r.anio === 2017) r.banco = (_act.banco[r.titular]||{})[2018] || 0;
-    r.private_equity = (_act.pe[r.titular]||{})[r.anio] || 0;
-    r.autos = (_act.autos[r.titular]||{})[r.anio] || 0;
-  } });
-  patData = (data || []).filter(r => r.titular !== 'H'); // H se reparte en FC/YAC/FCC; nunca como fila/serie propia
+  // Componentes derivados (hardcodeados, verificados) de un titular/año.
+  // 2017 no tiene data de bancos → se usa por default lo mismo que 2018 (por cliente).
+  const compFor = (tit, anio) => ({
+    propiedades:    (_propDer[tit] && _propDer[tit][anio]) || 0,
+    banco:          ((anio === 2017 ? (_act.banco[tit]||{})[2018] : (_act.banco[tit]||{})[anio]) || 0),
+    private_equity: (_act.pe[tit]||{})[anio] || 0,
+    autos:          (_act.autos[tit]||{})[anio] || 0,
+  });
+  const rows = (data || []).slice();
+  // 1) Override de valores hardcodeados para <=2025 (2026 y posteriores quedan como en Supabase).
+  rows.forEach(r => { if (r.anio <= 2025) { const c = compFor(r.titular, r.anio); r.propiedades=c.propiedades; r.banco=c.banco; r.private_equity=c.private_equity; r.autos=c.autos; } });
+  // 2) Completar filas 2017-2025 faltantes para que CADA titular tenga la curva histórica completa
+  //    (independiente de qué filas existan en patrimonio_historico). Evita huecos/saltos falsos en los gráficos.
+  const present = new Set(rows.map(r => r.titular + '-' + r.anio));
+  const titsFill = verComo ? [verComo] : [...new Set([].concat(
+    Object.keys(_propDer), Object.keys(_act.banco), Object.keys(_act.pe), Object.keys(_act.autos)))];
+  titsFill.forEach(tit => {
+    if (tit === 'H') return;
+    for (let y = 2017; y <= 2025; y++) {
+      if (present.has(tit + '-' + y)) continue;
+      const c = compFor(tit, y);
+      if ((c.propiedades + c.banco + c.private_equity + c.autos) > 0) {
+        rows.push({ titular: tit, anio: y, ...c });
+      }
+    }
+  });
+  patData = rows.filter(r => r.titular !== 'H'); // H se reparte en FC/YAC/FCC; nunca como fila/serie propia
   renderPatrimonioPivot();
   renderPatrimonioLinea();
 }
@@ -10350,7 +10413,7 @@ function renderSocClientes(rows, getMovTotals) {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260720-098';
+const APP_VERSION = '20260720-099';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
