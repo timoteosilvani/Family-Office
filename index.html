@@ -1207,6 +1207,9 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
             </div>
           </div>
 
+          <!-- Alarma: propiedades de Renta sin alquiler cargado -->
+          <div id="alq-alarma" style="margin-bottom:14px"></div>
+
           <!-- Tabla contratos -->
           <div class="card" style="margin-bottom:16px">
             <div class="table-wrap">
@@ -3661,7 +3664,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
         </div>
       </div>
       <div class="form-row cols-2">
-        <div><label class="fld">Origen (cuenta/banco)</label><input class="fld" id="nd-origen"></div>
+        <div><label class="fld">Origen (cuenta banco operativa)</label><select class="fld" id="nd-origen"><option value="">—</option></select></div>
         <div><label class="fld">Destino</label><input class="fld" id="nd-destino"></div>
       </div>
       <div class="form-row cols-2">
@@ -3678,6 +3681,34 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
     <div class="modal-footer">
       <button class="btn-secondary" onclick="closeModal('modal-deuda-nueva')">Cancelar</button>
       <button class="btn-primary" style="width:auto;padding:10px 24px" onclick="guardarDeuda()">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Pago / Cobro Parcial de una Deuda o Crédito -->
+<div class="modal-overlay" id="modal-pago-parcial">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">Registrar pago / cobro parcial</div>
+      <button class="modal-close" onclick="closeModal('modal-pago-parcial')">×</button>
+    </div>
+    <div class="modal-body">
+      <p id="pp-info" style="font-size:12px;color:var(--text3);margin-bottom:12px"></p>
+      <div class="form-row cols-3">
+        <div><label class="fld">Fecha</label><input class="fld" type="date" id="pp-fecha"></div>
+        <div><label class="fld">Monto</label><input class="fld" type="number" id="pp-monto"></div>
+        <div><label class="fld">Cuenta banco (origen/destino)</label><select class="fld" id="pp-cuenta"><option value="">—</option></select></div>
+      </div>
+      <div class="form-row cols-1"><div><label class="fld">Notas</label><input class="fld" id="pp-notas"></div></div>
+      <div class="section-title" style="font-size:13px;margin:14px 0 8px">Movimientos registrados</div>
+      <div class="table-wrap"><table style="font-size:12px">
+        <thead><tr><th>Fecha</th><th class="num">Monto</th><th>Cuenta</th><th>Notas</th><th></th></tr></thead>
+        <tbody id="tbody-pp"><tr><td colspan="5" style="color:var(--text3);text-align:center">—</td></tr></tbody>
+      </table></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closeModal('modal-pago-parcial')">Cerrar</button>
+      <button class="btn-primary" style="width:auto;padding:10px 24px" onclick="guardarPagoParcial()">Registrar</button>
     </div>
   </div>
 </div>
@@ -6455,25 +6486,40 @@ async function loadAportes() {
   cont.innerHTML = '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:14px;align-items:start">' + Object.keys(byBank).map(bid => {
     const aps = byBank[bid];
     const neto = aps.reduce((a,r) => a + (neg(r.tipo) ? -1 : 1) * Math.abs(r.monto||0), 0);
+    // Acordeón: por defecto colapsado (solo título + neto); se despliega al clickear el título.
     return `<div class="card" style="margin:0">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;cursor:pointer" onclick="toggleAporteBank('${bid}')" title="Mostrar/ocultar movimientos">
         <div style="display:flex;align-items:center;gap:8px">
+          <span id="ap-chev-${bid}" style="color:var(--text3);font-size:11px;width:10px;display:inline-block">▸</span>
           <div class="section-title" style="margin:0;font-size:14px">${_apBancosNombre[bid] || '—'}</div>
-          <button class="btn-secondary" title="Agregar movimiento a esta cuenta" style="padding:1px 9px;font-size:15px;font-weight:700;line-height:1.1" onclick="nuevoAporteCuenta('${bid}')">+</button>
+          <span style="font-size:11px;color:var(--text3)">(${aps.length})</span>
+          <button class="btn-secondary" title="Agregar movimiento a esta cuenta" style="padding:1px 9px;font-size:15px;font-weight:700;line-height:1.1" onclick="event.stopPropagation();nuevoAporteCuenta('${bid}')">+</button>
         </div>
         <div style="font-size:12px;color:var(--text3)">Neto aportado: <b style="color:${neto<0?'var(--usa)':'var(--esp)'}">$${fmt(neto)}</b></div>
       </div>
-      <div class="table-wrap"><table>
-        <thead><tr><th>Fecha</th><th>Tipo</th><th class="num">Monto</th><th></th></tr></thead>
-        <tbody>${aps.map(r => `<tr>
-          <td>${r.fecha}</td>
-          <td>${tipoLbl[r.tipo] || r.tipo}${r.notas ? ` · <span style="color:var(--text3);font-size:11px">${r.notas}</span>` : ''}</td>
-          <td class="num" style="color:${neg(r.tipo) ? 'var(--usa)' : 'var(--esp)'}">${neg(r.tipo) ? '-' : '+'} $${fmt(Math.abs(r.monto||0))}</td>
-          <td class="num"><button class="btn-secondary" style="padding:3px 9px;font-size:11px" onclick="borrarAporte('${r.id}')">✕</button></td>
-        </tr>`).join('')}</tbody>
-      </table></div>
+      <div id="ap-body-${bid}" style="display:none">
+        <div class="table-wrap"><table>
+          <thead><tr><th>Fecha</th><th>Tipo</th><th class="num">Monto</th><th></th></tr></thead>
+          <tbody>${aps.map(r => `<tr>
+            <td>${r.fecha}</td>
+            <td>${tipoLbl[r.tipo] || r.tipo}${r.notas ? ` · <span style="color:var(--text3);font-size:11px">${r.notas}</span>` : ''}</td>
+            <td class="num" style="color:${neg(r.tipo) ? 'var(--usa)' : 'var(--esp)'}">${neg(r.tipo) ? '-' : '+'} $${fmt(Math.abs(r.monto||0))}</td>
+            <td class="num"><button class="btn-secondary" style="padding:3px 9px;font-size:11px" onclick="borrarAporte('${r.id}')">✕</button></td>
+          </tr>`).join('')}</tbody>
+        </table></div>
+      </div>
     </div>`;
   }).join('') + '</div>';
+}
+
+// Acordeón de Aportes: muestra/oculta los movimientos de una cuenta.
+function toggleAporteBank(bid) {
+  const body = document.getElementById('ap-body-' + bid);
+  const chev = document.getElementById('ap-chev-' + bid);
+  if (!body) return;
+  const abierto = body.style.display !== 'none';
+  body.style.display = abierto ? 'none' : 'block';
+  if (chev) chev.textContent = abierto ? '▸' : '▾';
 }
 
 // "+" de cada cuenta: preselecciona el banco y lleva al form de carga arriba.
@@ -7505,24 +7551,41 @@ async function loadDeudas() {
   const bal = creditos - deudas;
   document.getElementById('kpi-balance-deudas').textContent = '$' + fmt(Math.abs(bal));
   document.getElementById('kpi-balance-deudas').className = 'kpi-value ' + (bal >= 0 ? 'positive':'negative');
+  // Origen = cuentas de banco operativas (para el modal de nueva deuda)
+  try {
+    const { data: bcs } = await aplicarFiltroTit(sb.from('bancos').select('id,nombre,titular').eq('activo', true).order('nro'));
+    const selO = document.getElementById('nd-origen');
+    if (selO) selO.innerHTML = '<option value="">—</option>' +
+      (bcs||[]).map(b => `<option value="${b.nombre} (${b.titular})">${b.nombre} (${b.titular})</option>`).join('');
+  } catch(e) { console.warn('bancos origen deudas:', e.message); }
   renderDeudas('all');
 }
 
 function renderDeudas(filtro) {
   const rows = filtro === 'all' ? deudasData : deudasData.filter(d => d.tipo === filtro);
   const colTipo = { Credito:'positive', Deuda:'negative', 'Compensación':'' };
-  document.getElementById('tbody-deudas').innerHTML = rows.map(r => `
-    <tr>
-      <td style="font-size:11px">${r.fecha ? new Date(r.fecha).toLocaleDateString('es-AR') : '—'}</td>
+  document.getElementById('tbody-deudas').innerHTML = rows.map(r => {
+    const pagado = !!r.cobrado_pagado;
+    // Pagadas/cobradas → gris + tachadas. Vigentes → fondo verde (Crédito) / rojo (Deuda).
+    const bg = pagado ? 'opacity:0.5'
+      : (r.tipo === 'Credito' ? 'background:rgba(39,174,96,.10)'
+      : r.tipo === 'Deuda' ? 'background:rgba(192,57,43,.10)' : '');
+    const strike = pagado ? 'text-decoration:line-through' : '';
+    return `<tr style="${bg}">
+      <td style="font-size:11px;${strike}">${r.fecha ? new Date(r.fecha).toLocaleDateString('es-AR') : '—'}</td>
       <td><span class="${colTipo[r.tipo]||''}">${r.tipo}</span></td>
-      <td class="bold">${r.nombre_contraparte||'—'}</td>
+      <td class="bold" style="${strike}">${r.nombre_contraparte||'—'}</td>
       <td style="color:var(--text3)">${r.sociedad||'—'}</td>
       <td style="font-size:11px;color:var(--text3)">${r.origen||'—'}</td>
-      <td class="num">$${fmt(Math.abs(r.monto||0))} <span style="color:var(--text3);font-size:10px">${r.moneda}</span></td>
-      <td class="num ${(r.saldo||0) > 0 ? 'positive':'negative'}">$${fmt(Math.abs(r.saldo||0))}</td>
-      <td style="text-align:center">${r.cobrado_pagado ? '✓' : '—'}</td>
-      <td><button class="btn-secondary" style="padding:3px 8px;font-size:11px" onclick="toggleCobrado('${r.id}',${!r.cobrado_pagado})">${r.cobrado_pagado?'Reabrir':'Cerrar'}</button></td>
-    </tr>`).join('') || '<tr><td colspan="9" style="color:var(--text3);text-align:center">Sin datos</td></tr>';
+      <td class="num" style="${strike}">$${fmt(Math.abs(r.monto||0))} <span style="color:var(--text3);font-size:10px">${r.moneda}</span></td>
+      <td class="num ${(r.saldo||0) > 0 ? 'positive':'negative'}" style="${strike}">$${fmt(Math.abs(r.saldo||0))}</td>
+      <td style="text-align:center">${pagado ? '✓' : '—'}</td>
+      <td style="white-space:nowrap">
+        <button class="btn-secondary" style="padding:3px 8px;font-size:11px" onclick="abrirPagoParcial('${r.id}')" title="Registrar pago/cobro parcial">＄ Parcial</button>
+        <button class="btn-secondary" style="padding:3px 8px;font-size:11px" onclick="toggleCobrado('${r.id}',${!pagado})">${pagado?'Reabrir':'Cerrar'}</button>
+      </td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="9" style="color:var(--text3);text-align:center">Sin datos</td></tr>';
 }
 
 function filtroDeuda(val, btn) {
@@ -7534,6 +7597,92 @@ function filtroDeuda(val, btn) {
 async function toggleCobrado(id, val) {
   await sb.from('deudas').update({ cobrado_pagado: val }).eq('id', id);
   toast('Estado actualizado ✓', 'success');
+  await loadDeudas();
+}
+
+// ---- Pagos/cobros parciales de una deuda/crédito (tabla pagos_deuda) ----
+let _ppCtx = null;
+async function abrirPagoParcial(deudaId) {
+  const d = (deudasData || []).find(x => x.id === deudaId);
+  if (!d) return;
+  _ppCtx = d;
+  const setInfo = dd => { document.getElementById('pp-info').innerHTML =
+    `${dd.tipo} · <b>${dd.nombre_contraparte||'—'}</b> · Saldo actual: <b>$${fmt(Math.abs(dd.saldo||0))} ${dd.moneda||''}</b>`; };
+  setInfo(d);
+  document.getElementById('pp-fecha').value = new Date().toISOString().slice(0, 10);
+  document.getElementById('pp-monto').value = '';
+  document.getElementById('pp-notas').value = '';
+  try {
+    const { data: bcs } = await aplicarFiltroTit(sb.from('bancos').select('id,nombre,titular').eq('activo', true).order('nro'));
+    const sel = document.getElementById('pp-cuenta');
+    if (sel) sel.innerHTML = '<option value="">—</option>' + (bcs||[]).map(b => `<option value="${b.id}">${b.nombre} (${b.titular})</option>`).join('');
+  } catch(e) {}
+  await cargarPagosParciales(deudaId);
+  openModal('modal-pago-parcial');
+}
+
+async function cargarPagosParciales(deudaId) {
+  const tb = document.getElementById('tbody-pp');
+  try {
+    const { data } = await sb.from('pagos_deuda').select('*').eq('deuda_id', deudaId).order('fecha', { ascending: false });
+    if (!data || !data.length) { tb.innerHTML = '<tr><td colspan="5" style="color:var(--text3);text-align:center">Sin movimientos</td></tr>'; return; }
+    tb.innerHTML = data.map(p => `<tr>
+      <td>${p.fecha ? new Date(p.fecha).toLocaleDateString('es-AR') : '—'}</td>
+      <td class="num">$${fmt(Math.abs(p.monto||0))}</td>
+      <td style="font-size:11px;color:var(--text3)">${p.cuenta_nombre||'—'}</td>
+      <td style="font-size:11px;color:var(--text3)">${p.notas||''}</td>
+      <td><button class="btn-secondary" style="padding:2px 7px;font-size:11px" onclick="borrarPagoParcial('${p.id}','${deudaId}')">✕</button></td>
+    </tr>`).join('');
+  } catch(e) { tb.innerHTML = `<tr><td colspan="5" style="color:var(--usa);text-align:center">¿Corriste crear_pagos_deuda.sql? (${e.message})</td></tr>`; }
+}
+
+async function guardarPagoParcial() {
+  if (!_ppCtx) return;
+  const monto = parseFloat(document.getElementById('pp-monto').value) || 0;
+  if (!monto) return toast('Poné un monto', 'error');
+  const cuentaSel = document.getElementById('pp-cuenta');
+  const cuenta_banco_id = cuentaSel.value || null;
+  const cuenta_nombre = cuenta_banco_id ? cuentaSel.options[cuentaSel.selectedIndex].text : null;
+  const { error } = await sb.from('pagos_deuda').insert({
+    deuda_id: _ppCtx.id,
+    fecha: document.getElementById('pp-fecha').value || null,
+    monto: Math.abs(monto),
+    cuenta_banco_id, cuenta_nombre,
+    notas: document.getElementById('pp-notas').value || null,
+    created_by: currentUser?.id,
+  });
+  if (error) return toast('Error: ' + error.message + ' (¿corriste crear_pagos_deuda.sql?)', 'error');
+  // Actualiza saldo/parcial de la deuda (monto/parcial/saldo se manejan como magnitudes positivas).
+  const nuevoParcial = (parseFloat(_ppCtx.parcial)||0) + Math.abs(monto);
+  const nuevoSaldo = (parseFloat(_ppCtx.monto)||0) - nuevoParcial;
+  const upd = { parcial: nuevoParcial, saldo: nuevoSaldo, cobrado_pagado: nuevoSaldo <= 0.005 };
+  await sb.from('deudas').update(upd).eq('id', _ppCtx.id);
+  _ppCtx = { ..._ppCtx, ...upd };
+  document.getElementById('pp-info').innerHTML =
+    `${_ppCtx.tipo} · <b>${_ppCtx.nombre_contraparte||'—'}</b> · Saldo actual: <b>$${fmt(Math.abs(nuevoSaldo))} ${_ppCtx.moneda||''}</b>`;
+  document.getElementById('pp-monto').value = '';
+  document.getElementById('pp-notas').value = '';
+  toast('Parcial registrado ✓', 'success');
+  await cargarPagosParciales(_ppCtx.id);
+  await loadDeudas();
+}
+
+async function borrarPagoParcial(id, deudaId) {
+  if (!confirm('¿Borrar este movimiento parcial?')) return;
+  let monto = 0;
+  try { const { data } = await sb.from('pagos_deuda').select('monto').eq('id', id).maybeSingle(); monto = parseFloat(data?.monto)||0; } catch(e){}
+  const { error } = await sb.from('pagos_deuda').delete().eq('id', id);
+  if (error) return toast('Error: ' + error.message, 'error');
+  const d = (deudasData || []).find(x => x.id === deudaId);
+  if (d) {
+    const np = Math.max(0, (parseFloat(d.parcial)||0) - monto);
+    const ns = (parseFloat(d.monto)||0) - np;
+    await sb.from('deudas').update({ parcial: np, saldo: ns, cobrado_pagado: ns <= 0.005 }).eq('id', deudaId);
+    _ppCtx = { ...d, parcial: np, saldo: ns };
+    document.getElementById('pp-info').innerHTML =
+      `${d.tipo} · <b>${d.nombre_contraparte||'—'}</b> · Saldo actual: <b>$${fmt(Math.abs(ns))} ${d.moneda||''}</b>`;
+  }
+  await cargarPagosParciales(deudaId);
   await loadDeudas();
 }
 
@@ -9051,6 +9200,32 @@ async function loadAlquileres() {
     // Render table
     renderAlquileres(filtered);
 
+    // ===== Alarma: propiedades de RENTA sin alquiler cargado (regla: 1 contrato por propiedad; Caminito = 4 unidades) =====
+    try {
+      let rentaProps = [];
+      const { data: rp } = await aplicarFiltroTit(sb.from('propiedades').select('id,nombre,titular,tipo').eq('activa', true).eq('vendida', false));
+      rentaProps = (rp || []).filter(p => p.tipo === 'R');
+      const activeByProp = {};
+      contratosData.filter(c => c.activo !== false).forEach(c => {
+        const pid = c.propiedad_id || (c.propiedad && c.propiedad.id);
+        if (pid) activeByProp[pid] = (activeByProp[pid] || 0) + 1;
+      });
+      const esCaminito = p => /caminito/i.test(p.nombre || '');
+      const faltan = rentaProps.filter(p => (activeByProp[p.id] || 0) < (esCaminito(p) ? 4 : 1));
+      const exceso = rentaProps.filter(p => !esCaminito(p) && (activeByProp[p.id] || 0) > 1);
+      const box = document.getElementById('alq-alarma');
+      if (box) {
+        let html = '';
+        if (faltan.length) html += `<div style="background:rgba(192,57,43,.12);border:1px solid var(--usa);border-radius:8px;padding:10px 14px;margin-bottom:8px">
+          <div style="font-weight:600;color:var(--usa);font-size:13px;margin-bottom:4px">⚠️ Propiedades de Renta sin alquiler cargado (${faltan.length})</div>
+          <div style="font-size:12px;color:var(--text2)">${faltan.map(p => `[${p.titular}] ${p.nombre}${esCaminito(p) ? ` (${activeByProp[p.id]||0}/4 unidades)` : ''}`).join(' · ')}</div></div>`;
+        if (exceso.length) html += `<div style="background:rgba(212,160,23,.12);border:1px solid var(--uru);border-radius:8px;padding:10px 14px">
+          <div style="font-weight:600;color:var(--uru);font-size:13px;margin-bottom:4px">⚠️ Propiedades con más de un alquiler activo (${exceso.length})</div>
+          <div style="font-size:12px;color:var(--text2)">Debería haber 1 por propiedad: ${exceso.map(p => `[${p.titular}] ${p.nombre} (${activeByProp[p.id]})`).join(' · ')}</div></div>`;
+        box.innerHTML = html;
+      }
+    } catch(e) { console.warn('alarma alquileres:', e.message); }
+
   } catch(e) {
     console.warn('loadAlquileres error:', e.message);
     document.getElementById('tbody-alquileres').innerHTML = 
@@ -9089,8 +9264,9 @@ function renderAlquileres(contratos) {
       <td style="font-size:11px">${ct.fecha_fin ? new Date(ct.fecha_fin).toLocaleDateString('es-AR') : 'Sin fecha'}</td>
       <td style="font-size:11px;color:${estadoColor}">${diasStr}</td>
       <td><span style="font-size:11px;color:${estadoColor}">${estadoLabel}</span></td>
-      <td>
+      <td style="white-space:nowrap">
         <button class="btn-secondary" style="padding:3px 8px;font-size:11px;margin-right:3px" onclick="editarContrato('${ct.id}')">✎</button>
+        ${ct.activo!==false ? `<button class="btn-secondary" style="padding:3px 8px;font-size:11px" onclick="finalizarContrato('${ct.id}')" title="Marcar finalizado → pasa a Históricos">✓ Finalizar</button>` : ''}
       </td>
       <td>
         ${window._contratoFiles && window._contratoFiles[ct.id] 
@@ -9102,6 +9278,18 @@ function renderAlquileres(contratos) {
       </td>
     </tr>`;
   }).join('') || '<tr><td colspan="12" style="color:var(--text3);text-align:center;padding:24px">Sin contratos. Usá "+ Nuevo Contrato" para agregar.</td></tr>';
+}
+
+// Marca un contrato como finalizado → pasa a Históricos (activo=false; si no tiene fecha_fin, hoy).
+async function finalizarContrato(id) {
+  if (!confirm('¿Marcar este contrato como finalizado? Pasa a Históricos.')) return;
+  const ct = (contratosData || []).find(c => c.id === id);
+  const upd = { activo: false };
+  if (ct && !ct.fecha_fin) upd.fecha_fin = new Date().toISOString().slice(0, 10);
+  const { error } = await sb.from('contratos_alquiler').update(upd).eq('id', id);
+  if (error) return toast('Error: ' + error.message, 'error');
+  toast('Contrato finalizado → Históricos ✓', 'success');
+  await loadAlquileres();
 }
 
 async function verCobros(contratoId, inquilino) {
@@ -10423,7 +10611,7 @@ function renderSocClientes(rows, getMovTotals) {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260720-100';
+const APP_VERSION = '20260720-101';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
