@@ -4716,7 +4716,7 @@ async function loadDashboard() {
       <td class="num positive">$${fmt(o.renta)}</td>
       <td class="num negative">$${fmt(o.gastos)}</td>
       <td class="num negative">$${fmt(o.imp)}</td>
-      <td class="num ${n>=0?'positive':'negative'} bold">$${fmt(n)}</td></tr>`; }).join('') || '<tr><td colspan="5" style="text-align:center;color:var(--text3)">Sin datos de renta 2026</td></tr>'}
+      <td class="num bold" style="font-size:17px;font-weight:700;color:${n>=0?'var(--esp)':'var(--usa)'}">$${fmt(n)}</td></tr>`; }).join('') || '<tr><td colspan="5" style="text-align:center;color:var(--text3)">Sin datos de renta 2026</td></tr>'}
     </tbody></table></div>`;
 
   // ===== Matriz País × Clase =====
@@ -6324,6 +6324,11 @@ async function loadBancos() {
   }
 }
 
+// Cuentas de banco a DESTACAR (negrita extra + puntito). Match por nombre normalizado (tolerante a acentos/puntuación).
+const _bancosDestacados = ['caja jc','caja fc','chase sanber 2320','chase miami fiore 3727','santander fionder 2856','bny mfl 139','caja fcc','caja yac','bny mfl b 253','bny grupillo b sanber corp','itau py','bny jcfc b 5946','bny oeste','caja mfl','itau fionder','bny juan cocci'];
+function _normBanco(s){ return String(s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]+/g,' ').trim(); }
+function _esBancoDestacado(nombre){ const n = _normBanco(nombre); return _bancosDestacados.some(k => n.includes(k)); }
+
 function renderBancos(paisFiltro) {
   // Save filter state if explicitly passed
   if (paisFiltro !== undefined) window._bancosFiltro = paisFiltro;
@@ -6356,9 +6361,10 @@ function renderBancos(paisFiltro) {
   tbody.innerHTML = rows.map(b => {
     const u = usdMap[b.id]; const mv = movMap[b.id];
     const mesTxt = mv ? `<span style="color:var(--text3);font-size:10px"> ${mesesAbr[mv.mes]}</span>` : '';
+    const dest = _esBancoDestacado(b.nombre);
     return `<tr class="row-${colPais[b.pais]||'arg'}">
       <td style="color:var(--text3)">${b.nro||'—'}</td>
-      <td class="bold">${b.nombre}${mesTxt} <span onclick="toggleOperativa('${b.id}',${b.es_operativa?'true':'false'})" title="Click para cambiar: Inversión / Operativa" style="cursor:pointer;font-size:9px;font-weight:600;border-radius:4px;padding:1px 5px;margin-left:4px;${b.es_operativa?'background:var(--gold-soft);color:var(--gold);border:1px solid var(--gold)':'background:var(--bg2);color:var(--text3);border:1px solid var(--border)'}">${b.es_operativa?'⚙ OPERATIVA':'💼 INVERSIÓN'}</span></td>
+      <td class="bold" style="${dest?'font-weight:800':''}">${dest?'<span style="color:var(--gold);margin-right:4px" title="Cuenta destacada">•</span>':''}${b.nombre}${mesTxt} <span onclick="toggleOperativa('${b.id}',${b.es_operativa?'true':'false'})" title="Click para cambiar: Inversión / Operativa" style="cursor:pointer;font-size:9px;font-weight:600;border-radius:4px;padding:1px 5px;margin-left:4px;${b.es_operativa?'background:var(--gold-soft);color:var(--gold);border:1px solid var(--gold)':'background:var(--bg2);color:var(--text3);border:1px solid var(--border)'}">${b.es_operativa?'⚙ OPERATIVA':'💼 INVERSIÓN'}</span></td>
       <td>${b.titular}</td>
       <td><span class="badge badge-${colPais[b.pais]||'arg'}">${b.pais}</span></td>
       <td class="num">$${fmt(u?.inv||0)}</td>
@@ -7246,17 +7252,18 @@ function renderPE() {
     const rec = h.aporteHist>0 ? ((h.utilHist - h.aporteHist)/h.aporteHist*100) : 0; // recupero: en pérdida hasta recuperar el capital
     const term = h.terminado === true;
     const ts = term ? 'text-decoration:line-through;color:var(--text3)' : '';
+    const ns = term ? 'text-decoration:line-through;' : ''; // tacha TODA la fila si está terminado
     return `<tr class="row-${colPais[r.pais]||'arg'}" style="${term?'opacity:0.55':''}">
-      <td style="color:var(--text3)">${r.nro||'—'}</td>
+      <td style="color:var(--text3);${ns}">${r.nro||'—'}</td>
       <td class="bold" style="${ts}">${r.nombre}${term?' <span style="font-size:9px;background:var(--text3);color:#fff;border-radius:4px;padding:1px 5px;margin-left:4px;font-weight:400">TERMINADO</span>':''}</td>
-      <td>${r.titular}</td>
-      <td><span class="badge badge-${colPais[r.pais]||'arg'}">${r.pais||'—'}</span></td>
-      <td class="num">$${fmt(h.aporteHist)}</td>
-      <td class="num" style="color:${y26.ap>0?'var(--esp)':''}">${y26.ap>0?'+$'+fmt(y26.ap):'—'}</td>
-      <td class="num" style="color:${h.utilHist>0?'var(--esp)':''}">${h.utilHist>0?'+$'+fmt(h.utilHist):'—'}</td>
-      <td class="num" style="color:${y26.ut>0?'var(--esp)':''}">${y26.ut>0?'+$'+fmt(y26.ut):'—'}</td>
-      <td class="num">${r.share > 0 ? (r.share*100).toFixed(2)+'%' : '—'}</td>
-      <td class="num ${rec>=0?'positive':'negative'}">${h.aporteHist>0?(rec>=0?'+':'')+rec.toFixed(1)+'%':'—'}</td>
+      <td style="${ns}">${r.titular}</td>
+      <td><span class="badge badge-${colPais[r.pais]||'arg'}" style="${ns}">${r.pais||'—'}</span></td>
+      <td class="num" style="${ns}">$${fmt(h.aporteHist)}</td>
+      <td class="num" style="color:${term?'var(--text3)':(y26.ap>0?'var(--esp)':'')};${ns}">${y26.ap>0?'+$'+fmt(y26.ap):'—'}</td>
+      <td class="num" style="color:${term?'var(--text3)':(h.utilHist>0?'var(--esp)':'')};${ns}">${h.utilHist>0?'+$'+fmt(h.utilHist):'—'}</td>
+      <td class="num" style="color:${term?'var(--text3)':(y26.ut>0?'var(--esp)':'')};${ns}">${y26.ut>0?'+$'+fmt(y26.ut):'—'}</td>
+      <td class="num" style="${ns}">${r.share > 0 ? (r.share*100).toFixed(2)+'%' : '—'}</td>
+      <td class="num ${rec>=0?'positive':'negative'}" style="${ns}">${h.aporteHist>0?(rec>=0?'+':'')+rec.toFixed(1)+'%':'—'}</td>
       <td><button class="btn-secondary" style="padding:3px 8px;font-size:11px" onclick="editPE('${r.id}')">Editar</button></td>
     </tr>`;
   }).join('');
@@ -10611,7 +10618,7 @@ function renderSocClientes(rows, getMovTotals) {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260720-101';
+const APP_VERSION = '20260720-102';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
