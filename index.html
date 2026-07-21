@@ -10178,31 +10178,38 @@ async function loadTarjetas() {
   const res = document.getElementById('tar-info-result');
   if (res) res.innerHTML = '<div class="loader"><div class="spinner"></div></div>';
 
-  const [{ data: tarjetas }, { data: movs }] = await Promise.all([
-    sb.from('tarjetas').select('*').eq('activo', true).order('nro'),
+  const [{ data: tarjetasAll }, { data: movs }] = await Promise.all([
+    sb.from('tarjetas').select('*').order('nro'),
     sb.from('movimientos_tarjetas').select('*').eq('anio', anio),
   ]);
 
-  // Poblar el select de tarjetas (cards) en la carga
-  poblarTarjetaCards(tarjetas);
-
-  if (!res) return;
+  const MESES = [1,2,3,4,5,6,7,8,9,10,11,12];
 
   // movMap: tarjeta_id -> mes -> mov
   const movMap = {};
   (movs||[]).forEach(m => { (movMap[m.tarjeta_id] ||= {})[m.mes] = m; });
 
+  const tot = (tid, mes) => movMap[tid]?.[mes]?.total_usd || 0;
+  const cardSpend = (tid) => MESES.reduce((a,m)=>a+tot(tid,m),0);
+  const lastSpendMes = (tid) => { let lm=0; MESES.forEach(m=>{ if (tot(tid,m)!==0) lm=m; }); return lm; };
+  const esActiva = (t) => t.activo !== false;
+
+  // Mostrar: todas las activas + inactivas que tuvieron gasto en el año
+  const tarjetas = (tarjetasAll||[]).filter(t => esActiva(t) || cardSpend(t.id) !== 0);
+
+  // Poblar el select de tarjetas (cards) en la carga — solo activas
+  poblarTarjetaCards((tarjetasAll||[]).filter(esActiva));
+
+  if (!res) return;
+
   // Agrupar tarjetas por nombre de tarjeta (card)
   const byCard = {};
-  (tarjetas||[]).forEach(t => { (byCard[t.tarjeta] ||= []).push(t); });
+  tarjetas.forEach(t => { (byCard[t.tarjeta] ||= []).push(t); });
 
-  const MESES = [1,2,3,4,5,6,7,8,9,10,11,12];
   // Divisor del promedio = mes máximo con cualquier dato
   let maxMes = 0;
   (movs||[]).forEach(m => { if ((m.total_usd||0) !== 0 && m.mes > maxMes) maxMes = m.mes; });
   const divisor = maxMes || 1;
-
-  const tot = (tid, mes) => movMap[tid]?.[mes]?.total_usd || 0;
 
   let html = '';
   // Una card por tarjeta (card)
@@ -10211,21 +10218,30 @@ async function loadTarjetas() {
     html += `<div class="card" style="margin-bottom:12px">
       <div class="bold" style="margin-bottom:10px;color:var(--gold)">${card}</div>
       <div class="table-wrap"><table style="font-size:11px">
-        <thead><tr><th>Cliente</th>${MESES.map(m=>`<th class="num">${TAR_MESES[m]}</th>`).join('')}<th class="num">Total</th></tr></thead>
+        <thead><tr><th>Cliente</th>${MESES.map(m=>`<th class="num">${TAR_MESES[m]}</th>`).join('')}<th class="num">Total</th><th class="num">Último gasto</th></tr></thead>
         <tbody>`;
     filas.forEach(t => {
       const vals = MESES.map(m => tot(t.id, m));
       const sum = vals.reduce((a,b)=>a+b,0);
-      html += `<tr><td style="font-size:11px">${t.cliente}</td>
+      const baja = !esActiva(t);
+      const lm = lastSpendMes(t.id);
+      const ultimo = lm ? `${TAR_MESES[lm]} · $${fmt(tot(t.id,lm))}` : '—';
+      const rowStyle = baja ? 'opacity:.6;background:rgba(255,255,255,.03)' : '';
+      const cliCell = baja
+        ? `<td style="font-size:11px"><span style="text-decoration:line-through">${t.cliente}</span> <span style="font-size:9px;color:#c0392b;border:1px solid #c0392b;border-radius:3px;padding:0 3px">BAJA</span></td>`
+        : `<td style="font-size:11px">${t.cliente}</td>`;
+      html += `<tr style="${rowStyle}">${cliCell}
         ${MESES.map((m,i)=>{const c=movMap[t.id]?.[m]?.comentarios?.monto;const v=vals[i];return `<td class="num ${c?'coment-tooltip has-coment':''}" style="font-size:10px;position:relative">${v?'$'+fmt(v):'—'}${c?`<span class="coment-pop">💬 ${c}</span>`:''}</td>`;}).join('')}
-        <td class="num bold">$${fmt(sum)}</td></tr>`;
+        <td class="num bold">$${fmt(sum)}</td>
+        <td class="num" style="font-size:10px;color:var(--text3)">${ultimo}</td></tr>`;
     });
     // TOTAL de la tarjeta
     const cardTot = MESES.map(m => filas.reduce((a,t)=>a+tot(t.id,m),0));
     html += `<tr style="border-top:1px solid var(--border2)">
       <td class="bold" style="font-size:11px;color:var(--gold)">TOTAL</td>
       ${cardTot.map(v=>`<td class="num bold" style="font-size:10px">${v?'$'+fmt(v):'—'}</td>`).join('')}
-      <td class="num bold" style="color:var(--gold)">$${fmt(cardTot.reduce((a,b)=>a+b,0))}</td></tr>`;
+      <td class="num bold" style="color:var(--gold)">$${fmt(cardTot.reduce((a,b)=>a+b,0))}</td>
+      <td></td></tr>`;
     html += `</tbody></table></div></div>`;
   });
 
@@ -10798,7 +10814,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260720-108';
+const APP_VERSION = '20260720-109';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
