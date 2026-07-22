@@ -341,6 +341,7 @@ body.vista-cliente [data-page="alertas"],
 body.vista-cliente [data-page="gastos"],
 body.vista-cliente [data-page="organigramas"],
 body.vista-cliente [data-page="tarjetas"],
+body.vista-cliente [data-page="reportes"],
 body.vista-cliente .nav-mas,
 body.vista-cliente #dash-card-titular,
 body.vista-cliente #soc-info .filters,
@@ -10814,7 +10815,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260720-109';
+const APP_VERSION = '20260720-110';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
