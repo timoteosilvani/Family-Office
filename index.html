@@ -3479,9 +3479,11 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
             <div class="section-title" style="margin-bottom:4px">Informe Patrimonial</div>
             <p style="color:var(--text3);font-size:13px;margin:0">Informe semestral por cliente, generado en vivo desde los datos cargados.</p>
           </div>
-          <div style="display:flex;gap:10px;align-items:flex-end">
-            <div><label class="fld">Cliente</label><select class="fld" id="rep-cliente" style="min-width:180px" onchange="generarReporte()"></select></div>
-            <div><label class="fld">Período</label><select class="fld" id="rep-periodo" onchange="generarReporte()"><option value="2026-S1">2026 · S1</option></select></div>
+          <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+            <div><label class="fld">Cliente</label><select class="fld" id="rep-cliente" style="min-width:150px" onchange="generarReporte()"></select></div>
+            <div><label class="fld">Tipo de reporte</label><select class="fld" id="rep-tipo" onchange="repTipoChange()">
+              <option value="mensual">Mensual</option><option value="semestral">Semestral</option><option value="anual">Anual</option></select></div>
+            <div><label class="fld">Período</label><select class="fld" id="rep-periodo" onchange="generarReporte()"></select></div>
             <button class="btn-primary" style="width:auto;padding:9px 18px;align-self:flex-end" onclick="exportarReportePDF()">⤓ Descargar PDF</button>
           </div>
         </div>
@@ -6766,21 +6768,30 @@ function loadReportes() {
   if (sel && sel.options.length === 0) {
     sel.innerHTML = '<option value="">— Elegí —</option>' + REP_CLIENTES.map(c => `<option value="${c.code}">${c.nombre} (${c.code})</option>`).join('');
   }
-  const per = document.getElementById('rep-periodo');
-  if (per && per.dataset.filled !== '1') {
-    const mn = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
-    let o = '<option value="2026-S1">2026 · Semestre 1</option>';
-    for (let m=1;m<=12;m++) o += `<option value="2026-${m}">2026 · ${mn[m-1]} (mensual)</option>`;
-    per.innerHTML = o; per.dataset.filled = '1';
-  }
+  repPeriodoOpts();
 }
 
+// Puebla el desplegable de Período según el Tipo de reporte elegido
+function repPeriodoOpts(){
+  const per=document.getElementById('rep-periodo'); if(!per) return;
+  const tipo=document.getElementById('rep-tipo')?.value||'mensual';
+  const years=[2026,2025];
+  const mn=['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  let o='';
+  if(tipo==='anual'){ years.forEach(y=>o+=`<option value="A-${y}">${y}</option>`); }
+  else if(tipo==='semestral'){ years.forEach(y=>{ o+=`<option value="S-${y}-1">${y} · Semestre 1</option><option value="S-${y}-2">${y} · Semestre 2</option>`; }); }
+  else { years.forEach(y=>{ for(let m=1;m<=12;m++) o+=`<option value="M-${y}-${m}">${y} · ${mn[m-1]}</option>`; }); }
+  per.innerHTML=o;
+}
+function repTipoChange(){ repPeriodoOpts(); generarReporte(); }
+
 // ===== REPORTE MENSUAL (una página: indicadores + resumen en frases) =====
-async function generarReporteMensual(tit, anio, mes) {
+async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
   const cont = document.getElementById('rep-contenido');
   if (!cont) return;
   cont.innerHTML = '<div class="loader"><div class="spinner"></div></div>';
-  window._repTitulo = 'Informe Mensual · ' + MESNOM[mes] + ' ' + anio;
+  const esMensual = (m1===m2);
+  window._repTitulo = (esMensual ? 'Informe Mensual · ' : 'Informe · ') + label;
   const cliNom = (REP_CLIENTES.find(c=>c.code===tit)||{}).nombre || tit;
   const esH = H_SHARE_REP.includes(tit);
   const titFilter = esH ? [tit,'H'] : [tit];
@@ -6797,12 +6808,11 @@ async function generarReporteMensual(tit, anio, mes) {
   const pe = peR.data||[], autos = autosR.data||[], bancos = (bancosR.data||[]).filter(b=>b.activo!==false);
   const bancoIds = bancos.map(b=>b.id), propIds = props.map(p=>p.id);
 
-  const prevMes = mes>1?mes-1:12, prevAnio = mes>1?anio:anio-1;
   const _e = {data:[]};
-  const [mpR, mbR, mbPrevR, alR] = await Promise.all([
-    propIds.length ? sb.from('movimientos_propiedades').select('*').eq('anio',anio).eq('mes',mes).in('propiedad_id',propIds) : Promise.resolve(_e),
-    bancoIds.length ? sb.from('movimientos_bancos').select('*').eq('anio',anio).eq('mes',mes).in('banco_id',bancoIds) : Promise.resolve(_e),
-    bancoIds.length ? sb.from('movimientos_bancos').select('*').eq('anio',prevAnio).eq('mes',prevMes).in('banco_id',bancoIds) : Promise.resolve(_e),
+  const [mpR, mbYearR, mbPrevDicR, alR] = await Promise.all([
+    propIds.length ? sb.from('movimientos_propiedades').select('*').eq('anio',anio).gte('mes',m1).lte('mes',m2).in('propiedad_id',propIds) : Promise.resolve(_e),
+    bancoIds.length ? sb.from('movimientos_bancos').select('*').eq('anio',anio).in('banco_id',bancoIds) : Promise.resolve(_e),
+    bancoIds.length ? sb.from('movimientos_bancos').select('*').eq('anio',anio-1).eq('mes',12).in('banco_id',bancoIds) : Promise.resolve(_e),
     sb.from('alertas').select('*').eq('activa',true).then(r=>r,()=>_e),
   ]);
 
@@ -6813,11 +6823,12 @@ async function generarReporteMensual(tit, anio, mes) {
     rMes+=(m.total_renta_usd||0)*sh; gMes+=(m.total_gastos_usd||0)*sh; iMes+=(m.total_impuestos_usd||0)*sh; });
   const netaMes = rMes-gMes-iMes;
 
-  // Bancos: neto del mes y del mes anterior
-  const netoOf = rows => { const o={}; (rows||[]).forEach(m=>o[m.banco_id]=Number(bancoMovUSD(m).neto)||0); return o; };
-  const bNow=netoOf(mbR.data), bPrev=netoOf(mbPrevR.data);
+  // Bancos: neto al cierre (últ mes ≤ m2) y al inicio (últ mes < m1, o dic del año previo)
+  const byBankMes={}; (mbYearR.data||[]).forEach(m=>{ (byBankMes[m.banco_id]=byBankMes[m.banco_id]||{})[m.mes]=m; });
+  const prevDic={}; (mbPrevDicR.data||[]).forEach(m=>prevDic[m.banco_id]=Number(bancoMovUSD(m).neto)||0);
+  const netoAt=(bid,upTo)=>{ const mm=byBankMes[bid]; if(!mm)return {neto:0,mes:0}; let best=0; for(const k in mm){const km=+k; if(km<=upTo&&km>best)best=km;} return best?{neto:Number(bancoMovUSD(mm[best]).neto)||0,mes:best}:{neto:0,mes:0}; };
   let bancosMes=0, bancosPrev=0;
-  bancos.forEach(b=>{ bancosMes+=(bNow[b.id]||0); bancosPrev+=(bPrev[b.id]||0); });
+  bancos.forEach(b=>{ bancosMes+=netoAt(b.id,m2).neto; const s=netoAt(b.id,m1-1); bancosPrev += s.mes ? s.neto : (prevDic[b.id]||0); });
   const varBancos = bancosMes - bancosPrev;
 
   // Patrimonio (props+pe+autos anuales + bancos del mes)
@@ -6847,19 +6858,19 @@ async function generarReporteMensual(tit, anio, mes) {
     <div style="font-size:10.5px;color:var(--text3);margin-top:5px">${s||''}</div></div>`;
 
   const frases = [
-    `En ${MESNOM[mes]} ${anio}, el patrimonio de ${cliNom} cerró en <b>${$m(patTotal)}</b>${patPrev?`, ${sg(varMes)}${Math.abs(varPct).toFixed(1)}% respecto al mes anterior`:''}.`,
-    (rMes||gMes||iMes) ? `Las propiedades de renta generaron <b>${$m(netaMes)}</b> netos en el mes (renta ${$m(rMes)}, gastos ${$m(gMes)}, impuestos ${$m(iMes)}).` : `No se registraron movimientos de renta de propiedades en el mes.`,
+    `En ${label}, el patrimonio de ${cliNom} cerró en <b>${$m(patTotal)}</b>${patPrev?`, ${sg(varMes)}${Math.abs(varPct).toFixed(1)}% respecto al inicio del ${periodoTxt}`:''}.`,
+    (rMes||gMes||iMes) ? `Las propiedades de renta generaron <b>${$m(netaMes)}</b> netos en el ${periodoTxt} (renta ${$m(rMes)}, gastos ${$m(gMes)}, impuestos ${$m(iMes)}).` : `No se registraron movimientos de renta de propiedades en el ${periodoTxt}.`,
     bancosPrev ? `La liquidez en bancos ${varBancos>=0?'aumentó':'disminuyó'} <b>${$m(Math.abs(varBancos))}</b>, cerrando en ${$m(bancosMes)}.` : `La liquidez en bancos cerró en <b>${$m(bancosMes)}</b>.`,
     deuda>0 ? `Endeudamiento de ${$m(deuda)} (apalancamiento ${apal.toFixed(1)}% sobre el patrimonio).` : null,
     venc.length ? `Hay ${venc.length} vencimiento${venc.length>1?'s':''} en los próximos 60 días (ver detalle).` : null,
   ].filter(Boolean);
 
-  const rentaRows = props.filter(p=>p.tipo==='R').map(p=>{ const mm=(mpR.data||[]).find(x=>x.propiedad_id===p.id);
-    const r=mm?.total_renta_usd||0, g=mm?.total_gastos_usd||0, im=mm?.total_impuestos_usd||0, n=r-g-im;
-    if(!r&&!g&&!im) return '';
+  const _byProp={}; (mpR.data||[]).forEach(m=>{ const o=_byProp[m.propiedad_id]=_byProp[m.propiedad_id]||{r:0,g:0,i:0}; o.r+=m.total_renta_usd||0; o.g+=m.total_gastos_usd||0; o.i+=m.total_impuestos_usd||0; });
+  const rentaRows = props.filter(p=>p.tipo==='R').map(p=>{ const o=_byProp[p.id]; if(!o||(!o.r&&!o.g&&!o.i)) return '';
+    const r=o.r, g=o.g, im=o.i, n=r-g-im;
     return `<tr><td>${p.nombre}</td><td class="num positive">${r?'$'+fmt(r):'—'}</td><td class="num negative">${g?'$'+fmt(g):'—'}</td><td class="num negative">${im?'$'+fmt(im):'—'}</td><td class="num" style="font-weight:700;color:${col(n)}">$${fmt(n)}</td></tr>`;
   }).filter(Boolean).join('');
-  const rentaTable = rentaRows ? `<div class="card" style="margin-bottom:16px"><div class="section-title" style="margin-bottom:12px">Propiedades de renta · ${MESNOM[mes]}</div>
+  const rentaTable = rentaRows ? `<div class="card" style="margin-bottom:16px"><div class="section-title" style="margin-bottom:12px">Propiedades de renta · ${label}</div>
     <div class="table-wrap"><table><thead><tr><th>Propiedad</th><th class="num">Renta</th><th class="num">Gastos</th><th class="num">Impuestos</th><th class="num">Neto</th></tr></thead><tbody>${rentaRows}</tbody></table></div></div>` : '';
 
   const vencRows = venc.slice(0,12).map(a=>`<tr><td style="white-space:nowrap">${a.fecha_vencimiento}</td><td>${a.descripcion||a.tipo||'—'}</td></tr>`).join('');
@@ -6868,13 +6879,13 @@ async function generarReporteMensual(tit, anio, mes) {
 
   cont.innerHTML = `
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:18px">
-      ${kpi('Patrimonio total', $m(patTotal), MESNOM[mes]+' '+anio)}
-      ${kpi('Variación del mes', (patPrev?sg(varMes)+'$'+fmt(Math.abs(Math.round(varMes))):'—'), (patPrev?sg(varMes)+Math.abs(varPct).toFixed(1)+'%':'sin mes previo'), col(varMes))}
-      ${kpi('Renta neta del mes', $m(netaMes), 'Propiedades', col(netaMes))}
+      ${kpi('Patrimonio total', $m(patTotal), label)}
+      ${kpi('Variación del '+periodoTxt, (patPrev?sg(varMes)+'$'+fmt(Math.abs(Math.round(varMes))):'—'), (patPrev?sg(varMes)+Math.abs(varPct).toFixed(1)+'%':'sin período previo'), col(varMes))}
+      ${kpi('Renta neta del '+periodoTxt, $m(netaMes), 'Propiedades', col(netaMes))}
       ${kpi('Liquidez en bancos', $m(bancosMes), 'Neto al cierre')}
     </div>
     <div class="card" style="margin-bottom:16px">
-      <div class="section-title" style="margin-bottom:12px">Resumen de ${MESNOM[mes]} ${anio}</div>
+      <div class="section-title" style="margin-bottom:12px">Resumen · ${label}</div>
       ${frases.map(f=>`<p style="margin:7px 0;font-size:13px;line-height:1.5">• ${f}</p>`).join('')}
     </div>
     ${rentaTable}
@@ -6886,9 +6897,11 @@ async function generarReporte() {
   const cont = document.getElementById('rep-contenido');
   if (!cont) return;
   if (!tit) { cont.innerHTML = '<p style="color:var(--text3)">Elegí un cliente para generar el informe.</p>'; return; }
-  const _per = document.getElementById('rep-periodo')?.value || '2026-S1';
-  const _mm = _per.match(/^(\d{4})-(\d{1,2})$/);
-  if (_mm) return generarReporteMensual(tit, +_mm[1], +_mm[2]);
+  const _per = document.getElementById('rep-periodo')?.value || '';
+  let _x;
+  if ((_x = _per.match(/^A-(\d{4})$/)))       return generarReportePeriodo(tit, +_x[1], 1, 12, 'Año '+_x[1], 'año');
+  if ((_x = _per.match(/^S-(\d{4})-(\d)$/)))  { const s=+_x[2]; return generarReportePeriodo(tit, +_x[1], s===1?1:7, s===1?6:12, 'Semestre '+s+' · '+_x[1], 'semestre'); }
+  if ((_x = _per.match(/^M-(\d{4})-(\d{1,2})$/))) return generarReportePeriodo(tit, +_x[1], +_x[2], +_x[2], MESNOM[+_x[2]]+' '+_x[1], 'mes');
   window._repTitulo = 'Primer semestre 2026';
   cont.innerHTML = '<div class="loader"><div class="spinner"></div></div>';
   const esH = H_SHARE_REP.includes(tit);
@@ -11008,7 +11021,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260720-114';
+const APP_VERSION = '20260720-115';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
