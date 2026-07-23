@@ -986,53 +986,53 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
           <span id="kpi-esp"></span><span id="kpi-esp-pct"></span>
         </div>
 
-        <!-- Gráficos fila 1 -->
-        <div class="grid-2" style="margin-bottom:24px">
+        <!-- Fila de las 3 tortas (mismo tamaño, leyenda debajo del círculo) -->
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;margin-bottom:24px">
           <div class="card">
             <div class="section-title" style="margin-bottom:16px">Distribución por País</div>
-            <div style="display:flex;gap:20px;align-items:center">
-              <div style="position:relative;height:220px;flex-shrink:0;width:220px;display:flex;align-items:center;justify-content:center">
+            <div style="display:flex;flex-direction:column;align-items:center">
+              <div style="position:relative;height:190px;width:190px;flex-shrink:0">
                 <canvas id="chart-paises"></canvas>
               </div>
-              <div style="flex:1;display:flex;flex-direction:column;gap:8px" id="legend-paises-values"></div>
+              <div style="width:100%;display:flex;flex-direction:column;gap:6px;margin-top:18px" id="legend-paises-values"></div>
             </div>
-            <div id="legend-paises" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;justify-content:center"></div>
+            <div id="legend-paises" style="display:none"></div>
           </div>
           <div class="card">
             <div class="section-title" style="margin-bottom:16px">Distribución por Tipo de Activo</div>
-            <div style="display:flex;align-items:center;gap:16px">
-              <div style="position:relative;height:200px;flex:0 0 200px">
+            <div style="display:flex;flex-direction:column;align-items:center">
+              <div style="position:relative;height:190px;width:190px;flex-shrink:0">
                 <canvas id="chart-activos"></canvas>
               </div>
-              <div id="legend-activos-values" style="flex:1;display:flex;flex-direction:column;gap:10px"></div>
+              <div style="width:100%;display:flex;flex-direction:column;gap:6px;margin-top:18px" id="legend-activos-values"></div>
             </div>
-            <div id="legend-activos" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;justify-content:center"></div>
+            <div id="legend-activos" style="display:none"></div>
+          </div>
+          <div class="card">
+            <div class="section-title" style="margin-bottom:16px">Propiedades — Renta vs No Renta</div>
+            <div style="display:flex;flex-direction:column;align-items:center">
+              <div style="position:relative;height:190px;width:190px;flex-shrink:0">
+                <canvas id="chart-rentanr"></canvas>
+              </div>
+              <div id="tabla-activos" style="width:100%;margin-top:18px"></div>
+            </div>
           </div>
         </div>
 
-        <!-- Gráfico titulares + tabla -->
-        <div class="grid-2">
+        <!-- Patrimonio por Titular (barras) + Renta de Propiedades (compacto) -->
+        <div class="grid-2" style="margin-bottom:24px">
           <div class="card" id="dash-card-titular">
             <div class="section-title" style="margin-bottom:16px">Patrimonio por Titular (USD)</div>
-            <div style="position:relative;height:220px">
+            <div style="position:relative;height:200px">
               <canvas id="chart-titulares"></canvas>
             </div>
             <div id="tabla-titulares" style="margin-top:16px"></div>
           </div>
           <div class="card">
-            <div class="section-title" style="margin-bottom:16px">Propiedades — Renta vs No Renta</div>
-            <div style="position:relative;height:220px;display:flex;align-items:center;justify-content:center">
-              <canvas id="chart-rentanr"></canvas>
-            </div>
-            <div id="tabla-activos" style="margin-top:16px"></div>
+            <div class="section-title" style="margin-bottom:16px">Renta de Propiedades · 2026</div>
+            <div id="dash-renta-boxes" style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:14px"></div>
+            <div id="dash-renta-clientes"></div>
           </div>
-        </div>
-
-        <!-- Renta de propiedades: total + por cliente -->
-        <div class="card" style="margin-bottom:24px">
-          <div class="section-title" style="margin-bottom:16px">Renta de Propiedades · 2026</div>
-          <div id="dash-renta-boxes" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px"></div>
-          <div id="dash-renta-clientes"></div>
         </div>
 
         <!-- Matriz País × Clase -->
@@ -10815,7 +10815,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260720-110';
+const APP_VERSION = '20260720-111';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
