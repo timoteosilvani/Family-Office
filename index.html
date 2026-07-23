@@ -6779,7 +6779,7 @@ function repPeriodoOpts(){
   const mn=['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
   let o='';
   if(tipo==='anual'){ years.forEach(y=>o+=`<option value="A-${y}">${y}</option>`); }
-  else if(tipo==='semestral'){ years.forEach(y=>{ o+=`<option value="S-${y}-1">${y} · Semestre 1</option><option value="S-${y}-2">${y} · Semestre 2</option>`; }); }
+  else if(tipo==='semestral'){ o+='<option value="S-2026-1">2026 · Semestre 1</option>'; }
   else { years.forEach(y=>{ for(let m=1;m<=12;m++) o+=`<option value="M-${y}-${m}">${y} · ${mn[m-1]}</option>`; }); }
   per.innerHTML=o;
 }
@@ -6899,9 +6899,9 @@ async function generarReporte() {
   if (!tit) { cont.innerHTML = '<p style="color:var(--text3)">Elegí un cliente para generar el informe.</p>'; return; }
   const _per = document.getElementById('rep-periodo')?.value || '';
   let _x;
-  if ((_x = _per.match(/^A-(\d{4})$/)))       return generarReportePeriodo(tit, +_x[1], 1, 12, 'Año '+_x[1], 'año');
-  if ((_x = _per.match(/^S-(\d{4})-(\d)$/)))  { const s=+_x[2]; return generarReportePeriodo(tit, +_x[1], s===1?1:7, s===1?6:12, 'Semestre '+s+' · '+_x[1], 'semestre'); }
+  if ((_x = _per.match(/^A-(\d{4})$/)))       { cont.innerHTML=''; window._repTitulo='Anual '+_x[1]; return; }
   if ((_x = _per.match(/^M-(\d{4})-(\d{1,2})$/))) return generarReportePeriodo(tit, +_x[1], +_x[2], +_x[2], MESNOM[+_x[2]]+' '+_x[1], 'mes');
+  // Semestral (S-...): cae al informe semestral clásico de abajo (1er semestre 2026, tal como estaba).
   window._repTitulo = 'Primer semestre 2026';
   cont.innerHTML = '<div class="loader"><div class="spinner"></div></div>';
   const esH = H_SHARE_REP.includes(tit);
@@ -11021,7 +11021,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260720-115';
+const APP_VERSION = '20260720-116';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
