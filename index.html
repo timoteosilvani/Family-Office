@@ -1810,6 +1810,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
             <thead><tr><th>#</th><th>Sociedad</th><th>Tit.</th><th class="num">Inv. acumulada</th><th class="num">Util. acumulada</th><th class="num" style="border-left:2px solid var(--border2)">Aporte de capital</th><th class="num">Utilidad</th></tr></thead>
             <tbody id="tbody-historial-pe"></tbody>
           </table></div></div>
+          <div id="pe-hist-dist" style="margin-top:16px"></div>
         </div>
         <div id="pe-evolucion" class="tab-content">
           <div class="section-title" style="margin-bottom:4px">Evolución Mensual</div>
@@ -5018,11 +5019,13 @@ const PE_VAL = {1:{"2018":250000,"2019":250000,"2020":250000,"2021":250000,"2022
 function deriveActivosByTit() {
   const bByN={}; BANCOS_HIST_DATA.forEach(b=>bByN[b.nro]=b);
   const aByN={}; AUTOS_HIST_DATA.forEach(a=>aByN[a.nro]=a);
+  const pByN={}; PE_HIST_DATA.forEach(p=>pByN[p.nro]=p);
   const sumAttr=(attr,valFn)=>{const o={};for(const t in attr){for(const y in attr[t]){let s=0;const it=attr[t][y];for(const n in it){s+=(valFn(+n,y)||0)*it[n];}(o[t]=o[t]||{})[+y]=s;}}return o;};
   return {
     banco: sumAttr(BANCOS_ATTR,(n,y)=>(bByN[n]&&bByN[n].byY[y])?bByN[n].byY[y].n:0),
     autos: sumAttr(AUTOS_ATTR,(n,y)=>(aByN[n]&&aByN[n].valores[y])?aByN[n].valores[y]:0),
-    pe: sumAttr(PE_ATTR,(n,y)=>(PE_VAL[n]&&PE_VAL[n][y])?PE_VAL[n][y]:0),
+    // PE = inversión acumulada + aporte del año (= el viejo PE_VAL, pero derivado del historial editable)
+    pe: sumAttr(PE_ATTR,(n,y)=>{const p=pByN[n];return (p&&p.byY[y])?((p.byY[y].ia||0)+(p.byY[y].ap||0)):0;}),
   };
 }
 
@@ -5316,6 +5319,19 @@ const PE_HIST_DATA = [
   {nro:19,nombre:"Ulster LOAN",titular:"FC",aporteHist:30000,utilHist:10253,terminado:false,byY:{"2025":{ia:0,ap:30000,ut:9258},"2026":{ia:30000,ap:0,ut:995}}}
 ];
 
+// Pesos (titular->peso) de un PE en un año, según PE_ATTR (maneja splits tipo H ÷3)
+function pePesosAnio(nro, y){
+  const ys=String(y); const out={};
+  for(const t in PE_ATTR){ const m=PE_ATTR[t] && PE_ATTR[t][ys]; if(m && m[nro]) out[t]=m[nro]; }
+  return out;
+}
+function peTitAnio(nro, y){
+  const w=pePesosAnio(nro,y); const ks=Object.keys(w);
+  if(ks.length===1 && w[ks[0]]>=0.999) return ks[0];
+  if(!ks.length){ const p=PE_HIST_DATA.find(x=>x.nro===nro); return p?p.titular:'—'; }
+  return 'H';
+}
+
 function renderPEHist() {
   const sel = document.getElementById('pe-hist-anio');
   const y = sel ? sel.value : '2026';
@@ -5325,15 +5341,15 @@ function renderPEHist() {
   const _cpP = n => _peP[n] || 'usa';
   const _utAc = p => Object.entries(p.byY).reduce((s,[yy,d]) => yy<=y ? s+(d.ut||0) : s, 0);
   let data = PE_HIST_DATA.filter(p => p.byY[y]);
-  if (verComo) data = data.filter(p => p.titular === verComo);
-  let body = data.map(p => { const d = p.byY[y]; const ua = _utAc(p);
+  if (verComo) data = data.filter(p => { const w=pePesosAnio(p.nro,y); return Object.keys(w).length ? w[verComo]!=null : ((PE_HIST_DATA.find(x=>x.nro===p.nro)||{}).titular===verComo); });
+  let body = data.map(p => { const d = p.byY[y]; const ua = _utAc(p); const tit = peTitAnio(p.nro,y);
     const isT = p.terminado === true;
     const rs = isT ? 'opacity:0.55;' : '';
     const ns = isT ? 'text-decoration:line-through;' : ''; // tacha TODA la fila si está terminado
     return `<tr class="row-${_cpP(p.nombre)}" style="${rs}">
       <td style="color:var(--text3);font-size:11px;${ns}">${p.nro}</td>
       <td style="font-size:12px;font-weight:500;${isT?'text-decoration:line-through;color:var(--text3)':''}">${p.nombre}${p.terminado?' <span style="font-size:9px;background:var(--text3);color:#fff;border-radius:4px;padding:1px 5px;margin-left:4px">TERMINADO</span>':''}<button onclick="abrirEditHist('pe',${p.nro},${y})" style="background:none;border:none;cursor:pointer;color:var(--gold);font-size:12px;margin-left:6px;padding:0" title="Editar valor histórico">✎</button></td>
-      <td style="font-size:11px;color:var(--text3);${ns}">${p.titular}</td>
+      <td style="font-size:11px;color:var(--text3);${ns}">${tit}</td>
       <td class="num" style="font-size:11px;${ns}">${d.ia?'$'+fmt(d.ia):'—'}</td>
       <td class="num" style="font-size:11px;color:${ua?'var(--esp)':''};${ns}">${ua?'+$'+fmt(ua):'—'}</td>
       <td class="num" style="font-size:11px;border-left:2px solid var(--border2);color:${d.ap?'var(--esp)':''};${ns}">${d.ap?'+$'+fmt(d.ap):'—'}</td>
@@ -5348,6 +5364,25 @@ function renderPEHist() {
     <td class="num bold" style="color:var(--gold);font-size:11px">${T.ut?'+$'+fmt(T.ut):'—'}</td>
   </tr>`;
   tbody.innerHTML = body;
+
+  // Cuadro: distribución del valor (inv.acum + aporte) por cliente en el año — mismo dato que el patrimonio
+  const distEl = document.getElementById('pe-hist-dist');
+  if (distEl) {
+    const dist = {};
+    data.forEach(p => { const d=p.byY[y]; const val=(d.ia||0)+(d.ap||0); const w=pePesosAnio(p.nro,y); const ks=Object.keys(w);
+      if(ks.length) ks.forEach(t=>{ dist[t]=(dist[t]||0)+val*w[t]; });
+      else { dist[p.titular]=(dist[p.titular]||0)+val; } });
+    const ent = Object.entries(dist).filter(([,v])=>Math.abs(v)>0.5).sort((a,b)=>b[1]-a[1]);
+    const totV = ent.reduce((a,[,v])=>a+v,0);
+    const nom = {JC:'Juan Cocci',FC:'Franco Cocci',M:'Martona',MFL:'M.F. Lorenzo',YAC:'Y.A. Cocci',FCC:'F.C. Cocci',G:'Grupillo'};
+    distEl.innerHTML = ent.length ? `<div class="card">
+      <div class="section-title" style="margin-bottom:12px">Distribución por Cliente · ${y}</div>
+      <div class="table-wrap"><table style="font-size:12px">
+        <thead><tr><th>Cliente</th><th class="num">Valor USD</th><th class="num">%</th></tr></thead>
+        <tbody>${ent.map(([t,v])=>`<tr><td class="bold">${t} <span style="color:var(--text3);font-weight:400;font-size:11px">${nom[t]||''}</span></td><td class="num">$${fmt(v)}</td><td class="num" style="color:var(--text3)">${totV?(v/totV*100).toFixed(1)+'%':''}</td></tr>`).join('')}
+          <tr style="border-top:2px solid var(--border2)"><td class="bold" style="color:var(--gold)">TOTAL</td><td class="num bold" style="color:var(--gold)">$${fmt(totV)}</td><td class="num" style="color:var(--text3)">100%</td></tr>
+        </tbody></table></div></div>` : '';
+  }
 }
 
 // ============================================
@@ -8092,7 +8127,7 @@ async function loadAlertas() {
   updateAlertKPIs();
 }
 
-const _heCampos = {prop:[['valor','Valor']],auto:[['valor','Valor']],banco:[['inv','Inv account'],['cash','Cash'],['cred','Crédito']],pe:[['val','Valor patrimonio'],['ia','Inv. acumulada'],['ap','Aporte'],['ut','Utilidad']]};
+const _heCampos = {prop:[['valor','Valor']],auto:[['valor','Valor']],banco:[['inv','Inv account'],['cash','Cash'],['cred','Crédito']],pe:[['ia','Inv. acumulada'],['ap','Aporte'],['ut','Utilidad']]};
 let _heCtx = {};
 function _heSrc(cat){ return {prop:PROP_HIST_DATA,auto:AUTOS_HIST_DATA,banco:BANCOS_HIST_DATA,pe:PE_HIST_DATA}[cat]; }
 function _heActual(cat,nro,anio,campo){
@@ -10854,7 +10889,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260720-112';
+const APP_VERSION = '20260720-113';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
