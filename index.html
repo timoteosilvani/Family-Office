@@ -6746,7 +6746,7 @@ async function exportarReportePDF() {
     h1{color:var(--navy);font-size:22px;margin:0 0 3px;letter-spacing:-.3px;} .hdr{border-bottom:3px solid var(--navy);padding-bottom:9px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:flex-end;}
     @page{size:A4 portrait;margin:1cm;} .pgbreak{page-break-before:always;} @media print{body{padding:0;}}
   </style></head><body>
-  <div class="hdr"><div style="display:flex;align-items:center;gap:12px"><img src="${OFFIDA_LOGO}" style="height:54px;width:auto"><div><div style="font-family:Georgia,'Times New Roman',serif;font-size:22px;letter-spacing:3px;color:#8a6d3b;font-weight:700;line-height:1">OFFIDA</div><h1 style="font-size:18px;margin:3px 0 0">Informe Patrimonial</h1><div style="color:var(--text3);font-size:12px">${cliNom} \u00b7 Primer semestre 2026 \u00b7 Cifras en USD</div></div></div><div style="color:var(--text3);font-size:11px;text-align:right">Generado ${new Date().toLocaleDateString('es-AR')}</div></div>
+  <div class="hdr"><div style="display:flex;align-items:center;gap:12px"><img src="${OFFIDA_LOGO}" style="height:54px;width:auto"><div><div style="font-family:Georgia,'Times New Roman',serif;font-size:22px;letter-spacing:3px;color:#8a6d3b;font-weight:700;line-height:1">OFFIDA</div><h1 style="font-size:18px;margin:3px 0 0">${(window._repTitulo||'').indexOf('Mensual')>=0?'Informe Mensual':'Informe Patrimonial'}</h1><div style="color:var(--text3);font-size:12px">${cliNom} \u00b7 ${window._repTitulo||'Informe'} \u00b7 Cifras en USD</div></div></div><div style="color:var(--text3);font-size:11px;text-align:right">Generado ${new Date().toLocaleDateString('es-AR')}</div></div>
   ${htmlBody}
   </body></html>`);
   w.document.close();
@@ -6759,11 +6759,126 @@ const REP_CLIENTES = [
 ];
 const H_SHARE_REP = ['FC','YAC','FCC'];
 
+const MESNOM = ['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+
 function loadReportes() {
   const sel = document.getElementById('rep-cliente');
   if (sel && sel.options.length === 0) {
     sel.innerHTML = '<option value="">— Elegí —</option>' + REP_CLIENTES.map(c => `<option value="${c.code}">${c.nombre} (${c.code})</option>`).join('');
   }
+  const per = document.getElementById('rep-periodo');
+  if (per && per.dataset.filled !== '1') {
+    const mn = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+    let o = '<option value="2026-S1">2026 · Semestre 1</option>';
+    for (let m=1;m<=12;m++) o += `<option value="2026-${m}">2026 · ${mn[m-1]} (mensual)</option>`;
+    per.innerHTML = o; per.dataset.filled = '1';
+  }
+}
+
+// ===== REPORTE MENSUAL (una página: indicadores + resumen en frases) =====
+async function generarReporteMensual(tit, anio, mes) {
+  const cont = document.getElementById('rep-contenido');
+  if (!cont) return;
+  cont.innerHTML = '<div class="loader"><div class="spinner"></div></div>';
+  window._repTitulo = 'Informe Mensual · ' + MESNOM[mes] + ' ' + anio;
+  const cliNom = (REP_CLIENTES.find(c=>c.code===tit)||{}).nombre || tit;
+  const esH = H_SHARE_REP.includes(tit);
+  const titFilter = esH ? [tit,'H'] : [tit];
+  const share = r => (r && r.titular==='H' && esH) ? 1/3 : 1;
+
+  const [propsR, peR, autosR, bancosR, prestamosR] = await Promise.all([
+    sb.from('propiedades').select('*').in('titular', titFilter),
+    sb.from('private_equity').select('*').in('titular', titFilter),
+    sb.from('autos').select('*').in('titular', titFilter),
+    sb.from('bancos').select('*').eq('titular', tit),
+    sb.from('prestamos').select('*').in('titular', titFilter).then(r=>r,()=>({data:[]})),
+  ]);
+  const props = (propsR.data||[]).filter(p=>p.activa!==false && p.vendida!==true);
+  const pe = peR.data||[], autos = autosR.data||[], bancos = (bancosR.data||[]).filter(b=>b.activo!==false);
+  const bancoIds = bancos.map(b=>b.id), propIds = props.map(p=>p.id);
+
+  const prevMes = mes>1?mes-1:12, prevAnio = mes>1?anio:anio-1;
+  const _e = {data:[]};
+  const [mpR, mbR, mbPrevR, alR] = await Promise.all([
+    propIds.length ? sb.from('movimientos_propiedades').select('*').eq('anio',anio).eq('mes',mes).in('propiedad_id',propIds) : Promise.resolve(_e),
+    bancoIds.length ? sb.from('movimientos_bancos').select('*').eq('anio',anio).eq('mes',mes).in('banco_id',bancoIds) : Promise.resolve(_e),
+    bancoIds.length ? sb.from('movimientos_bancos').select('*').eq('anio',prevAnio).eq('mes',prevMes).in('banco_id',bancoIds) : Promise.resolve(_e),
+    sb.from('alertas').select('*').eq('activa',true).then(r=>r,()=>_e),
+  ]);
+
+  // Renta neta del mes (propiedades)
+  const _titOf={}; props.forEach(p=>_titOf[p.id]=p.titular);
+  let rMes=0,gMes=0,iMes=0;
+  (mpR.data||[]).forEach(m=>{ const sh=share({titular:_titOf[m.propiedad_id]});
+    rMes+=(m.total_renta_usd||0)*sh; gMes+=(m.total_gastos_usd||0)*sh; iMes+=(m.total_impuestos_usd||0)*sh; });
+  const netaMes = rMes-gMes-iMes;
+
+  // Bancos: neto del mes y del mes anterior
+  const netoOf = rows => { const o={}; (rows||[]).forEach(m=>o[m.banco_id]=Number(bancoMovUSD(m).neto)||0); return o; };
+  const bNow=netoOf(mbR.data), bPrev=netoOf(mbPrevR.data);
+  let bancosMes=0, bancosPrev=0;
+  bancos.forEach(b=>{ bancosMes+=(bNow[b.id]||0); bancosPrev+=(bPrev[b.id]||0); });
+  const varBancos = bancosMes - bancosPrev;
+
+  // Patrimonio (props+pe+autos anuales + bancos del mes)
+  const sumV=(arr,f)=>arr.reduce((a,r)=>a+(Number(r[f])||0)*share(r),0);
+  const patFijo = sumV(props,'valor_2026')+sumV(pe,'valor_2026')+sumV(autos,'valor_2026');
+  const patTotal = patFijo + bancosMes, patPrev = patFijo + bancosPrev;
+  const varMes = patTotal - patPrev, varPct = patPrev ? (varMes/patPrev*100) : 0;
+
+  // Deuda / apalancamiento
+  const _tcP = { USD:1, ARS:(window.tcCache?.ars_usd||1220), UYU:(window.tcCache?.uyu_usd||42), EUR:(window.tcCache?.eur_usd||0.96) };
+  const deuda = (prestamosR.data||[]).filter(x=>x.activo!==false).reduce((a,p)=>a+((Number(p.saldo_actual)||0)/(_tcP[p.moneda]||1))*share(p),0);
+  const apal = patTotal>0 ? (deuda/patTotal*100) : 0;
+
+  // Próximos vencimientos (60 días) del cliente
+  const hoy = new Date().toISOString().slice(0,10);
+  const lim = new Date(Date.now()+60*86400000).toISOString().slice(0,10);
+  const venc = (alR.data||[]).filter(a=> titFilter.includes(a.titular) && a.fecha_vencimiento && a.fecha_vencimiento>=hoy && a.fecha_vencimiento<=lim && !a.pagada)
+    .sort((a,b)=>(a.fecha_vencimiento||'').localeCompare(b.fecha_vencimiento||''));
+
+  // ---- Render ----
+  const $m = v => '$'+fmt(Math.round(v));
+  const sg = v => (v>=0?'+':'−');
+  const col = v => v>=0?'var(--esp)':'var(--usa)';
+  const kpi = (l,v,s,c) => `<div style="border:1px solid var(--border2);border-top:3px solid var(--gold);border-radius:8px;padding:16px 12px;text-align:center">
+    <div style="font-size:9.5px;letter-spacing:.8px;color:var(--text3);text-transform:uppercase;margin-bottom:8px">${l}</div>
+    <div style="font-size:20px;font-weight:700;color:${c||'var(--text)'}">${v}</div>
+    <div style="font-size:10.5px;color:var(--text3);margin-top:5px">${s||''}</div></div>`;
+
+  const frases = [
+    `En ${MESNOM[mes]} ${anio}, el patrimonio de ${cliNom} cerró en <b>${$m(patTotal)}</b>${patPrev?`, ${sg(varMes)}${Math.abs(varPct).toFixed(1)}% respecto al mes anterior`:''}.`,
+    (rMes||gMes||iMes) ? `Las propiedades de renta generaron <b>${$m(netaMes)}</b> netos en el mes (renta ${$m(rMes)}, gastos ${$m(gMes)}, impuestos ${$m(iMes)}).` : `No se registraron movimientos de renta de propiedades en el mes.`,
+    bancosPrev ? `La liquidez en bancos ${varBancos>=0?'aumentó':'disminuyó'} <b>${$m(Math.abs(varBancos))}</b>, cerrando en ${$m(bancosMes)}.` : `La liquidez en bancos cerró en <b>${$m(bancosMes)}</b>.`,
+    deuda>0 ? `Endeudamiento de ${$m(deuda)} (apalancamiento ${apal.toFixed(1)}% sobre el patrimonio).` : null,
+    venc.length ? `Hay ${venc.length} vencimiento${venc.length>1?'s':''} en los próximos 60 días (ver detalle).` : null,
+  ].filter(Boolean);
+
+  const rentaRows = props.filter(p=>p.tipo==='R').map(p=>{ const mm=(mpR.data||[]).find(x=>x.propiedad_id===p.id);
+    const r=mm?.total_renta_usd||0, g=mm?.total_gastos_usd||0, im=mm?.total_impuestos_usd||0, n=r-g-im;
+    if(!r&&!g&&!im) return '';
+    return `<tr><td>${p.nombre}</td><td class="num positive">${r?'$'+fmt(r):'—'}</td><td class="num negative">${g?'$'+fmt(g):'—'}</td><td class="num negative">${im?'$'+fmt(im):'—'}</td><td class="num" style="font-weight:700;color:${col(n)}">$${fmt(n)}</td></tr>`;
+  }).filter(Boolean).join('');
+  const rentaTable = rentaRows ? `<div class="card" style="margin-bottom:16px"><div class="section-title" style="margin-bottom:12px">Propiedades de renta · ${MESNOM[mes]}</div>
+    <div class="table-wrap"><table><thead><tr><th>Propiedad</th><th class="num">Renta</th><th class="num">Gastos</th><th class="num">Impuestos</th><th class="num">Neto</th></tr></thead><tbody>${rentaRows}</tbody></table></div></div>` : '';
+
+  const vencRows = venc.slice(0,12).map(a=>`<tr><td style="white-space:nowrap">${a.fecha_vencimiento}</td><td>${a.descripcion||a.tipo||'—'}</td></tr>`).join('');
+  const vencTable = vencRows ? `<div class="card"><div class="section-title" style="margin-bottom:12px">Próximos vencimientos (60 días)</div>
+    <div class="table-wrap"><table><thead><tr><th>Fecha</th><th>Concepto</th></tr></thead><tbody>${vencRows}</tbody></table></div></div>` : '';
+
+  cont.innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:18px">
+      ${kpi('Patrimonio total', $m(patTotal), MESNOM[mes]+' '+anio)}
+      ${kpi('Variación del mes', (patPrev?sg(varMes)+'$'+fmt(Math.abs(Math.round(varMes))):'—'), (patPrev?sg(varMes)+Math.abs(varPct).toFixed(1)+'%':'sin mes previo'), col(varMes))}
+      ${kpi('Renta neta del mes', $m(netaMes), 'Propiedades', col(netaMes))}
+      ${kpi('Liquidez en bancos', $m(bancosMes), 'Neto al cierre')}
+    </div>
+    <div class="card" style="margin-bottom:16px">
+      <div class="section-title" style="margin-bottom:12px">Resumen de ${MESNOM[mes]} ${anio}</div>
+      ${frases.map(f=>`<p style="margin:7px 0;font-size:13px;line-height:1.5">• ${f}</p>`).join('')}
+    </div>
+    ${rentaTable}
+    ${vencTable}`;
 }
 
 async function generarReporte() {
@@ -6771,6 +6886,10 @@ async function generarReporte() {
   const cont = document.getElementById('rep-contenido');
   if (!cont) return;
   if (!tit) { cont.innerHTML = '<p style="color:var(--text3)">Elegí un cliente para generar el informe.</p>'; return; }
+  const _per = document.getElementById('rep-periodo')?.value || '2026-S1';
+  const _mm = _per.match(/^(\d{4})-(\d{1,2})$/);
+  if (_mm) return generarReporteMensual(tit, +_mm[1], +_mm[2]);
+  window._repTitulo = 'Primer semestre 2026';
   cont.innerHTML = '<div class="loader"><div class="spinner"></div></div>';
   const esH = H_SHARE_REP.includes(tit);
   const titFilter = esH ? [tit, 'H'] : [tit];
@@ -10889,7 +11008,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260720-113';
+const APP_VERSION = '20260720-114';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
