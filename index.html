@@ -1608,6 +1608,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
             <thead><tr><th>#</th><th>Banco</th><th>Tit.</th><th class="num">Inv account</th><th class="num">Cash</th><th class="num">Crédito</th><th class="num">Neto USD</th></tr></thead>
             <tbody id="tbody-historial-bancos"></tbody>
           </table></div></div>
+          <div id="bancos-hist-dist" style="margin-top:16px"></div>
         </div>
 
         <div id="banco-evolucion" class="tab-content">
@@ -5236,6 +5237,13 @@ const BANCOS_HIST_DATA = [
   {nro:43,nombre:"BNY Offida LLC",titular:"FC",pais:"USA",byY:{"2026":{i:0,c:4444954,r:0,n:4444954}}}
 ];
 
+// Titular de un banco en un año dado (según BANCOS_ATTR, no el titular actual/2026)
+function bancoTitAnio(nro, y){
+  const ys=String(y);
+  for(const t in BANCOS_ATTR){ const m=BANCOS_ATTR[t] && BANCOS_ATTR[t][ys]; if(m && m[nro]) return t; }
+  const b=BANCOS_HIST_DATA.find(x=>x.nro===nro); return b?b.titular:'—';
+}
+
 function renderBancosHist() {
   const sel = document.getElementById('bco-hist-anio');
   const y = sel ? sel.value : '2026';
@@ -5243,13 +5251,13 @@ function renderBancosHist() {
   if (!tbody) return;
   const cp = { ARG:'arg', USA:'usa', URU:'uru', ESP:'esp', PAR:'par' };
   let data = BANCOS_HIST_DATA.filter(b => b.byY[y]);
-  if (verComo) data = data.filter(b => b.titular === verComo);
+  if (verComo) data = data.filter(b => bancoTitAnio(b.nro,y) === verComo);
   const money = v => v ? (v<0?'-$'+fmt(Math.abs(v)):'$'+fmt(v)) : '—';
-  let body = data.map(b => { const d = b.byY[y];
+  let body = data.map(b => { const d = b.byY[y]; const tit = bancoTitAnio(b.nro,y);
     return `<tr class="row-${cp[b.pais]||'arg'}">
       <td style="color:var(--text3);font-size:11px">${b.nro}</td>
       <td style="font-size:12px;font-weight:500">${b.nombre}<button onclick="abrirEditHist('banco',${b.nro},${y})" style="background:none;border:none;cursor:pointer;color:var(--gold);font-size:12px;margin-left:6px;padding:0" title="Editar valor histórico">✎</button></td>
-      <td style="font-size:11px;color:var(--text3)">${b.titular}</td>
+      <td style="font-size:11px;color:var(--text3)">${tit}</td>
       <td class="num" style="font-size:11px">${money(d.i)}</td>
       <td class="num" style="font-size:11px">${money(d.c)}</td>
       <td class="num" style="font-size:11px;color:${d.r?'var(--usa)':''}">${d.r?'-$'+fmt(d.r):'—'}</td>
@@ -5264,6 +5272,23 @@ function renderBancosHist() {
     <td class="num bold" style="color:var(--gold);font-size:11px">${money(T.n)}</td>
   </tr>`;
   tbody.innerHTML = body;
+
+  // Cuadro: distribución del neto por cliente en el año seleccionado (titular del año)
+  const distEl = document.getElementById('bancos-hist-dist');
+  if (distEl) {
+    const dist = {};
+    data.forEach(b => { const t = bancoTitAnio(b.nro,y); dist[t] = (dist[t]||0) + (b.byY[y].n||0); });
+    const ent = Object.entries(dist).sort((a,b)=>b[1]-a[1]);
+    const totN = ent.reduce((a,[,v])=>a+v,0);
+    const nom = {JC:'Juan Cocci',FC:'Franco Cocci',M:'Martona',MFL:'M.F. Lorenzo',YAC:'Y.A. Cocci',FCC:'F.C. Cocci',G:'Grupillo'};
+    distEl.innerHTML = ent.length ? `<div class="card">
+      <div class="section-title" style="margin-bottom:12px">Distribución por Cliente · ${y}</div>
+      <div class="table-wrap"><table style="font-size:12px">
+        <thead><tr><th>Cliente</th><th class="num">Neto USD</th><th class="num">%</th></tr></thead>
+        <tbody>${ent.map(([t,v])=>`<tr><td class="bold">${t} <span style="color:var(--text3);font-weight:400;font-size:11px">${nom[t]||''}</span></td><td class="num" style="color:${v<0?'var(--usa)':''}">${money(v)}</td><td class="num" style="color:var(--text3)">${totN?(v/totN*100).toFixed(1)+'%':''}</td></tr>`).join('')}
+          <tr style="border-top:2px solid var(--border2)"><td class="bold" style="color:var(--gold)">TOTAL</td><td class="num bold" style="color:var(--gold)">${money(totN)}</td><td class="num" style="color:var(--text3)">100%</td></tr>
+        </tbody></table></div></div>` : '';
+  }
 }
 
 // ============================================
@@ -5909,7 +5934,7 @@ function renderPropiedades(paisFiltro) {
     return propsSortDir * (va - vb);
   });
 
-  tbody.innerHTML = rows.map(p => {
+  const filas = rows.map(p => {
     const isVendida = p.vendida === true;
     const rowStyle = isVendida ? 'opacity:0.55;' : '';
     const textStyle = isVendida ? 'text-decoration:line-through;color:var(--text3)' : '';
@@ -5932,7 +5957,21 @@ function renderPropiedades(paisFiltro) {
         <button class="btn-secondary" style="padding:3px 8px;font-size:11px" onclick="editarValorProp('${p.id}','${p.nombre}',${p.valor_2026||0})">Val.</button>
       </td>
     </tr>`;
-  }).join('') || '<tr><td colspan="11" style="color:var(--text3);text-align:center">Sin propiedades</td></tr>';
+  }).join('');
+  // Fila TOTAL (suma de las propiedades NO vendidas visibles)
+  const act = rows.filter(p => p.vendida !== true);
+  const sc = f => act.reduce((a,p)=>a+(Number(p[f])||0),0);
+  const totRow = act.length ? `<tr style="background:var(--bg3);border-top:2px solid var(--border2)">
+    <td colspan="5" class="bold" style="color:var(--gold)">TOTAL</td>
+    <td class="num bold" style="color:var(--gold);font-size:11px">${sc('valor_compra')?'$'+fmt(sc('valor_compra')):'—'}</td>
+    <td class="num bold" style="color:var(--gold);font-size:11px">${sc('inversion')?'$'+fmt(sc('inversion')):'—'}</td>
+    <td class="num bold" style="color:var(--gold)">$${fmt(sc('valor_2026'))}</td>
+    <td class="num bold positive" style="font-size:11px">${sc('_renta')?'$'+fmt(sc('_renta')):'—'}</td>
+    <td class="num bold negative" style="font-size:11px">${sc('_gastos')?'$'+fmt(sc('_gastos')):'—'}</td>
+    <td class="num bold negative" style="font-size:11px">${sc('_imp')?'$'+fmt(sc('_imp')):'—'}</td>
+    <td class="num bold" style="font-size:11px;color:${sc('_neto')>=0?'var(--esp)':'var(--usa)'}">$${fmt(sc('_neto'))}</td>
+    <td></td></tr>` : '';
+  tbody.innerHTML = filas ? (filas + totRow) : '<tr><td colspan="13" style="color:var(--text3);text-align:center">Sin propiedades</td></tr>';
   renderPropClientes(rows);
 }
 
@@ -8053,7 +8092,7 @@ async function loadAlertas() {
   updateAlertKPIs();
 }
 
-const _heCampos = {prop:[['valor','Valor']],auto:[['valor','Valor']],banco:[['neto','Neto'],['inv','Inv account'],['cash','Cash'],['cred','Crédito']],pe:[['val','Valor patrimonio'],['ia','Inv. acumulada'],['ap','Aporte'],['ut','Utilidad']]};
+const _heCampos = {prop:[['valor','Valor']],auto:[['valor','Valor']],banco:[['inv','Inv account'],['cash','Cash'],['cred','Crédito']],pe:[['val','Valor patrimonio'],['ia','Inv. acumulada'],['ap','Aporte'],['ut','Utilidad']]};
 let _heCtx = {};
 function _heSrc(cat){ return {prop:PROP_HIST_DATA,auto:AUTOS_HIST_DATA,banco:BANCOS_HIST_DATA,pe:PE_HIST_DATA}[cat]; }
 function _heActual(cat,nro,anio,campo){
@@ -8068,7 +8107,7 @@ function aplicarOverride(cat,nro,anio,campo,valor){
   const y=String(anio);
   if(cat==='prop'){const p=PROP_HIST_DATA.find(x=>x.nro===nro);if(p)p.valores[y]=valor;}
   else if(cat==='auto'){const a=AUTOS_HIST_DATA.find(x=>x.nro===nro);if(a)a.valores[y]=valor;}
-  else if(cat==='banco'){const b=BANCOS_HIST_DATA.find(x=>x.nro===nro);if(b){b.byY[y]=b.byY[y]||{i:0,c:0,r:0,n:0};b.byY[y][{inv:'i',cash:'c',cred:'r',neto:'n'}[campo]]=valor;}}
+  else if(cat==='banco'){const b=BANCOS_HIST_DATA.find(x=>x.nro===nro);if(b){b.byY[y]=b.byY[y]||{i:0,c:0,r:0,n:0};const _k={inv:'i',cash:'c',cred:'r'}[campo];if(_k)b.byY[y][_k]=valor;b.byY[y].n=(b.byY[y].i||0)+(b.byY[y].c||0)-(b.byY[y].r||0);}}
   else if(cat==='pe'){if(campo==='val'){PE_VAL[nro]=PE_VAL[nro]||{};PE_VAL[nro][y]=valor;}else{const p=PE_HIST_DATA.find(x=>x.nro===nro);if(p){p.byY[y]=p.byY[y]||{ia:0,ap:0,ut:0};p.byY[y][campo]=valor;}}}
 }
 async function loadHistOverrides(){
@@ -10815,7 +10854,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260720-111';
+const APP_VERSION = '20260720-112';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
