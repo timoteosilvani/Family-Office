@@ -8324,8 +8324,11 @@ function diasHasta(fecha) {
 function fechaEfectivaAlerta(a) {
   if (a.recurrente && a.dia_mes) {
     const hoy = new Date(); hoy.setHours(0,0,0,0);
+    // Vencimiento de ESTE mes (día X). Solo saltamos al mes siguiente si YA se pagó
+    // este mes; si no se pagó, la fecha de este mes queda fija aunque ya haya pasado,
+    // para que figure como VENCIDA (y no se "corra" sola 30 días).
     let f = new Date(hoy.getFullYear(), hoy.getMonth(), a.dia_mes);
-    if (f < hoy) f = new Date(hoy.getFullYear(), hoy.getMonth()+1, a.dia_mes);
+    if (_alertaPagadaEsteMes(a)) f = new Date(hoy.getFullYear(), hoy.getMonth()+1, a.dia_mes);
     return f;
   }
   return a.fecha_vencimiento ? new Date(a.fecha_vencimiento) : null;
@@ -11021,7 +11024,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260720-116';
+const APP_VERSION = '20260720-117';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
