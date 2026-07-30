@@ -342,6 +342,7 @@ body.vista-cliente [data-page="gastos"],
 body.vista-cliente [data-page="organigramas"],
 body.vista-cliente [data-page="tarjetas"],
 body.vista-cliente [data-page="reportes"],
+body.vista-cliente [data-page="estados"],
 body.vista-cliente .nav-mas,
 body.vista-cliente #dash-card-titular,
 body.vista-cliente #soc-info .filters,
@@ -899,6 +900,10 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
       <div class="nav-item" onclick="navTo('reportes')" data-page="reportes">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg>
         Reportes
+      </div>
+      <div class="nav-item" onclick="navTo('estados')" data-page="estados">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><rect x="7" y="12" width="3" height="6"/><rect x="12" y="8" width="3" height="10"/><rect x="17" y="4" width="3" height="14"/></svg>
+        Estados Financieros
       </div>
       <div class="nav-item" onclick="navTo('organigramas')" data-page="organigramas">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="5" r="3"/><line x1="12" y1="8" x2="12" y2="12"/><rect x="2" y="15" width="6" height="6" rx="1"/><rect x="9" y="15" width="6" height="6" rx="1"/><rect x="16" y="15" width="6" height="6" rx="1"/><line x1="5" y1="15" x2="5" y2="12"/><line x1="12" y1="15" x2="12" y2="12"/><line x1="19" y1="15" x2="19" y2="12"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
@@ -3473,6 +3478,21 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
 
 
       <!-- ======== REPORTES ======== -->
+      <div id="page-estados" class="page">
+        <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:16px;margin-bottom:20px">
+          <div>
+            <div class="section-title" style="margin-bottom:4px">Estados Financieros</div>
+            <p style="color:var(--text3);font-size:13px;margin:0">Balance, resultado, consumo y cambios en el patrimonio. La ecuacion que tiene que cerrar: patrimonio inicial + resultado + incorporaciones - consumo = patrimonio final.</p>
+          </div>
+          <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+            <div><label style="display:block;font-size:11px;color:var(--text3);margin-bottom:4px">Cliente</label><select class="fld" id="ef-cliente" onchange="renderEstados()"></select></div>
+            <div><label style="display:block;font-size:11px;color:var(--text3);margin-bottom:4px">Ano</label><select class="fld" id="ef-anio" onchange="renderEstados()"></select></div>
+            <div><label style="display:block;font-size:11px;color:var(--text3);margin-bottom:4px">Periodo</label><select class="fld" id="ef-periodo" onchange="renderEstados()"></select></div>
+          </div>
+        </div>
+        <div id="ef-contenido"></div>
+      </div>
+
       <div id="page-reportes" class="page">
         <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:16px;margin-bottom:20px">
           <div>
@@ -4101,6 +4121,7 @@ const pagesMeta = {
   sociedades: { title: 'Sociedades', subtitle: 'Gastos y movimientos de las sociedades' },
   tarjetas: { title: 'Tarjetas', subtitle: 'Gastos por tarjeta y cliente' },
   reportes: { title: 'Reportes', subtitle: 'Informes y consolidados' },
+  estados: { title: 'Estados Financieros', subtitle: 'Balance, resultado, consumo y cambios en el patrimonio' },
 };
 
 function navTo(page) {
@@ -4312,6 +4333,7 @@ async function loadPage(page, skipInit) {
       break;
     case 'deudas': await loadDeudas(); break;
     case 'reportes': loadReportes(); break;
+    case 'estados': await loadEstados(); break;
     case 'organigramas': 
       try { renderOrganigramas(); } catch(e) { console.warn('org error:', e.message); }
       it('organigramas');
@@ -11024,7 +11046,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260720-117';
+const APP_VERSION = '20260730-118';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
@@ -11064,6 +11086,467 @@ if ('serviceWorker' in navigator) {
   if (document.readyState !== 'loading') setTopbarH();
   else document.addEventListener('DOMContentLoaded', setTopbarH);
 })();
+
+/* ==========================================================================
+   ESTADOS FINANCIEROS  ·  capa de cálculo + solapa
+   Aditivo: no modifica deriveActivosByTit ni ninguna función existente.
+   Criterio PE: valor residual = MAX(0, inversión acumulada − distribuciones).
+   ========================================================================== */
+
+const EF_NOM = {JC:'Juan Cocci',FC:'Franco Cocci',M:'Martona',MFL:'M.F. Lorenzo',YAC:'Y.A. Cocci',FCC:'F.C. Cocci',G:'Grupillo'};
+const EF_ANIOS = [2026, 2025, 2024];
+const EF_RUB_GASTO = ['gas','luz','cable','telefono','expensas','jardinero','limpieza','mantenimiento','alarma','deposito','comision','seguros','administracion','otros_gastos'];
+const EF_RUB_IMP   = ['arba_abl','municipalidad_tigre','property_tax','tributo_domiciliario','impuesto_primarias','contribucion_inmobiliaria','saneamiento','ascensor','otros_impuestos'];
+let _efRefs = null;
+
+/* ---------- helpers de Private Equity (criterio de valor residual) ---------- */
+function efPeRow(p, y) { let b = null; for (const yy in (p.byY||{})) if (+yy <= +y && (b === null || +yy > b)) b = +yy; return b === null ? null : p.byY[b]; }
+function efPeInv(p, y)  { const d = efPeRow(p, y); return d ? ((d.ia||0) + (d.ap||0)) : 0; }
+function efPeUtAc(p, y) { return Object.entries(p.byY||{}).reduce((s,[yy,d]) => (+yy <= +y ? s + (d.ut||0) : s), 0); }
+function efPeResid(p, y){ return Math.max(0, efPeInv(p,y) - efPeUtAc(p,y)); }
+function efPeUtRec(p, y){ return Math.max(0, efPeUtAc(p,y) - efPeInv(p,y)); }
+
+/* ---------- suma ponderada por atribución (mismo motor que sumAttr) ---------- */
+function efSumAttr(attr, tit, y, valFn) {
+  const it = (attr[tit] || {})[y] || {}; let s = 0;
+  for (const n in it) s += (valFn(+n, y) || 0) * it[n];
+  return s;
+}
+function efIdx(arr) { const o = {}; arr.forEach(x => o[x.nro] = x); return o; }
+
+/* ---------- propiedades: mismas reglas de atribución que derivePropsHistByTit ---------- */
+function efShareProp(nro, titular, anio, tit) {
+  if (titular === 'H') { if (anio <= 2025) return tit === 'JC' ? 1 : 0; return ['FC','YAC','FCC'].includes(tit) ? 1/3 : 0; }
+  if (nro === 29) return tit === (anio <= 2024 ? 'JC' : 'M')  ? 1 : 0;
+  if (nro === 43) return tit === (anio <= 2025 ? 'JC' : 'M')  ? 1 : 0;
+  if (nro === 3)  return tit === (anio <= 2024 ? 'JC' : 'MFL') ? 1 : 0;
+  return titular === tit ? 1 : 0;
+}
+function efPropValor(tit, anio, tipo, tipoByNro) {
+  let tot = 0;
+  PROP_HIST_DATA.forEach(p => {
+    const val = (p.valores || {})[anio]; if (!val) return;
+    if ((tipoByNro[p.nro] || 'R') !== tipo) return;
+    if (p.vendida === true) { const ys = Object.keys(p.valores).map(Number); if (anio >= Math.max.apply(null, ys)) return; }
+    tot += val * efShareProp(p.nro, p.titular, anio, tit);
+  });
+  return tot;
+}
+/* ---------- descomposición del cambio de un activo ----------
+   Δ = valor·peso al cierre − valor·peso a la apertura
+   flujo      = altas y bajas (compras, ventas, aportes, devoluciones)
+   transfer   = cambio de titular a valor de apertura (NO es resultado)
+   reval      = lo que queda = cambio genuino de valuación                */
+function efDeltaProp(tit, anio, tipo, tipoByNro) {
+  let D = 0, F = 0, Tr = 0;
+  PROP_HIST_DATA.forEach(p => {
+    if ((tipoByNro[p.nro] || 'R') !== tipo) return;
+    const ys = Object.keys(p.valores || {}).map(Number);
+    const sy = (p.vendida === true && ys.length) ? Math.max.apply(null, ys) : null;
+    const vivo = (yy) => (sy !== null && yy >= sy) ? 0 : ((p.valores || {})[yy] || 0);
+    const v0 = vivo(anio-1), v1 = vivo(anio); if (!v0 && !v1) return;
+    const w0 = efShareProp(p.nro, p.titular, anio-1, tit), w1 = efShareProp(p.nro, p.titular, anio, tit);
+    let fl = 0; if (v1 && !v0) fl = v1 * w1; else if (!v1 && v0) fl = -v0 * w1;
+    D += v1*w1 - v0*w0; F += fl; Tr += v0 * (w1 - w0);
+  });
+  return { delta: D, flujo: F, transfer: Tr, reval: D - F - Tr };
+}
+function efNrosAttr(attr, tit, anio) {
+  const a = (attr[tit] || {})[anio-1] || {}, b = (attr[tit] || {})[anio] || {};
+  const st = {}; Object.keys(a).forEach(n => st[n] = 1); Object.keys(b).forEach(n => st[n] = 1);
+  return Object.keys(st).map(Number);
+}
+function efDeltaPE(tit, anio) {
+  let D = 0, F = 0, Tr = 0;
+  const w0m = (PE_ATTR[tit] || {})[anio-1] || {}, w1m = (PE_ATTR[tit] || {})[anio] || {};
+  const idx = efIdx(PE_HIST_DATA);
+  efNrosAttr(PE_ATTR, tit, anio).forEach(n => {
+    const p = idx[n]; if (!p) return;
+    const v0 = efPeResid(p, anio-1), v1 = efPeResid(p, anio);
+    const w0 = w0m[n] || 0, w1 = w1m[n] || 0;
+    const d = p.byY[anio] || {};
+    const rec = Math.max(0, efPeUtRec(p, anio) - efPeUtRec(p, anio-1));
+    const dev = Math.max(0, (d.ut || 0) - rec);
+    F += ((d.ap || 0) - dev) * w1;
+    D += v1*w1 - v0*w0; Tr += v0 * (w1 - w0);
+  });
+  return { delta: D, flujo: F, transfer: Tr, reval: D - F - Tr };
+}
+function efDeltaAutos(tit, anio) {
+  let D = 0, F = 0, Tr = 0;
+  const w0m = (AUTOS_ATTR[tit] || {})[anio-1] || {}, w1m = (AUTOS_ATTR[tit] || {})[anio] || {};
+  const idx = efIdx(AUTOS_HIST_DATA);
+  efNrosAttr(AUTOS_ATTR, tit, anio).forEach(n => {
+    const a = idx[n]; if (!a) return;
+    const v0 = a.valores[anio-1] || 0, v1 = a.valores[anio] || 0; if (!v0 && !v1) return;
+    const w0 = w0m[n] || 0, w1 = w1m[n] || 0;
+    let fl = 0; if (v1 && !v0) fl = v1 * w1; else if (!v1 && v0) fl = -v0 * w1;
+    D += v1*w1 - v0*w0; F += fl; Tr += v0 * (w1 - w0);
+  });
+  return { delta: D, flujo: F, transfer: Tr, reval: D - F - Tr };
+}
+function efTransferBanco(tit, anio) {
+  const w0m = (BANCOS_ATTR[tit] || {})[anio-1] || {}, w1m = (BANCOS_ATTR[tit] || {})[anio] || {};
+  const idx = efIdx(BANCOS_HIST_DATA); let Tr = 0;
+  efNrosAttr(BANCOS_ATTR, tit, anio).forEach(n => {
+    const b = idx[n], d0 = b && b.byY[anio-1];
+    Tr += (d0 ? (d0.n || 0) : 0) * ((w1m[n] || 0) - (w0m[n] || 0));
+  });
+  return Tr;
+}
+
+/* ---------- referencias de Supabase, cacheadas ---------- */
+async function efLoadRefs() {
+  if (_efRefs) return _efRefs;
+  const [pr, au, ta, ba] = await Promise.all([
+    sb.from('propiedades').select('id,nro,tipo,titular'),
+    sb.from('autos').select('id,nro,titular'),
+    sb.from('tarjetas').select('id,cliente'),
+    sb.from('bancos').select('id,nro,titular,nombre,es_operativa'),
+  ]);
+  const tipoByNro = {}; (pr.data||[]).forEach(p => { if (p.nro != null) tipoByNro[p.nro] = (p.tipo === 'NR' ? 'NR' : 'R'); });
+  _efRefs = { props: pr.data||[], autos: au.data||[], tarjetas: ta.data||[], bancos: ba.data||[], tipoByNro };
+  return _efRefs;
+}
+
+/* ---------- rendimiento de cuentas de inversión, parametrizado por período ----------
+   2025 en adelante: saldos mensuales reales de movimientos_bancos.
+   2024 y anteriores: variación anual del histórico (solo período anual).          */
+async function efRendimientoBancos(tit, anio, m1, m2, refs) {
+  const pesos = (BANCOS_ATTR[tit] || {})[anio] || {};
+  const nros = Object.keys(pesos).map(Number); if (!nros.length) return { total: 0, cuentas: [], operativas: 0 };
+  const bByNro = efIdx(refs.bancos), hByNro = efIdx(BANCOS_HIST_DATA);
+  const ids = nros.map(n => bByNro[n] && bByNro[n].id).filter(Boolean);
+  const desde = anio + '-' + String(m1).padStart(2,'0') + '-01';
+  const hastaM = new Date(anio, m2, 0).getDate();
+  const hasta = anio + '-' + String(m2).padStart(2,'0') + '-' + String(hastaM).padStart(2,'0');
+  let apByBanco = {};
+  if (ids.length) {
+    const { data: aps } = await sb.from('aportes_bancos').select('*').in('banco_id', ids).gte('fecha', desde).lte('fecha', hasta);
+    (aps||[]).forEach(a => { const s = (a.tipo === 'retiro' ? -1 : 1) * Math.abs(Number(a.monto)||0); apByBanco[a.banco_id] = (apByBanco[a.banco_id]||0) + s; });
+  }
+  let mensual = {}, prevDic = {};
+  if (anio >= 2025 && ids.length) {
+    const [cur, pre] = await Promise.all([
+      sb.from('movimientos_bancos').select('*').eq('anio', anio).in('banco_id', ids),
+      sb.from('movimientos_bancos').select('*').eq('anio', anio-1).eq('mes', 12).in('banco_id', ids),
+    ]);
+    (cur.data||[]).forEach(m => { (mensual[m.banco_id] = mensual[m.banco_id] || []).push(m); });
+    (pre.data||[]).forEach(m => prevDic[m.banco_id] = m);
+  }
+  const cuentas = []; let total = 0, operativas = 0;
+  nros.forEach(n => {
+    const b = bByNro[n], w = pesos[n] || 0; if (!w) return;
+    const oper = !!(b && b.es_operativa);
+    let vBeg = 0, vEnd = 0;
+    if (anio >= 2025 && b) {
+      const ms = (mensual[b.id] || []).slice().sort((x,y2) => x.mes - y2.mes);
+      const ini = ms.filter(m => m.mes < m1).pop();
+      vBeg = ini ? (Number(bancoMovUSD(ini).neto)||0) : (prevDic[b.id] ? (Number(bancoMovUSD(prevDic[b.id]).neto)||0) : 0);
+      const fin = ms.filter(m => m.mes <= m2).pop();
+      vEnd = fin ? (Number(bancoMovUSD(fin).neto)||0) : vBeg;
+    } else {
+      const h = hByNro[n];
+      vBeg = (h && h.byY[anio-1]) ? (h.byY[anio-1].n||0) : 0;
+      vEnd = (h && h.byY[anio])   ? (h.byY[anio].n||0)   : 0;
+    }
+    const ap = (b ? (apByBanco[b.id]||0) : 0) * w;
+    vBeg *= w; vEnd *= w;
+    const rend = oper ? 0 : (vEnd - vBeg - ap);
+    if (oper) operativas += (vEnd - vBeg); else total += rend;
+    cuentas.push({ nro: n, nombre: (b && b.nombre) || (hByNro[n] && hByNro[n].nombre) || ('#'+n), oper, vBeg, vEnd, aportes: ap, rend });
+  });
+  return { total, cuentas, operativas };
+}
+
+/* ========================= LA CAPA DE CÁLCULO ========================= */
+async function estadosFinancieros(tit, anio, m1, m2) {
+  const refs = await efLoadRefs();
+  const T = refs.tipoByNro, y = anio, y0 = anio - 1;
+  const mensual = anio >= 2025;
+  const propIds = refs.props.filter(p => efShareProp(p.nro, p.titular, y, tit) > 0).map(p => p.id);
+  const shById = {}; refs.props.forEach(p => shById[p.id] = efShareProp(p.nro, p.titular, y, tit));
+  const tipoById = {}; refs.props.forEach(p => tipoById[p.id] = (p.tipo === 'NR' ? 'NR' : 'R'));
+
+  /* ---- BALANCE ---- */
+  const bk = (yy) => efSumAttr(BANCOS_ATTR, tit, yy, (n) => { const b = efIdx(BANCOS_HIST_DATA)[n], d = b && b.byY[yy]; return d ? ((d.i||0)+(d.c||0)) : 0; });
+  const cr = (yy) => efSumAttr(BANCOS_ATTR, tit, yy, (n) => { const b = efIdx(BANCOS_HIST_DATA)[n], d = b && b.byY[yy]; return d ? (d.r||0) : 0; });
+  const au = (yy) => efSumAttr(AUTOS_ATTR,  tit, yy, (n) => { const a = efIdx(AUTOS_HIST_DATA)[n]; return (a && a.valores[yy]) ? a.valores[yy] : 0; });
+  const pe = (yy) => efSumAttr(PE_ATTR,     tit, yy, (n) => { const p = efIdx(PE_HIST_DATA)[n]; return p ? efPeResid(p, yy) : 0; });
+  const peLegacy = (yy) => efSumAttr(PE_ATTR, tit, yy, (n) => { const p = efIdx(PE_HIST_DATA)[n], d = p && p.byY[yy]; return d ? ((d.ia||0)+(d.ap||0)) : 0; });
+  const foto = (yy) => {
+    const b = { bancos: bk(yy), propR: efPropValor(tit, yy, 'R', T), propNR: efPropValor(tit, yy, 'NR', T), pe: pe(yy), autos: au(yy), credito: cr(yy) };
+    b.activos = b.bancos + b.propR + b.propNR + b.pe + b.autos;
+    b.pasivos = b.credito;
+    b.pn = b.activos - b.pasivos;
+    return b;
+  };
+  const balance = { apertura: foto(y0), cierre: foto(y), peLegacy: peLegacy(y) };
+
+  /* ---- FLUJOS DE PROPIEDADES ---- */
+  let rentaR = 0, gastoR = 0, impR = 0, gastoNR = 0, impNR = 0;
+  let covProp = false;
+  if (mensual && propIds.length) {
+    const { data: mp } = await sb.from('movimientos_propiedades').select('*').eq('anio', y).gte('mes', m1).lte('mes', m2).in('propiedad_id', propIds);
+    covProp = !!(mp && mp.length);
+    (mp||[]).forEach(m => {
+      const sh = shById[m.propiedad_id] || 0; if (!sh) return;
+      const ren = ((Number(m.renta)||0) + (Number(m.otro_ingreso)||0)) * sh;
+      const gas = EF_RUB_GASTO.reduce((s,k) => s + (Number(m[k])||0), 0) * sh;
+      const imp = EF_RUB_IMP.reduce((s,k) => s + (Number(m[k])||0), 0) * sh;
+      if (tipoById[m.propiedad_id] === 'R') { rentaR += ren; gastoR += gas; impR += imp; }
+      else { gastoNR += gas; impNR += imp; }
+    });
+  } else if (!mensual) {
+    const nros = refs.props.filter(p => shById[p.id] > 0).map(p => p.nro).filter(x => x != null);
+    if (nros.length) {
+      const { data: rh } = await sb.from('renta_anual_prop').select('*').eq('anio', y).in('nro', nros);
+      covProp = !!(rh && rh.length);
+      const pByNro = {}; refs.props.forEach(p => { if (p.nro != null) pByNro[p.nro] = p; });
+      (rh||[]).forEach(r => {
+        const p = pByNro[r.nro]; if (!p) return; const sh = shById[p.id] || 0; if (!sh) return;
+        const ren = (Number(r.renta)||0) * sh, neta = (Number(r.renta_neta)||0) * sh, gas = ren - neta;
+        if (tipoById[p.id] === 'R') { rentaR += ren; gastoR += gas; }
+        else { gastoNR += Math.max(0, -neta); }
+      });
+    }
+  }
+  const noi = rentaR - gastoR - impR;
+  const costoNR = gastoNR + impNR;
+
+  /* ---- PE: utilidad reconocida del año (incremental) ---- */
+  const peIdx = efIdx(PE_HIST_DATA);
+  const utRec = efSumAttr(PE_ATTR, tit, y, (n) => { const p = peIdx[n]; return p ? (efPeUtRec(p, y) - efPeUtRec(p, y-1)) : 0; });
+  const peAportes = efSumAttr(PE_ATTR, tit, y, (n) => { const p = peIdx[n], d = p && p.byY[y]; return d ? (d.ap||0) : 0; });
+  const peDistrib = efSumAttr(PE_ATTR, tit, y, (n) => { const p = peIdx[n], d = p && p.byY[y]; return d ? (d.ut||0) : 0; });
+  const peDevCap  = Math.max(0, peDistrib - utRec);
+  const peInvAc   = efSumAttr(PE_ATTR, tit, y, (n) => { const p = peIdx[n]; return p ? efPeInv(p, y) : 0; });
+  const peUtAc    = efSumAttr(PE_ATTR, tit, y, (n) => { const p = peIdx[n]; return p ? efPeUtAc(p, y) : 0; });
+
+  /* ---- BANCOS ---- */
+  const rb = await efRendimientoBancos(tit, y, m1, m2, refs);
+
+  /* ---- RESULTADO ---- */
+  const dR = efDeltaProp(tit, y, 'R', T), dNR = efDeltaProp(tit, y, 'NR', T);
+  const dPE = efDeltaPE(tit, y), dAU = efDeltaAutos(tit, y);
+  const transferencias = dR.transfer + dNR.transfer + dPE.transfer + dAU.transfer + efTransferBanco(tit, y);
+  const revalR = dR.reval, revalNR = dNR.reval, revalPE = dPE.reval;
+  const realizado = noi + utRec + rb.total;
+  const noRealizado = revalR + revalNR + revalPE;
+  const resultado = {
+    rentaR, gastoR, impR, noi, utRec, rendBancos: rb.total, cuentasBanco: rb.cuentas,
+    revalR, revalNR, revalPE, comprasR: dR.flujo, comprasNR: dNR.flujo, transferencias,
+    peAportes, peDistrib, peDevCap, realizado, noRealizado, total: realizado + noRealizado,
+  };
+
+  /* ---- CONSUMO ---- */
+  let tarjetas = 0, covTar = false;
+  const misTar = refs.tarjetas.filter(t => t.cliente === tit).map(t => t.id);
+  if (mensual && misTar.length) {
+    const { data: mt } = await sb.from('movimientos_tarjetas').select('*').eq('anio', y).gte('mes', m1).lte('mes', m2).in('tarjeta_id', misTar);
+    covTar = !!(mt && mt.length);
+    (mt||[]).forEach(m => tarjetas += (Number(m.total_usd)||0));
+  }
+  let gastoAutos = 0, covAuto = false;
+  const pesosAu = (AUTOS_ATTR[tit] || {})[y] || {};
+  const auByNro = efIdx(refs.autos);
+  const misAutoIds = Object.keys(pesosAu).map(n => auByNro[n] && auByNro[n].id).filter(Boolean);
+  if (mensual && misAutoIds.length) {
+    const { data: ma } = await sb.from('movimientos_autos').select('auto_id,total_usd').eq('anio', y).gte('mes', m1).lte('mes', m2).in('auto_id', misAutoIds);
+    covAuto = !!(ma && ma.length);
+    const idToNro = {}; refs.autos.forEach(a => idToNro[a.id] = a.nro);
+    (ma||[]).forEach(m => gastoAutos += (Number(m.total_usd)||0) * (pesosAu[idToNro[m.auto_id]] || 0));
+  } else if (!mensual) {
+    const nros = Object.keys(pesosAu).map(Number);
+    if (nros.length) {
+      const { data: gh } = await sb.from('gastos_anual_auto').select('nro,total_usd').eq('anio', y).in('nro', nros);
+      covAuto = !!(gh && gh.length);
+      (gh||[]).forEach(g => gastoAutos += (Number(g.total_usd)||0) * (pesosAu[g.nro] || 0));
+    }
+  }
+  const comprasAutos = dAU.flujo;
+  const deprAutos = Math.max(0, -dAU.reval);
+  const identificado = tarjetas + gastoAutos + deprAutos + costoNR;
+  const consumo = { tarjetas, gastoAutos, comprasAutos, deprAutos, gastoNR, impNR, costoNR, identificado };
+
+  /* ---- CAMBIOS EN EL PATRIMONIO ---- */
+  const incorporaciones = Number(window._efIncorp || 0);
+  const teorico = balance.apertura.pn + resultado.total + incorporaciones + transferencias - identificado;
+  const partida = teorico - balance.cierre.pn;
+  const noIdentificado = Math.max(partida, 0);
+  const sinOrigen = Math.max(-partida, 0);
+  const consumoTotal = identificado + noIdentificado;
+  const cambios = { inicial: balance.apertura.pn, resultado: resultado.total, incorporaciones, transferencias, identificado, teorico, real: balance.cierre.pn, partida, noIdentificado, sinOrigen, consumoTotal };
+
+  /* ---- INDICADORES ---- */
+  const div = (a,b) => (b ? a/b : 0);
+  const prom = (a,b) => ((a+b)/2);
+  const ind = {
+    yieldRenta: div(noi, prom(balance.apertura.propR, balance.cierre.propR)),
+    costoTenencia: div(costoNR, prom(balance.apertura.propNR, balance.cierre.propNR)),
+    cobertura: div(noi, costoNR),
+    rendTotal: div(resultado.total, balance.apertura.pn),
+    rendReal: div(resultado.realizado, balance.apertura.pn),
+    tasaConsumo: div(consumoTotal, balance.apertura.pn),
+    autosuficiencia: div(resultado.realizado, consumoTotal),
+    dpi: div(peUtAc, peInvAc),
+    sinOrigenPct: div(sinOrigen, balance.apertura.pn),
+    ctrlTarjetas: consumoTotal >= tarjetas,
+  };
+  const cobertura = { mensual, propiedades: covProp, tarjetas: covTar, autos: covAuto, bancos: anio >= 2025 };
+  return { tit, anio, m1, m2, balance, resultado, consumo, cambios, ind, cobertura, peInvAc, peUtAc };
+}
+
+/* ---------------- render de la solapa ---------------- */
+function efM(v) { const n = Math.round(Number(v)||0); return (n < 0 ? '-$' : '$') + fmt(Math.abs(n)); }
+function efP(v) { return ((Number(v)||0)*100).toFixed(1) + '%'; }
+function efX(v) { return (Number(v)||0).toFixed(2) + 'x'; }
+function efFila(l, v, o) { o = o || {}; return '<tr' + (o.top ? ' style="border-top:2px solid var(--border2)"' : '') + '><td' + (o.bold ? ' class="bold"' : '') + (o.ind ? ' style="padding-left:26px;color:var(--text3)"' : '') + '>' + l + '</td><td class="num' + (o.bold ? ' bold' : '') + '"' + (o.gold ? ' style="color:var(--gold)"' : '') + '>' + efM(v) + '</td>' + (o.extra !== undefined ? '<td class="num" style="color:var(--text3);font-size:11px">' + o.extra + '</td>' : '<td></td>') + '</tr>'; }
+
+function efPeriodoOpts() { return '<option value="A">Anual</option><option value="S1">1er semestre</option><option value="S2">2do semestre</option>'; }
+
+async function loadEstados() {
+  const selC = document.getElementById('ef-cliente'), selA = document.getElementById('ef-anio'), selP = document.getElementById('ef-periodo');
+  if (selC && !selC.options.length) selC.innerHTML = REP_CLIENTES.map(c => '<option value="' + c + '">' + c + ' · ' + (EF_NOM[c]||'') + '</option>').join('');
+  if (selA && !selA.options.length) selA.innerHTML = EF_ANIOS.map(a => '<option value="' + a + '">' + a + '</option>').join('');
+  if (selP && !selP.options.length) selP.innerHTML = efPeriodoOpts();
+  if (selA && !selA.dataset.init) { selA.value = '2025'; selA.dataset.init = '1'; }
+  await renderEstados();
+}
+
+function efSetIncorp(v) { window._efIncorp = Number(v) || 0; renderEstados(); }
+
+async function renderEstados() {
+  const cont = document.getElementById('ef-contenido'); if (!cont) return;
+  const tit = (document.getElementById('ef-cliente') || {}).value || 'FC';
+  const anio = +((document.getElementById('ef-anio') || {}).value || 2025);
+  const per = (document.getElementById('ef-periodo') || {}).value || 'A';
+  const m1 = per === 'S2' ? 7 : 1, m2 = per === 'S1' ? 6 : 12;
+  const perTxt = per === 'A' ? 'Ejercicio ' + anio : (per === 'S1' ? '1er semestre ' + anio : '2do semestre ' + anio);
+  cont.innerHTML = '<div class="loader"><div class="spinner"></div></div>';
+  let R;
+  try { R = await estadosFinancieros(tit, anio, m1, m2); }
+  catch (e) { cont.innerHTML = '<div class="card"><div style="color:var(--neg)">No se pudieron calcular los estados: ' + (e.message||e) + '</div></div>'; return; }
+  window._efUltimo = R;
+  const B = R.balance, RE = R.resultado, C = R.consumo, CA = R.cambios, I = R.ind, CO = R.cobertura;
+
+  /* ---- avisos de cobertura ---- */
+  const faltas = [];
+  if (!CO.mensual && per !== 'A') faltas.push('<b>' + anio + ' no tiene datos mensuales</b>: solo se puede calcular el período anual. Los números que ves son del año completo.');
+  if (!CO.tarjetas) faltas.push('<b>Sin gasto de tarjetas</b> para este período. En un cliente típico las tarjetas son la mayor parte del consumo, así que la partida a explicar va a estar inflada.');
+  if (!CO.propiedades) faltas.push('<b>Sin movimientos de propiedades</b> cargados para este período.');
+  if (!CO.autos) faltas.push('<b>Sin gastos de autos</b> cargados para este período.');
+  if (!CO.bancos) faltas.push('El rendimiento bancario de ' + anio + ' se estima con la variación del histórico anual, no con saldos mensuales.');
+  const aviso = faltas.length ? '<div class="card" style="border-left:3px solid var(--gold)"><div class="section-title" style="margin-bottom:8px">Cobertura de datos</div><div style="font-size:12px;color:var(--text2);line-height:1.7">' + faltas.map(f => '· ' + f).join('<br>') + '</div></div>' : '';
+
+  /* ---- KPIs ---- */
+  const kpis = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin-bottom:18px">' + [
+    ['Patrimonio al cierre', efM(B.cierre.pn), perTxt],
+    ['Resultado del período', efM(RE.total), 'realizado ' + efM(RE.realizado)],
+    ['Consumo total', efM(CA.consumoTotal), 'identificado ' + efM(C.identificado)],
+    [CA.partida >= 0 ? 'Consumo sin identificar' : 'Ingresos sin origen', efM(Math.abs(CA.partida)), CA.partida >= 0 ? 'efectivo y gastos sin cargar' : 'entró patrimonio sin registrar'],
+  ].map(k => '<div class="kpi-card"><div class="kpi-accent gold"></div><div class="kpi-label">' + k[0] + '</div><div class="kpi-value">' + k[1] + '</div><div class="kpi-sub">' + k[2] + '</div></div>').join('') + '</div>';
+
+  /* ---- 1 Balance ---- */
+  const fb = (l, k, o) => { o = o || {}; const a = B.apertura[k], c = B.cierre[k]; return '<tr' + (o.top ? ' style="border-top:2px solid var(--border2)"' : '') + '><td' + (o.bold ? ' class="bold"' : '') + '>' + l + '</td><td class="num' + (o.bold ? ' bold' : '') + '">' + efM(a) + '</td><td class="num' + (o.bold ? ' bold' : '') + '">' + efM(c) + '</td><td class="num" style="color:' + ((c-a) >= 0 ? 'var(--pos)' : 'var(--neg)') + '">' + efM(c-a) + '</td></tr>'; };
+  const cardBal = '<div class="card"><div class="section-title" style="margin-bottom:12px">1 · Balance</div><div class="table-wrap"><table>' +
+    '<thead><tr><th>Concepto</th><th class="num">31/12/' + (anio-1) + '</th><th class="num">31/12/' + anio + '</th><th class="num">Variación</th></tr></thead><tbody>' +
+    fb('Bancos (inversión + cash)', 'bancos') + fb('Propiedades de renta', 'propR') + fb('Propiedades de no renta', 'propNR') +
+    fb('Private equity (valor residual)', 'pe') + fb('Autos', 'autos') + fb('Total activos', 'activos', {bold:1, top:1}) +
+    fb('Línea de crédito bancaria', 'credito') + fb('PATRIMONIO NETO', 'pn', {bold:1, top:1}) +
+    '</tbody></table></div><div style="font-size:11px;color:var(--text3);margin-top:10px;line-height:1.6">' +
+    'El private equity va a valor residual: inversión acumulada menos las distribuciones ya recibidas. La solapa Patrimonio todavía lo muestra a inversión acumulada (' + efM(B.peLegacy) + ' al cierre), una diferencia de ' + efM(B.peLegacy - B.cierre.pe) + ' que ya está en el banco y hoy se cuenta dos veces.<br>' +
+    'Las deudas y créditos personales no entran: la tabla guarda el saldo actual, no el saldo a una fecha pasada.</div></div>';
+
+  /* ---- 2 Resultado ---- */
+  const cardRes = '<div class="card"><div class="section-title" style="margin-bottom:12px">2 · Resultado · ' + perTxt + '</div><div class="table-wrap"><table>' +
+    '<thead><tr><th>Concepto</th><th class="num">Importe</th><th class="num">Nota</th></tr></thead><tbody>' +
+    '<tr><td colspan="3" style="background:var(--bg2);font-weight:600;font-size:11px;letter-spacing:1px">REALIZADO</td></tr>' +
+    efFila('Alquileres cobrados (propiedades de renta)', RE.rentaR, {ind:1}) +
+    efFila('Gastos de propiedades de renta', -RE.gastoR, {ind:1}) +
+    efFila('Impuestos de propiedades de renta', -RE.impR, {ind:1}) +
+    efFila('Resultado operativo inmobiliario (NOI)', RE.noi, {bold:1, top:1}) +
+    efFila('Utilidad de private equity reconocida', RE.utRec, {extra: RE.utRec === 0 ? 'todas las distribuciones fueron devolución de capital' : ''}) +
+    efFila('Rendimiento de cuentas de inversión', RE.rendBancos, {}) +
+    efFila('RESULTADO REALIZADO', RE.realizado, {bold:1, top:1, gold:1}) +
+    '<tr><td colspan="3" style="background:var(--bg2);font-weight:600;font-size:11px;letter-spacing:1px">NO REALIZADO</td></tr>' +
+    efFila('Revaluación de propiedades de renta', RE.revalR, {ind:1, extra: RE.comprasR ? 'neto de compras por ' + efM(RE.comprasR) : ''}) +
+    efFila('Revaluación de propiedades de no renta', RE.revalNR, {ind:1, extra: RE.comprasNR ? 'neto de compras por ' + efM(RE.comprasNR) : ''}) +
+    efFila('Cambio de valuación de private equity', RE.revalPE, {ind:1, extra:'cero mientras no haya NAV del sponsor'}) +
+    efFila('RESULTADO NO REALIZADO', RE.noRealizado, {bold:1, top:1}) +
+    efFila('RESULTADO TOTAL', RE.total, {bold:1, top:1, gold:1}) +
+    '</tbody></table></div></div>';
+
+  /* ---- 3 Consumo ---- */
+  const cardCon = '<div class="card"><div class="section-title" style="margin-bottom:12px">3 · Consumo · ' + perTxt + '</div>' +
+    '<div style="font-size:11px;color:var(--text3);margin-bottom:12px">Retiros del patrimonio, no gastos del patrimonio. Los gastos de las propiedades de renta no están acá: son costo de generar el ingreso y ya bajaron el resultado.</div>' +
+    '<div class="table-wrap"><table><thead><tr><th>Concepto</th><th class="num">Importe</th><th class="num">Nota</th></tr></thead><tbody>' +
+    efFila('Tarjetas de crédito', C.tarjetas, {ind:1}) +
+    efFila('Gastos de autos', C.gastoAutos, {ind:1}) +
+    efFila('Depreciación de autos', C.deprAutos, {ind:1, extra: C.comprasAutos ? 'neto de compras por ' + efM(C.comprasAutos) : ''}) +
+    efFila('Gastos de propiedades de no renta', C.gastoNR, {ind:1}) +
+    efFila('Impuestos de propiedades de no renta', C.impNR, {ind:1}) +
+    efFila('CONSUMO IDENTIFICADO', C.identificado, {bold:1, top:1}) +
+    efFila(CA.partida >= 0 ? 'Consumo no identificado' : 'Ingresos o aportes sin origen', Math.abs(CA.partida), {extra:'sale del cierre patrimonial'}) +
+    efFila('CONSUMO TOTAL', CA.consumoTotal, {bold:1, top:1, gold:1}) +
+    '</tbody></table></div><div style="font-size:11px;color:' + (I.ctrlTarjetas ? 'var(--text3)' : 'var(--neg)') + ';margin-top:10px">' +
+    'Control de tarjetas: ' + (I.ctrlTarjetas ? 'OK — el consumo total supera el gasto de tarjetas.' : 'REVISAR — el consumo total da menos que el gasto de tarjetas, lo que indica un error de carga.') + '</div></div>';
+
+  /* ---- 4 Cambios en el patrimonio ---- */
+  const interp = CA.partida > 0
+    ? 'Positiva: falta consumo por trackear. Es lo normal — efectivo, transferencias y gastos que no pasan por tarjeta.'
+    : (CA.partida < 0 ? 'Negativa: entró patrimonio sin origen registrado. Hay ingresos o aportes que el sistema no ve, o un activo que apareció sin contrapartida.' : 'Cierra exacto.');
+  const cardCam = '<div class="card"><div class="section-title" style="margin-bottom:12px">4 · Cambios en el patrimonio · ' + perTxt + '</div><div class="table-wrap"><table>' +
+    '<thead><tr><th>Concepto</th><th class="num">Importe</th><th class="num"></th></tr></thead><tbody>' +
+    efFila('Patrimonio neto al inicio', CA.inicial, {}) +
+    efFila('(+) Resultado del período', CA.resultado, {}) +
+    '<tr><td>(+) Incorporaciones de capital</td><td class="num"><input class="fld" type="number" style="width:130px;text-align:right" value="' + (CA.incorporaciones||0) + '" onchange="efSetIncorp(this.value)"></td><td class="num" style="color:var(--text3);font-size:11px">cargar solo si fue aporte externo real</td></tr>' +
+    efFila('(±) Transferencias entre titulares', CA.transferencias, {extra: CA.transferencias ? 'activos que cambiaron de titular; no es resultado' : ''}) +
+    efFila('(−) Consumo identificado', -CA.identificado, {}) +
+    efFila('Patrimonio final teórico', CA.teorico, {bold:1, top:1}) +
+    efFila('Patrimonio final real (balance)', CA.real, {}) +
+    efFila('PARTIDA A EXPLICAR', CA.partida, {bold:1, top:1, gold:1}) +
+    '</tbody></table></div><div style="font-size:12px;color:var(--text2);margin-top:12px;line-height:1.6">' + interp +
+    '<br><span style="font-size:11px;color:var(--text3)">Los aportes cargados en la solapa Aportes de bancos no se usan acá: sirven para medir el rendimiento de cada cuenta, pero muchos son traspasos internos entre cuentas del mismo titular y contarlos como capital nuevo sería un doble conteo.</span></div></div>';
+
+  /* ---- 5 Indicadores ---- */
+  const ki = (l, v, t) => '<tr><td class="bold">' + l + '</td><td class="num" style="color:var(--gold)">' + v + '</td><td style="font-size:11px;color:var(--text3)">' + t + '</td></tr>';
+  const cardInd = '<div class="card"><div class="section-title" style="margin-bottom:12px">5 · Indicadores</div><div class="table-wrap"><table><tbody>' +
+    ki('Yield de las propiedades de renta', efP(I.yieldRenta), 'renta neta sobre el valor de la cartera de renta') +
+    ki('Costo de tenencia de las de no renta', efP(I.costoTenencia), 'lo que cuesta por año tener paradas las propiedades de uso') +
+    ki('Cobertura', efX(I.cobertura), 'cuántas veces la renta neta paga el costo de las casas de uso') +
+    ki('Rendimiento total del patrimonio', efP(I.rendTotal), 'resultado total sobre patrimonio inicial, revaluaciones incluidas') +
+    ki('Rendimiento realizado', efP(I.rendReal), 'solo la parte que entró en efectivo') +
+    ki('Tasa de consumo', efP(I.tasaConsumo), 'qué porcentaje del patrimonio inicial se consumió') +
+    ki('Autosuficiencia', efX(I.autosuficiencia), 'arriba de 1 vive de la renta; abajo, se come el capital') +
+    ki('DPI del private equity', efP(I.dpi), 'cuánto del capital invertido ya volvió') +
+    '</tbody></table></div></div>';
+
+  /* ---- 6 Detalle de private equity ---- */
+  const pesos = (PE_ATTR[tit] || {})[anio] || {};
+  const filasPE = Object.keys(pesos).map(n => { const p = efIdx(PE_HIST_DATA)[n]; if (!p) return null; const w = pesos[n];
+      const inv = efPeInv(p, anio)*w, dis = efPeUtAc(p, anio)*w, res = efPeResid(p, anio)*w, rec = efPeUtRec(p, anio)*w;
+      return { nombre: p.nombre, inv, dis, res, rec, dpi: inv ? dis/inv : 0 }; })
+    .filter(Boolean).filter(r => r.inv > 0 || r.dis > 0).sort((a,b) => b.inv - a.inv);
+  const tPE = filasPE.reduce((a,r) => ({inv:a.inv+r.inv, dis:a.dis+r.dis, res:a.res+r.res, rec:a.rec+r.rec}), {inv:0,dis:0,res:0,rec:0});
+  const barra = (v) => '<div style="height:8px;background:var(--border2);border-radius:4px;overflow:hidden;min-width:70px"><div style="height:100%;width:' + Math.min(100, v*100).toFixed(1) + '%;background:var(--gold)"></div></div>';
+  const cardPE = filasPE.length ? '<div class="card"><div class="section-title" style="margin-bottom:12px">6 · Private equity · valor residual al 31/12/' + anio + '</div><div class="table-wrap"><table>' +
+    '<thead><tr><th>Inversión</th><th class="num">Inversión acum.</th><th class="num">Distribuciones</th><th class="num">Valor residual</th><th class="num">Utilidad reconocida</th><th class="num">DPI</th><th style="width:90px">Recupero</th></tr></thead><tbody>' +
+    filasPE.map(r => '<tr><td class="bold">' + r.nombre + '</td><td class="num">' + efM(r.inv) + '</td><td class="num">' + efM(r.dis) + '</td><td class="num">' + efM(r.res) + '</td><td class="num">' + efM(r.rec) + '</td><td class="num">' + efP(r.dpi) + '</td><td>' + barra(r.inv ? r.dis/r.inv : 0) + '</td></tr>').join('') +
+    '<tr style="border-top:2px solid var(--border2)"><td class="bold" style="color:var(--gold)">TOTAL</td><td class="num bold">' + efM(tPE.inv) + '</td><td class="num bold">' + efM(tPE.dis) + '</td><td class="num bold" style="color:var(--gold)">' + efM(tPE.res) + '</td><td class="num bold">' + efM(tPE.rec) + '</td><td class="num bold">' + efP(tPE.inv ? tPE.dis/tPE.inv : 0) + '</td><td>' + barra(tPE.inv ? tPE.dis/tPE.inv : 0) + '</td></tr>' +
+    '</tbody></table></div><div style="font-size:11px;color:var(--text3);margin-top:10px;line-height:1.6">Mientras las distribuciones no superen el capital invertido, todo lo que vuelve es devolución de capital y no es resultado. La barra se llena hasta el 100% cuando se recuperó la inversión; de ahí en adelante lo que llega es utilidad.</div></div>' : '';
+
+  /* ---- detalle de cuentas de inversión ---- */
+  const cb = RE.cuentasBanco.filter(c => !c.oper);
+  const cardBk = cb.length ? '<div class="card"><div class="section-title" style="margin-bottom:12px">7 · Rendimiento de cuentas de inversión</div><div class="table-wrap"><table>' +
+    '<thead><tr><th>Cuenta</th><th class="num">Saldo inicial</th><th class="num">Saldo final</th><th class="num">Aportes netos</th><th class="num">Rendimiento</th><th class="num">%</th></tr></thead><tbody>' +
+    cb.map(c => '<tr><td>' + c.nombre + '</td><td class="num">' + efM(c.vBeg) + '</td><td class="num">' + efM(c.vEnd) + '</td><td class="num">' + efM(c.aportes) + '</td><td class="num bold">' + efM(c.rend) + '</td><td class="num" style="color:var(--text3)">' + (c.vBeg ? efP(c.rend/c.vBeg) : '—') + '</td></tr>').join('') +
+    '<tr style="border-top:2px solid var(--border2)"><td class="bold" style="color:var(--gold)">TOTAL</td><td></td><td></td><td></td><td class="num bold" style="color:var(--gold)">' + efM(RE.rendBancos) + '</td><td></td></tr>' +
+    '</tbody></table></div><div style="font-size:11px;color:var(--text3);margin-top:10px">Rendimiento = variación del saldo menos los aportes netos del período. Las cuentas operativas quedan fuera: su variación es movimiento de caja, no rendimiento.</div></div>' : '';
+
+  cont.innerHTML = kpis + aviso + cardBal + cardRes + cardCon + cardCam + cardInd + cardPE + cardBk;
+}
+
 </script>
 </body>
 </html>
