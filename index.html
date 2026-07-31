@@ -3588,6 +3588,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
             <div><label style="display:block;font-size:11px;color:var(--text3);margin-bottom:4px">Cliente</label><select class="fld" id="ef-cliente" onchange="renderEstados()"></select></div>
             <div><label style="display:block;font-size:11px;color:var(--text3);margin-bottom:4px">Ano</label><select class="fld" id="ef-anio" onchange="renderEstados()"></select></div>
             <div><label style="display:block;font-size:11px;color:var(--text3);margin-bottom:4px">Periodo</label><select class="fld" id="ef-periodo" onchange="renderEstados()"></select></div>
+            <button class="btn-primary" style="width:auto;padding:9px 18px;align-self:flex-end" onclick="exportarEstadosPDF()">⤓ Descargar PDF</button>
           </div>
         </div>
         <div id="ef-contenido"></div>
@@ -6943,12 +6944,40 @@ async function toggleOperativa(id, actual) {
   await loadBancos();
 }
 
+// Export a PDF de Reportes y de Estados Financieros. Un solo motor: cambia el contenedor,
+// el título y el subtítulo; el CSS de impresión es el mismo.
 async function exportarReportePDF() {
-  const cont = document.getElementById('rep-contenido');
   const cli = document.getElementById('rep-cliente');
-  const cliNom = cli && cli.selectedIndex >= 0 ? cli.options[cli.selectedIndex].text : '';
   if (!cli || !cli.value) return toast('Elegí un cliente y generá el informe primero', 'error');
-  if (!cont || !cont.innerHTML.trim() || cont.querySelector('.spinner')) return toast('Generá el informe primero', 'error');
+  return _exportarPDF({
+    contId: 'rep-contenido',
+    cliNom: cli.selectedIndex >= 0 ? cli.options[cli.selectedIndex].text : '',
+    titulo: (window._repTitulo||'').indexOf('Mensual') >= 0 ? 'Informe Mensual' : 'Informe Patrimonial',
+    subtitulo: window._repTitulo || 'Informe',
+    vacio: 'Generá el informe primero',
+  });
+}
+
+async function exportarEstadosPDF() {
+  const cli = document.getElementById('ef-cliente');
+  const anio = document.getElementById('ef-anio');
+  const per = document.getElementById('ef-periodo');
+  if (!cli || !cli.value) return toast('Elegí un cliente primero', 'error');
+  const pv = per ? per.value : 'A';
+  const perTxt = pv === 'A' ? ('Ejercicio ' + (anio ? anio.value : '')) : ((pv === 'S1' ? '1er semestre ' : '2do semestre ') + (anio ? anio.value : ''));
+  return _exportarPDF({
+    contId: 'ef-contenido',
+    cliNom: cli.selectedIndex >= 0 ? cli.options[cli.selectedIndex].text : '',
+    titulo: 'Estados Financieros',
+    subtitulo: perTxt,
+    vacio: 'Esperá a que se calculen los estados',
+  });
+}
+
+async function _exportarPDF(opt) {
+  const cont = document.getElementById(opt.contId);
+  const cliNom = opt.cliNom || '';
+  if (!cont || !cont.innerHTML.trim() || cont.querySelector('.spinner')) return toast(opt.vacio, 'error');
   const w = window.open('', '_blank');
   if (!w) return toast('Permití las ventanas emergentes para exportar', 'error');
   // Clonar contenido y reemplazar los gráficos (canvas) por imágenes (el canvas no viaja en el HTML)
@@ -6956,7 +6985,7 @@ async function exportarReportePDF() {
   const oc = cont.querySelectorAll('canvas'), cc = clone.querySelectorAll('canvas');
   oc.forEach((c, i) => { try { const img = document.createElement('img'); img.src = c.toDataURL('image/png'); img.style.width = '100%'; img.style.height = 'auto'; img.style.display = 'block'; if (cc[i]) { if (cc[i].parentElement) cc[i].parentElement.style.height = 'auto'; cc[i].replaceWith(img); } } catch(e){} });
   const htmlBody = clone.innerHTML;
-  w.document.write(`<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>Informe ${cliNom}</title>
+  w.document.write(`<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>${opt.titulo} — ${cliNom}</title>
   <style>
     :root{--navy:#0F2A43;--green:#2f9e63;--red:#c0605f;--teal:#2E9B8F;--border:#e4e7ec;--text:#1a1a1a;--text2:#444;--text3:#888;--esp:#2f9e63;--usa:#c0605f;--gold:#8a6d3b;--gold-soft:#f5efe0;--bg2:#f7f7f5;--bg:#fff;}
     *{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact;} body{font-family:Helvetica,Arial,sans-serif;color:var(--text);margin:0;padding:14px;font-size:11px;line-height:1.35;}
@@ -6968,10 +6997,11 @@ async function exportarReportePDF() {
     .rep-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px;} .rep-kpi{border:1px solid var(--border);border-top:3px solid var(--navy);border-radius:8px;padding:16px 12px;text-align:center;page-break-inside:avoid;}
     .rep-kpi .l{font-size:9.5px;letter-spacing:.8px;color:var(--text3);text-transform:uppercase;margin-bottom:8px;} .rep-kpi .v{font-size:21px;font-weight:700;} .rep-kpi .s{font-size:10.5px;color:var(--text3);margin-top:5px;}
     .loader,.spinner,.rep-head{display:none!important;}
+    input{border:none!important;background:transparent!important;font-size:11.5px;font-family:inherit;color:var(--text);text-align:right;padding:0;width:auto!important;-moz-appearance:textfield;} input::-webkit-outer-spin-button,input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
     h1{color:var(--navy);font-size:22px;margin:0 0 3px;letter-spacing:-.3px;} .hdr{border-bottom:3px solid var(--navy);padding-bottom:9px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:flex-end;}
     @page{size:A4 portrait;margin:1cm;} .pgbreak{page-break-before:always;} @media print{body{padding:0;}}
   </style></head><body>
-  <div class="hdr"><div style="display:flex;align-items:center;gap:12px"><img src="${OFFIDA_LOGO}" style="height:54px;width:auto"><div><div style="font-family:Georgia,'Times New Roman',serif;font-size:22px;letter-spacing:3px;color:#8a6d3b;font-weight:700;line-height:1">OFFIDA</div><h1 style="font-size:18px;margin:3px 0 0">${(window._repTitulo||'').indexOf('Mensual')>=0?'Informe Mensual':'Informe Patrimonial'}</h1><div style="color:var(--text3);font-size:12px">${cliNom} \u00b7 ${window._repTitulo||'Informe'} \u00b7 Cifras en USD</div></div></div><div style="color:var(--text3);font-size:11px;text-align:right">Generado ${new Date().toLocaleDateString('es-AR')}</div></div>
+  <div class="hdr"><div style="display:flex;align-items:center;gap:12px"><img src="${OFFIDA_LOGO}" style="height:54px;width:auto"><div><div style="font-family:Georgia,'Times New Roman',serif;font-size:22px;letter-spacing:3px;color:#8a6d3b;font-weight:700;line-height:1">OFFIDA</div><h1 style="font-size:18px;margin:3px 0 0">${opt.titulo}</h1><div style="color:var(--text3);font-size:12px">${cliNom} \u00b7 ${opt.subtitulo} \u00b7 Cifras en USD</div></div></div><div style="color:var(--text3);font-size:11px;text-align:right">Generado ${new Date().toLocaleDateString('es-AR')}</div></div>
   ${htmlBody}
   </body></html>`);
   w.document.close();
@@ -11408,7 +11438,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260731-122';
+const APP_VERSION = '20260731-123';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
