@@ -351,7 +351,8 @@ body.vista-cliente [onclick^="edit"],
 body.vista-cliente [onclick*="Nuevo"],
 body.vista-cliente [onclick*="modal-"],
 body.vista-cliente [onclick*="'carga'"],
-body.vista-cliente .tc-edit-btn { display:none !important; }
+body.vista-cliente .tc-edit-btn,
+body.vista-cliente .admin-only { display:none !important; }
 
 .content {
   padding: 20px 24px;
@@ -1569,7 +1570,10 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
         </div>
 
         <div id="banco-info" class="tab-content active">
-          <div class="section-title">Cuentas Bancarias</div>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+            <div class="section-title" style="margin:0">Cuentas Bancarias</div>
+            <button class="btn-secondary admin-only" style="padding:6px 14px;font-size:12px" onclick="nuevaCuentaBanco()">+ Nueva cuenta</button>
+          </div>
           <div class="filters">
             <button class="filter-btn f-all active" onclick="filtroBanco('all',this)">Todas</button>
             <button class="filter-btn f-arg" onclick="filtroBanco('ARG',this)">🇦🇷 ARG</button>
@@ -1591,14 +1595,16 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
                     <th class="num">Subtotal</th>
                     <th class="num">Crédito</th>
                     <th class="num" onclick="sortBancos('_neto')" style="cursor:pointer">Neto USD <span id="srt-b-_neto"></span></th>
+                    <th class="admin-only" style="width:34px"></th>
                   </tr>
                 </thead>
                 <tbody id="tbody-bancos">
-                  <tr><td colspan="9"><div class="loader"><div class="spinner"></div></div></td></tr>
+                  <tr><td colspan="10"><div class="loader"><div class="spinner"></div></div></td></tr>
                 </tbody>
               </table>
             </div>
           </div>
+          <div id="bancos-inactivos" class="admin-only" style="margin-top:14px"></div>
         </div>
 
         <div id="banco-historial" class="tab-content">
@@ -3340,7 +3346,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
       <div id="page-alertas" class="page">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
           <div class="section-title" style="margin:0">Centro de Alertas</div>
-          <button class="btn-secondary" onclick="openModal('modal-nueva-alerta')">+ Nueva Alerta</button>
+          <button class="btn-secondary" onclick="nuevaAlerta()">+ Nueva Alerta</button>
         </div>
 
         <!-- KPIs alertas -->
@@ -3403,6 +3409,71 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
         </div>
       </div>
 
+      <!-- Modal nueva cuenta de banco -->
+      <div class="modal-overlay" id="modal-nueva-cuenta">
+        <div class="modal">
+          <div class="modal-header">
+            <div class="modal-title">Nueva cuenta bancaria</div>
+            <button class="modal-close" onclick="closeModal('modal-nueva-cuenta')">×</button>
+          </div>
+          <div class="modal-body">
+            <div class="form-row cols-1">
+              <div>
+                <label class="fld">Nombre de la cuenta</label>
+                <input class="fld" type="text" id="nc-nombre" placeholder="Ej: JP Morgan JCFC Inc 2 - 7850">
+              </div>
+            </div>
+            <div class="form-row cols-3">
+              <div>
+                <label class="fld">Cliente / Titular</label>
+                <select class="fld" id="nc-titular">
+                  <option value="JC">JC — Juan Cocci</option>
+                  <option value="FC">FC — Franco Cocci</option>
+                  <option value="M">M — Martona</option>
+                  <option value="MFL">MFL — M.F. Lorenzo</option>
+                  <option value="YAC">YAC — Y.A. Cocci</option>
+                  <option value="FCC">FCC — F.C. Cocci</option>
+                  <option value="G">G — Grupillo</option>
+                </select>
+              </div>
+              <div>
+                <label class="fld">País</label>
+                <select class="fld" id="nc-pais">
+                  <option value="ARG">🇦🇷 ARG</option>
+                  <option value="USA" selected>🇺🇸 USA</option>
+                  <option value="URU">🇺🇾 URU</option>
+                  <option value="ESP">🇪🇸 ESP</option>
+                  <option value="PY">🇵🇾 PY</option>
+                </select>
+              </div>
+              <div>
+                <label class="fld">N° de orden</label>
+                <input class="fld" type="number" id="nc-nro" min="1">
+              </div>
+            </div>
+            <div class="form-row cols-1">
+              <div>
+                <label class="fld">Uso de la cuenta</label>
+                <select class="fld" id="nc-operativa">
+                  <option value="false">💼 Inversión</option>
+                  <option value="true">⚙ Operativa</option>
+                </select>
+              </div>
+            </div>
+            <p style="font-size:11px;color:var(--text3);line-height:1.5;margin-top:4px">
+              La cuenta aparece automáticamente en <b>Información, Carga mensual, Evolución, Aportes, Totales,
+              Patrimonio y Dashboard</b> apenas se guarda. El <b>Historial ≤2025</b> es histórico congelado:
+              una cuenta nueva entra recién desde 2026 (el año vivo). Para que figure en años anteriores hay que
+              cargarla al histórico.
+            </p>
+          </div>
+          <div class="modal-footer">
+            <button class="btn-secondary" onclick="closeModal('modal-nueva-cuenta')">Cancelar</button>
+            <button class="btn-primary" style="width:auto;padding:10px 24px" onclick="guardarCuentaBanco()">Crear cuenta</button>
+          </div>
+        </div>
+      </div>
+
       <!-- Modal nueva alerta -->
       <div class="modal-overlay" id="modal-nueva-alerta">
         <div class="modal">
@@ -3430,6 +3501,35 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
                 <input class="fld" type="date" id="na-fecha">
               </div>
             </div>
+            <div class="form-row cols-3">
+              <div>
+                <label class="fld">Recurrencia</label>
+                <select class="fld" id="na-frec" onchange="toggleRecurrenciaAlerta()">
+                  <option value="0">Única vez</option>
+                  <option value="1">Mensual</option>
+                  <option value="2">Bimestral</option>
+                  <option value="3">Trimestral</option>
+                  <option value="6">Semestral</option>
+                  <option value="12">Anual</option>
+                </select>
+              </div>
+              <div id="na-dia-row" style="display:none">
+                <label class="fld">Día del mes</label>
+                <input class="fld" type="number" id="na-dia-mes" min="1" max="31" value="10">
+              </div>
+              <div id="na-ancla-row" style="display:none">
+                <label class="fld">Primer mes del ciclo</label>
+                <select class="fld" id="na-mes-ancla">
+                  <option value="1">Enero</option><option value="2">Febrero</option>
+                  <option value="3">Marzo</option><option value="4">Abril</option>
+                  <option value="5">Mayo</option><option value="6">Junio</option>
+                  <option value="7">Julio</option><option value="8">Agosto</option>
+                  <option value="9">Septiembre</option><option value="10">Octubre</option>
+                  <option value="11">Noviembre</option><option value="12">Diciembre</option>
+                </select>
+              </div>
+            </div>
+            <p id="na-frec-hint" style="display:none;font-size:11px;color:var(--text3);margin:-6px 0 10px"></p>
             <div class="form-row cols-1" id="na-servicio-row" style="display:none">
               <div>
                 <label class="fld">Servicio</label>
@@ -5232,7 +5332,7 @@ const BANCOS_HIST_DATA = [
   {nro:11,nombre:"CAJA FC",titular:"FC",pais:"ARG",byY:{"2018":{i:17000,c:0,r:0,n:17000},"2019":{i:15380,c:0,r:0,n:15380},"2020":{i:50686,c:0,r:0,n:50686},"2021":{i:170135,c:0,r:0,n:170135},"2022":{i:96659,c:0,r:0,n:96659},"2023":{i:84135,c:0,r:0,n:84135},"2024":{i:321460,c:0,r:0,n:321460},"2025":{i:224525,c:0,r:0,n:224525},"2026":{i:0,c:225219,r:0,n:225219}}},
   {nro:12,nombre:"BNY (Martona) - 1479",titular:"M",pais:"USA",byY:{"2018":{i:76723003,c:0,r:0,n:76723003},"2019":{i:88336835,c:0,r:0,n:88336835},"2020":{i:90734766,c:0,r:3500000,n:87234766},"2021":{i:83183677,c:0,r:0,n:83183677},"2022":{i:76844137,c:0,r:0,n:76844137},"2023":{i:74076598,c:0,r:0,n:74076598},"2024":{i:78076997,c:0,r:0,n:78076997},"2025":{i:80694175,c:0,r:0,n:80694175},"2026":{i:76494331,c:759166,r:0,n:77253498}}},
   {nro:13,nombre:"CHASE (Germania) - 3610",titular:"M",pais:"USA",byY:{"2019":{i:491913,c:0,r:0,n:491913},"2020":{i:341028,c:0,r:0,n:341028},"2021":{i:415826,c:0,r:3437438,n:-3021612},"2022":{i:399771,c:0,r:3437438,n:-3037667},"2023":{i:450469,c:0,r:3305882,n:-2855413},"2024":{i:391855,c:0,r:3200000,n:-2808145},"2025":{i:574997,c:0,r:3198156,n:-2623159},"2026":{i:0,c:432650,r:0,n:432650}}},
-  {nro:14,nombre:"BNY (LATAM) - 238-5",titular:"M",pais:"USA",byY:{"2020":{i:0,c:0,r:1998815,n:-1998815},"2021":{i:3751504,c:0,r:3005318,n:746186},"2022":{i:3675457,c:0,r:3032361,n:643096},"2023":{i:3810401,c:0,r:2166951,n:1643450},"2024":{i:3915328,c:0,r:2934081,n:981246},"2025":{i:4082056,c:0,r:2590034,n:1492023},"2026":{i:4113036,c:7605,r:2956404,n:1164236}}},
+  {nro:14,nombre:"BNY (LATAM) - 1875",titular:"M",pais:"USA",byY:{"2020":{i:0,c:0,r:1998815,n:-1998815},"2021":{i:3751504,c:0,r:3005318,n:746186},"2022":{i:3675457,c:0,r:3032361,n:643096},"2023":{i:3810401,c:0,r:2166951,n:1643450},"2024":{i:3915328,c:0,r:2934081,n:981246},"2025":{i:4082056,c:0,r:2590034,n:1492023},"2026":{i:4113036,c:7605,r:2956404,n:1164236}}},
   {nro:15,nombre:"CHASE Key Offida - 7537",titular:"M",pais:"USA",byY:{"2021":{i:30370,c:0,r:0,n:30370},"2022":{i:60397,c:0,r:0,n:60397},"2023":{i:93396,c:0,r:0,n:93396},"2024":{i:96277,c:0,r:0,n:96277},"2025":{i:94932,c:0,r:0,n:94932},"2026":{i:0,c:108617,r:0,n:108617}}},
   {nro:16,nombre:"CHASE Miami Offida - 7535",titular:"M",pais:"USA",byY:{"2021":{i:2318853,c:0,r:0,n:2318853},"2022":{i:60772,c:0,r:0,n:60772},"2023":{i:87306,c:0,r:0,n:87306},"2024":{i:139833,c:0,r:0,n:139833},"2025":{i:44563,c:0,r:0,n:44563},"2026":{i:0,c:138200,r:0,n:138200}}},
   {nro:17,nombre:"CHASE Brickell Offida - 1231",titular:"M",pais:"USA",byY:{"2021":{i:1366212,c:0,r:1012619,n:353593},"2022":{i:1363292,c:0,r:971304,n:391988},"2023":{i:1509564,c:0,r:1058513,n:451052},"2024":{i:1585982,c:0,r:1131698,n:454284},"2025":{i:1664989,c:0,r:1198194,n:466795},"2026":{i:1486485,c:206625,r:1222945,n:470164}}},
@@ -5250,18 +5350,18 @@ const BANCOS_HIST_DATA = [
   {nro:29,nombre:"BNY New England",titular:"M",pais:"USA",byY:{"2025":{i:101881,c:0,r:0,n:101881},"2026":{i:0,c:108267,r:0,n:108267}}},
   {nro:30,nombre:"BNY MFL B 253",titular:"MFL",pais:"USA",byY:{"2023":{i:508180,c:0,r:0,n:508180},"2026":{i:0,c:0,r:0,n:0}}},
   {nro:31,nombre:"BNY Germania - 8714",titular:"M",pais:"USA",byY:{"2024":{i:1265182,c:0,r:0,n:1265182},"2025":{i:1317174,c:0,r:0,n:1317174},"2026":{i:1293938,c:34829,r:0,n:1328767}}},
-  {nro:32,nombre:"BNY Grupillo - Hermanos",titular:"G",pais:"USA",byY:{"2024":{i:222912,c:0,r:0,n:222912},"2025":{i:233418,c:0,r:0,n:233418},"2026":{i:232300,c:2544,r:0,n:234844}}},
-  {nro:33,nombre:"BNY Grupillo B - Grupi Sanber Corp",titular:"G",pais:"USA",byY:{"2025":{i:398913,c:0,r:0,n:398913},"2026":{i:603058,c:677,r:0,n:603735}}},
-  {nro:34,nombre:"BNY GL Latam",titular:"G",pais:"USA",byY:{"2024":{i:504801,c:0,r:0,n:504801},"2025":{i:540418,c:0,r:0,n:540418},"2026":{i:647972,c:908,r:0,n:648880}}},
+  {nro:32,nombre:"BNY Grupillo - Hermanos - 2884",titular:"G",pais:"USA",byY:{"2024":{i:222912,c:0,r:0,n:222912},"2025":{i:233418,c:0,r:0,n:233418},"2026":{i:232300,c:2544,r:0,n:234844}}},
+  {nro:33,nombre:"BNY Grupillo B - Grupi Sanber Corp - 4706",titular:"G",pais:"USA",byY:{"2025":{i:398913,c:0,r:0,n:398913},"2026":{i:603058,c:677,r:0,n:603735}}},
+  {nro:34,nombre:"BNY GL Latam - 5176",titular:"G",pais:"USA",byY:{"2024":{i:504801,c:0,r:0,n:504801},"2025":{i:540418,c:0,r:0,n:540418},"2026":{i:647972,c:908,r:0,n:648880}}},
   {nro:35,nombre:"ITAU PY - 1169/1",titular:"M",pais:"PAR",byY:{"2024":{i:13650,c:0,r:0,n:13650},"2025":{i:25366,c:0,r:0,n:25366},"2026":{i:0,c:23769,r:0,n:23769}}},
   {nro:36,nombre:"BNY JCFC B - 5946",titular:"FC",pais:"USA",byY:{"2024":{i:35451,c:0,r:0,n:35451},"2025":{i:174775,c:0,r:0,n:174775},"2026":{i:124743,c:1500,r:0,n:126243}}},
   {nro:37,nombre:"Chase FC & BB - 9716",titular:"FC",pais:"USA",byY:{"2024":{i:576,c:0,r:0,n:576},"2025":{i:95332,c:0,r:0,n:95332},"2026":{i:0,c:131041,r:0,n:131041}}},
   {nro:38,nombre:"BNY Oeste Investment LTD - 3540",titular:"MFL",pais:"USA",byY:{"2024":{i:726983,c:0,r:0,n:726983},"2025":{i:753744,c:0,r:0,n:753744},"2026":{i:750494,c:13227,r:0,n:763721}}},
   {nro:39,nombre:"CAJA MFL",titular:"MFL",pais:"ARG",byY:{"2026":{i:0,c:0,r:0,n:0}}},
-  {nro:40,nombre:"BNY FC-FCC-YAC-FRANC",titular:"M",pais:"USA",byY:{"2026":{i:0,c:1265,r:0,n:1265}}},
+  {nro:40,nombre:"BNY Hermanos - 2618",titular:"M",pais:"USA",byY:{"2026":{i:0,c:1265,r:0,n:1265}}},
   {nro:41,nombre:"ITAU Fionder - $ 8895 - US$ 8900",titular:"M",pais:"URU",byY:{"2026":{i:0,c:5234,r:0,n:5234}}},
   {nro:42,nombre:"BNY Juan Cocci - 4682",titular:"FC",pais:"USA",byY:{"2026":{i:0,c:1861,r:0,n:1861}}},
-  {nro:43,nombre:"BNY Offida LLC",titular:"FC",pais:"USA",byY:{"2026":{i:0,c:4444954,r:0,n:4444954}}}
+  {nro:43,nombre:"BNY Offida LLC - 4638",titular:"FC",pais:"USA",byY:{"2026":{i:0,c:4444954,r:0,n:4444954}}}
 ];
 
 // Titular de un banco en un año dado (según BANCOS_ATTR, no el titular actual/2026)
@@ -6467,23 +6567,121 @@ function filtroRanking(val, btn) {
 // ============================================
 // BANCOS
 // ============================================
-let bancosData = [], bancosMovData = [];
+let bancosData = [], bancosMovData = [], bancosInactivos = [];
 async function loadBancos() {
+  // Traemos TODAS (activas e inactivas): las activas son las que operan en toda la app;
+  // las inactivas se listan aparte para poder reactivarlas. Nada más ve las inactivas.
   const [{ data: bancos }, { data: movs }] = await Promise.all([
-    aplicarFiltroTit(sb.from('bancos').select('*').eq('activo', true).order('nro')),
+    aplicarFiltroTit(sb.from('bancos').select('*').order('nro')),
     sb.from('movimientos_bancos').select('*').eq('anio', 2026).order('mes'),
   ]);
-  bancosData = bancos || [];
+  const todos = bancos || [];
+  bancosData = todos.filter(b => b.activo !== false);
+  bancosInactivos = todos.filter(b => b.activo === false);
   // Informacion toma el ULTIMO mes cargado de cada banco (dinamico)
   window._bancosMovLatest = latestMovByBanco(movs);
   bancosMovData = Object.values(window._bancosMovLatest);
   renderBancos('all');
+  renderBancosInactivos();
+  refrescarSelectsBancos();
+}
 
+// Rehace TODOS los desplegables de cuentas (carga mensual y aportes) sin perder la selección.
+// Antes el select de Carga se llenaba una sola vez → una cuenta nueva no aparecía hasta recargar.
+function refrescarSelectsBancos() {
   const bancoSel = document.getElementById('carga-banco-sel');
-  if (bancoSel && bancoSel.options.length <= 1) {
+  if (bancoSel) {
+    const prev = bancoSel.value;
     bancoSel.innerHTML = '<option value="">Seleccionar banco...</option>' +
       bancosData.map(b => `<option value="${b.id}">[${b.titular}] ${b.nombre} (${b.pais})</option>`).join('');
+    if (prev && bancosData.some(b => b.id === prev)) bancoSel.value = prev;
   }
+  const apSel = document.getElementById('ap-banco');
+  if (apSel) {
+    const prev = apSel.value;
+    _apBancosNombre = {}; bancosData.forEach(b => _apBancosNombre[b.id] = b.nombre);
+    apSel.innerHTML = bancosData.map(b => `<option value="${b.id}">${b.nombre} (${b.titular})</option>`).join('');
+    if (prev && bancosData.some(b => b.id === prev)) apSel.value = prev;
+  }
+}
+
+function renderBancosInactivos() {
+  const el = document.getElementById('bancos-inactivos');
+  if (!el) return;
+  if (!bancosInactivos.length) { el.innerHTML = ''; return; }
+  el.innerHTML = `<div class="card" style="padding:12px 16px">
+    <div style="font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--text3);margin-bottom:8px">CUENTAS DADAS DE BAJA (${bancosInactivos.length})</div>
+    <p style="font-size:11px;color:var(--text3);margin:0 0 8px">No figuran en ningún total, patrimonio, carga ni informe. Se conservan sus movimientos históricos.</p>
+    ${bancosInactivos.map(b => `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:5px 0;border-top:1px solid var(--border)">
+      <span style="font-size:12px;color:var(--text3);text-decoration:line-through">${b.nro||'—'} · ${b.nombre} <span style="font-size:10px">(${b.titular} · ${b.pais})</span></span>
+      <button class="btn-secondary" style="padding:3px 10px;font-size:11px" onclick="reactivarCuentaBanco('${b.id}')">↩ Reactivar</button>
+    </div>`).join('')}
+  </div>`;
+}
+
+function nuevaCuentaBanco() {
+  const maxNro = [...bancosData, ...bancosInactivos].reduce((a,b) => Math.max(a, Number(b.nro)||0), 0);
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+  set('nc-nombre',''); set('nc-nro', maxNro + 1); set('nc-titular','FC'); set('nc-pais','USA'); set('nc-operativa','false');
+  openModal('modal-nueva-cuenta');
+}
+
+async function guardarCuentaBanco() {
+  const nombre = document.getElementById('nc-nombre').value.trim();
+  if (!nombre) return toast('Poné el nombre de la cuenta', 'error');
+  const nro = parseInt(document.getElementById('nc-nro').value);
+  if (!(nro > 0)) return toast('Poné un N° de orden válido', 'error');
+  const titular = document.getElementById('nc-titular').value;
+  const pais = document.getElementById('nc-pais').value;
+  const es_operativa = document.getElementById('nc-operativa').value === 'true';
+  const dup = [...bancosData, ...bancosInactivos].find(b => Number(b.nro) === nro);
+  if (dup && !confirm(`El N° ${nro} ya lo usa "${dup.nombre}". ¿Crear igual? (los números se pueden reordenar después)`)) return;
+
+  const { error } = await sb.from('bancos').insert({ nro, nombre, titular, pais, activo: true, es_operativa });
+  if (error) return toast('Error: ' + error.message, 'error');
+  toast('Cuenta creada ✓ — ya figura en carga, aportes, totales y patrimonio', 'success');
+  closeModal('modal-nueva-cuenta');
+  await loadBancos();
+  if (document.getElementById('aportes-lista')) { try { await loadAportes(); } catch(e){} }
+}
+
+// Baja de cuenta. Si NO tiene movimientos ni aportes → se puede borrar de verdad.
+// Si tiene, se DESACTIVA (activo=false): desaparece de toda la app pero no se pierde el histórico.
+async function borrarCuentaBanco(id) {
+  const b = bancosData.find(x => x.id === id);
+  if (!b) return;
+  const [mv, ap] = await Promise.all([
+    sb.from('movimientos_bancos').select('id', { count: 'exact', head: true }).eq('banco_id', id),
+    sb.from('aportes_bancos').select('id', { count: 'exact', head: true }).eq('banco_id', id).then(r=>r, ()=>({count:0})),
+  ]);
+  const nMov = mv.count || 0, nAp = ap.count || 0;
+  if (nMov === 0 && nAp === 0) {
+    if (!confirm(`Borrar definitivamente "${b.nombre}"?\n\nNo tiene movimientos ni aportes cargados: se elimina la cuenta por completo.`)) return;
+    const { error } = await sb.from('bancos').delete().eq('id', id);
+    if (error) {
+      // Si algo la referencia, caemos a baja lógica en vez de dejar la app a medias.
+      const { error: e2 } = await sb.from('bancos').update({ activo: false }).eq('id', id);
+      if (e2) return toast('Error: ' + error.message, 'error');
+      toast('No se pudo borrar (está referenciada): quedó dada de baja ✓', 'success');
+    } else {
+      toast('Cuenta eliminada ✓', 'success');
+    }
+  } else {
+    if (!confirm(`"${b.nombre}" tiene ${nMov} movimiento(s) y ${nAp} aporte(s).\n\nSe da de BAJA: deja de figurar en historial, evolución, carga, aportes, totales, patrimonio y dashboard, pero se conserva el histórico cargado.\n\n¿Confirmás?`)) return;
+    const { error } = await sb.from('bancos').update({ activo: false }).eq('id', id);
+    if (error) return toast('Error: ' + error.message, 'error');
+    toast('Cuenta dada de baja ✓', 'success');
+  }
+  await loadBancos();
+  if (document.getElementById('aportes-lista')) { try { await loadAportes(); } catch(e){} }
+}
+
+async function reactivarCuentaBanco(id) {
+  const { error } = await sb.from('bancos').update({ activo: true }).eq('id', id);
+  if (error) return toast('Error: ' + error.message, 'error');
+  toast('Cuenta reactivada ✓', 'success');
+  await loadBancos();
+  if (document.getElementById('aportes-lista')) { try { await loadAportes(); } catch(e){} }
 }
 
 // Cuentas de banco a DESTACAR (negrita extra + puntito). Match por nombre normalizado (tolerante a acentos/puntuación).
@@ -6534,6 +6732,7 @@ function renderBancos(paisFiltro) {
       <td class="num" style="color:var(--text2)">$${fmt(u?.sub||0)}</td>
       <td class="num negative">$${fmt(u?.cred||0)}</td>
       <td class="num bold">$${fmt(u?.neto||0)}</td>
+      <td class="admin-only" style="text-align:center"><button onclick="borrarCuentaBanco('${b.id}')" title="Dar de baja / borrar cuenta" style="background:none;border:none;cursor:pointer;color:var(--text3);font-size:13px;padding:0 4px">🗑</button></td>
     </tr>`;
   }).join('') || '';
 
@@ -6550,6 +6749,7 @@ function renderBancos(paisFiltro) {
     <td class="num bold" style="color:var(--text2)">$${fmt(tSub)}</td>
     <td class="num negative bold">$${fmt(tCred)}</td>
     <td class="num bold" style="color:var(--gold)">$${fmt(tNeto)}</td>
+    <td class="admin-only"></td>
   </tr>`;
   renderBancoClientes(rows, usdMap);
 }
@@ -8238,15 +8438,53 @@ let _alertFiltroActual = 'all'; // filtro de tipo/estado activo
 
 // Cliente de una alerta: el titular propio, o el de la propiedad si tiene.
 function _alertaCli(a) { return a.titular || (a.propiedad && a.propiedad.titular) || (a.auto && a.auto.titular) || null; }
-// Recurrente ya pagada en el mes en curso → se oculta de la lista activa hasta el mes siguiente.
-function _alertaPagadaEsteMes(a) {
-  if (!a.recurrente) return false;
-  const now = new Date();
-  return a.pagada_anio === now.getFullYear() && a.pagada_mes === (now.getMonth() + 1);
+
+// ---- RECURRENCIA (v119) -------------------------------------------------
+// Una alerta recurrente vence cada `frecuencia_meses` meses, en fase con `mes_ancla`.
+// frecuencia_meses = 1 (mensual, default) · 2 (bimestral) · 3 · 6 · 12.
+// mes_ancla (1..12) define la fase: bimestral con ancla 2 → Feb/Abr/Jun/Ago/Oct/Dic.
+// Si la base todavía no tiene las columnas, las Patentes caen por defecto a bimestral par.
+const ALERTA_FREC_LBL = {1:'mensual', 2:'bimestral', 3:'trimestral', 4:'cuatrimestral', 6:'semestral', 12:'anual'};
+function _alertaFrec(a) {
+  const f = Math.round(Number(a && a.frecuencia_meses));
+  if (f >= 1 && f <= 12) return f;
+  return (a && a.tipo === 'Patente') ? 2 : 1;   // fallback pre-SQL
 }
+function _alertaAncla(a) {
+  const m = Math.round(Number(a && a.mes_ancla));
+  if (m >= 1 && m <= 12) return m;
+  return (a && a.tipo === 'Patente') ? 2 : 1;   // fallback pre-SQL: meses pares
+}
+// ¿En el mes `mes0` (0-based) toca esta alerta?
+function _mesTocaAlerta(a, mes0) {
+  const f = _alertaFrec(a);
+  if (f <= 1) return true;
+  return ((((mes0 + 1) - _alertaAncla(a)) % f) + f) % f === 0;
+}
+// Ciclo EN CURSO: el último mes-de-vencimiento <= hoy. Devuelve {y, m} (m 0-based).
+function _cicloAlerta(a, ref) {
+  const hoy = ref || new Date();
+  let y = hoy.getFullYear(), m = hoy.getMonth(), guard = 0;
+  while (!_mesTocaAlerta(a, m) && guard++ < 24) { m--; if (m < 0) { m = 11; y--; } }
+  return { y, m };
+}
+// Recurrente ya pagada en el CICLO en curso → se oculta de la lista activa hasta el próximo.
+function _alertaPagadaEsteCiclo(a) {
+  if (!a.recurrente) return false;
+  if (!a.pagada_anio || !a.pagada_mes) return false;
+  const f = _alertaFrec(a);
+  const c = _cicloAlerta(a);
+  if (f <= 1) return a.pagada_anio === c.y && a.pagada_mes === (c.m + 1);
+  // Bimestral+: cuenta como pagada si el pago cae dentro de la ventana [ciclo, ciclo+f).
+  const idxPago  = a.pagada_anio * 12 + (a.pagada_mes - 1);
+  const idxCiclo = c.y * 12 + c.m;
+  return idxPago >= idxCiclo && idxPago < idxCiclo + f;
+}
+// Alias histórico (se sigue usando en varios puntos del código).
+function _alertaPagadaEsteMes(a) { return _alertaPagadaEsteCiclo(a); }
 // Subconjunto "activo" (lo que se muestra por defecto y cuenta en los KPIs).
 function _alertasActivas() {
-  return alertasData.filter(a => a.activa !== false && !_alertaPagadaEsteMes(a));
+  return alertasData.filter(a => a.activa !== false && !_alertaPagadaEsteCiclo(a));
 }
 
 async function loadAlertas() {
@@ -8267,6 +8505,8 @@ async function loadAlertas() {
   } else {
     data = result.data || [];
   }
+  // ¿La base ya tiene frecuencia_meses? Si no, el código cae al fallback (Patente = bimestral par).
+  _ALERTAS_FREC_OK = !!(data && data.length && Object.prototype.hasOwnProperty.call(data[0], 'frecuencia_meses'));
   // Los alquileres NO van en Alertas (viven solo en su solapa). Excluir cualquier fila de contrato.
   alertasData = (data || []).filter(a => a.tipo !== 'Alquiler' && a.tipo !== 'Vencimiento');
   // Orden predeterminado: por días faltantes ascendente (los sin fecha, al final).
@@ -8342,16 +8582,18 @@ function diasHasta(fecha) {
   return Math.round((f - hoy) / (1000*60*60*24));
 }
 
-// Alertas: fecha efectiva (para mensuales recurrentes, el próximo día X) y días hasta ella.
+// Alertas: fecha efectiva (para recurrentes, el vencimiento del ciclo en curso) y días hasta ella.
 function fechaEfectivaAlerta(a) {
   if (a.recurrente && a.dia_mes) {
-    const hoy = new Date(); hoy.setHours(0,0,0,0);
-    // Vencimiento de ESTE mes (día X). Solo saltamos al mes siguiente si YA se pagó
-    // este mes; si no se pagó, la fecha de este mes queda fija aunque ya haya pasado,
-    // para que figure como VENCIDA (y no se "corra" sola 30 días).
-    let f = new Date(hoy.getFullYear(), hoy.getMonth(), a.dia_mes);
-    if (_alertaPagadaEsteMes(a)) f = new Date(hoy.getFullYear(), hoy.getMonth()+1, a.dia_mes);
-    return f;
+    // Vencimiento del CICLO EN CURSO (día X del último mes que toca). Solo saltamos al
+    // próximo ciclo si YA se pagó éste; si no se pagó, la fecha queda fija aunque ya haya
+    // pasado, para que figure como VENCIDA (y no se "corra" sola).
+    const c = _cicloAlerta(a);
+    if (!_alertaPagadaEsteCiclo(a)) return new Date(c.y, c.m, a.dia_mes);
+    const f = _alertaFrec(a);
+    let ny = c.y, nm = c.m + f;
+    while (nm > 11) { nm -= 12; ny++; }
+    return new Date(ny, nm, a.dia_mes);
   }
   return a.fecha_vencimiento ? new Date(a.fecha_vencimiento) : null;
 }
@@ -8404,7 +8646,7 @@ function renderAlertas(filtro) {
       : d <= 7 ? `<span style="color:var(--uru)">${d} días</span>`
       : `<span style="color:var(--text)">${d} días</span>`;
     const fechaStr = (a.recurrente && a.dia_mes)
-      ? `Día ${a.dia_mes} <span style="font-size:9px;color:var(--text3)">mensual</span>${fEf?`<br><span style="font-size:10px;color:var(--text3)">próx ${fEf.toLocaleDateString('es-AR')}</span>`:''}`
+      ? `Día ${a.dia_mes} <span style="font-size:9px;color:var(--text3)">${ALERTA_FREC_LBL[_alertaFrec(a)]||('cada '+_alertaFrec(a)+'m')}</span>${fEf?`<br><span style="font-size:10px;color:var(--text3)">próx ${fEf.toLocaleDateString('es-AR')}</span>`:''}`
       : (a.fecha_vencimiento ? new Date(a.fecha_vencimiento).toLocaleDateString('es-AR') : '—');
     const desc = `${a.descripcion||''}${a.num_cliente?` <span style="font-size:10px;color:var(--text3)">· N° ${a.num_cliente}</span>`:''}`;
     const cli = _alertaCli(a);
@@ -8453,16 +8695,18 @@ function filtroAlertas(filtro, btn) {
   renderAlertas(filtro);
 }
 
-// Marcar pagada: no-recurrente → Pagadas (definitivo); recurrente → pagada solo este mes.
+// Marcar pagada: no-recurrente → Pagadas (definitivo); recurrente → pagada el CICLO en curso.
+// Ojo: guardamos el mes del CICLO, no el mes calendario. Una patente de junio pagada en julio
+// queda registrada contra junio, y el próximo vencimiento pasa a ser agosto (no julio).
 async function marcarPagadaAlerta(id) {
   const a = alertasData.find(x => x.id === id); if (!a) return;
   const now = new Date();
   const upd = { fecha_pago: now.toISOString().slice(0, 10) };
-  if (a.recurrente) { upd.pagada_mes = now.getMonth() + 1; upd.pagada_anio = now.getFullYear(); }
+  if (a.recurrente) { const c = _cicloAlerta(a); upd.pagada_mes = c.m + 1; upd.pagada_anio = c.y; }
   else { upd.pagada = true; upd.activa = false; }
   const { error } = await sb.from('alertas').update(upd).eq('id', id);
   if (error) return toast('Error: ' + error.message + ' (¿corriste alertas_pagadas.sql?)', 'error');
-  toast(a.recurrente ? 'Pagada este mes ✓' : 'Pasó a Pagadas ✓', 'success');
+  toast(a.recurrente ? ('Pagada ' + (ALERTA_FREC_LBL[_alertaFrec(a)]||'') + ' ✓') : 'Pasó a Pagadas ✓', 'success');
   await loadAlertas();
 }
 
@@ -8475,27 +8719,86 @@ async function reabrirPagadaAlerta(id) {
   await loadAlertas();
 }
 
+// Abrir el modal en modo ALTA (limpio). Antes se abría el modal directo y quedaba
+// pegado el editId de la última edición → cada "guardar" insertaba un duplicado.
+function nuevaAlerta() {
+  const m = document.getElementById('modal-nueva-alerta');
+  if (m) delete m.dataset.editId;
+  const t = document.getElementById('modal-nueva-alerta')?.querySelector('.modal-title');
+  if (t) t.textContent = 'Nueva Alerta';
+  ['na-desc','na-notas'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  const f = document.getElementById('na-fecha'); if (f) f.value = '';
+  const sf = document.getElementById('na-frec'); if (sf) sf.value = '0';
+  const sd = document.getElementById('na-dia-mes'); if (sd) sd.value = 10;
+  const sa = document.getElementById('na-mes-ancla'); if (sa) sa.value = 1;
+  toggleServicioAlerta(); toggleRecurrenciaAlerta();
+  openModal('modal-nueva-alerta');
+}
+
+function toggleRecurrenciaAlerta() {
+  const f = parseInt(document.getElementById('na-frec')?.value || '0');
+  const show = (id, v) => { const el = document.getElementById(id); if (el) el.style.display = v ? 'block' : 'none'; };
+  show('na-dia-row', f >= 1);
+  show('na-ancla-row', f > 1);
+  const hint = document.getElementById('na-frec-hint');
+  if (hint) {
+    if (f > 1) {
+      const anc = parseInt(document.getElementById('na-mes-ancla')?.value || '1');
+      const ms = []; for (let k = anc; k <= 12; k += f) ms.push(MESNOM[k]);
+      hint.style.display = 'block';
+      hint.textContent = 'Vence en: ' + ms.join(' · ');
+    } else if (f === 1) {
+      hint.style.display = 'block'; hint.textContent = 'Vence todos los meses.';
+    } else { hint.style.display = 'none'; }
+  }
+}
+document.addEventListener('change', e => { if (e.target && e.target.id === 'na-mes-ancla') toggleRecurrenciaAlerta(); });
+
+// ¿La base ya tiene las columnas de frecuencia? Se detecta del propio SELECT * de loadAlertas.
+let _ALERTAS_FREC_OK = false;
+
 async function guardarAlerta() {
-  const fecha = document.getElementById('na-fecha').value;
   const desc = document.getElementById('na-desc').value.trim();
-  if (!fecha || !desc) return toast('Completá fecha y descripción', 'error');
+  const frec = parseInt(document.getElementById('na-frec')?.value || '0');
+  const fecha = document.getElementById('na-fecha').value;
+  const diaMes = parseInt(document.getElementById('na-dia-mes')?.value || '0');
+  if (!desc) return toast('Completá la descripción', 'error');
+  if (frec === 0 && !fecha) return toast('Poné la fecha de vencimiento', 'error');
+  if (frec >= 1 && !(diaMes >= 1 && diaMes <= 31)) return toast('Poné el día del mes (1-31)', 'error');
   const propId = document.getElementById('na-prop').value || null;
   const titular = document.getElementById('na-titular-alert').value || null;
   let _tipo = document.getElementById('na-tipo').value;
   let _desc = desc;
   if (_tipo === 'Servicios') { const _s = document.getElementById('na-servicio').value; _desc = _s + ' — ' + desc; }
-  const { error } = await sb.from('alertas').insert({
+
+  const payload = {
     tipo: _tipo,
     descripcion: _desc,
-    fecha_vencimiento: fecha,
-    propiedad_id: propId || undefined,
-    titular: titular || undefined,
+    fecha_vencimiento: fecha || null,
+    propiedad_id: propId,
+    titular: titular,
     notas: document.getElementById('na-notas').value,
+    recurrente: frec >= 1,
+    dia_mes: frec >= 1 ? diaMes : null,
     activa: true,
-    created_by: currentUser?.id,
-  });
+  };
+  if (_ALERTAS_FREC_OK) {
+    payload.frecuencia_meses = frec >= 1 ? frec : 1;
+    payload.mes_ancla = frec > 1 ? parseInt(document.getElementById('na-mes-ancla').value) : null;
+  }
+
+  const modal = document.getElementById('modal-nueva-alerta');
+  const editId = modal?.dataset.editId || '';
+  let error;
+  if (editId) {
+    ({ error } = await sb.from('alertas').update(payload).eq('id', editId));
+  } else {
+    payload.created_by = currentUser?.id;
+    ({ error } = await sb.from('alertas').insert(payload));
+  }
   if (error) return toast('Error: ' + error.message, 'error');
-  toast('Alerta creada ✓', 'success');
+  if (modal) delete modal.dataset.editId;
+  toast(editId ? 'Alerta actualizada ✓' : 'Alerta creada ✓', 'success');
   closeModal('modal-nueva-alerta');
   await loadAlertas();
 }
@@ -8511,13 +8814,23 @@ async function resolverAlerta(id) {
 async function editarAlerta(id) {
   const a = alertasData.find(x => x.id === id);
   if (!a) return;
+  const modal = document.getElementById('modal-nueva-alerta');
+  const t = modal?.querySelector('.modal-title'); if (t) t.textContent = 'Editar Alerta';
   document.getElementById('na-tipo').value = a.tipo;
   toggleServicioAlerta();
-  document.getElementById('na-fecha').value = a.fecha_vencimiento;
-  document.getElementById('na-desc').value = a.descripcion;
+  document.getElementById('na-fecha').value = a.fecha_vencimiento || '';
+  document.getElementById('na-desc').value = a.descripcion || '';
   document.getElementById('na-notas').value = a.notas || '';
+  const sp = document.getElementById('na-prop'); if (sp) sp.value = a.propiedad_id || '';
+  const st = document.getElementById('na-titular-alert'); if (st) st.value = a.titular || '';
+  // Recurrencia
+  const sf = document.getElementById('na-frec');
+  if (sf) sf.value = a.recurrente ? String(_alertaFrec(a)) : '0';
+  const sd = document.getElementById('na-dia-mes'); if (sd) sd.value = a.dia_mes || 10;
+  const sa = document.getElementById('na-mes-ancla'); if (sa) sa.value = _alertaAncla(a);
+  toggleRecurrenciaAlerta();
   // Store id for update
-  document.getElementById('modal-nueva-alerta').dataset.editId = id;
+  modal.dataset.editId = id;
   openModal('modal-nueva-alerta');
 }
 
@@ -8616,7 +8929,7 @@ async function eliminarAdjunto(id) {
 // ============================================
 // MEDIOS DE PAGO - DATOS
 // ============================================
-const TRANSFERENCIAS = {"ARG": [{"banco": "Santander", "titular": "JC", "cuenta": "033-060007/1"}, {"banco": "CAJA", "titular": "JC", "cuenta": ""}, {"banco": "Galicia", "titular": "FC", "cuenta": "4017213-8 026-7"}, {"banco": "Galicia BB", "titular": "FC", "cuenta": "4035854-1 026-2"}, {"banco": "CAJA", "titular": "FC", "cuenta": ""}, {"banco": "CAJA", "titular": "FCC", "cuenta": ""}, {"banco": "CAJA", "titular": "YAC", "cuenta": ""}, {"banco": "CAJA", "titular": "MFL", "cuenta": ""}], "USA": [{"banco": "JP Morgan (JCFC Inc)", "titular": "JC", "cuenta": "···1002"}, {"banco": "JP Morgan (JCFC Inc)", "titular": "JC", "cuenta": "···1258"}, {"banco": "JP Morgan (JCFC Inc)", "titular": "JC", "cuenta": "···7335"}, {"banco": "BNY (JCFC Inc)", "titular": "JC", "cuenta": "···4682 / ···8564"}, {"banco": "BOA", "titular": "JC", "cuenta": "···9764"}, {"banco": "BNY (Martona)", "titular": "M", "cuenta": "···1479"}, {"banco": "CHASE (Germania)", "titular": "M", "cuenta": "···3610"}, {"banco": "BNY (LATAM)", "titular": "M", "cuenta": "···4256"}, {"banco": "BNY (LATAM)", "titular": "M", "cuenta": "···1875"}, {"banco": "CHASE Key Offida", "titular": "M", "cuenta": "···7537"}, {"banco": "CHASE Miami Offida", "titular": "M", "cuenta": "···7535"}, {"banco": "CHASE Brickell Offida", "titular": "M", "cuenta": "···1231"}, {"banco": "BNY FC & BB", "titular": "FC", "cuenta": "···2048"}, {"banco": "CHASE Lana", "titular": "FC", "cuenta": "···6705"}, {"banco": "CHASE Sanber", "titular": "G", "cuenta": "···2320"}, {"banco": "CHASE Miami Fiore", "titular": "FCC", "cuenta": "···3727"}, {"banco": "CHASE Bachi Invest.", "titular": "MFL", "cuenta": "···2510"}, {"banco": "BNY Verestol", "titular": "M", "cuenta": "···2345"}, {"banco": "BNY New England", "titular": "M", "cuenta": "···3012"}, {"banco": "BNY Germania", "titular": "M", "cuenta": "···8714"}, {"banco": "BNY Grupillo", "titular": "G", "cuenta": "···2884"}, {"banco": "BNY Grupillo B", "titular": "G", "cuenta": "···4706"}, {"banco": "BNY GL Latam", "titular": "G", "cuenta": "···5176"}, {"banco": "BNY JCFC B", "titular": "JC", "cuenta": "···5946"}, {"banco": "CHASE FC & BB", "titular": "FC", "cuenta": "···9716"}, {"banco": "BNY Oeste Invest LTD", "titular": "MFL", "cuenta": "···3540"}, {"banco": "BNY FC-FCC-YAC-FRANC", "titular": "M", "cuenta": "···2618"}], "URU": [{"banco": "ITAU", "titular": "JC", "cuenta": "US$ ···9610"}, {"banco": "ITAU", "titular": "JC", "cuenta": "$ ···4386"}, {"banco": "ITAU Fionder", "titular": "M", "cuenta": "US$ ···8900"}, {"banco": "ITAU Fionder", "titular": "M", "cuenta": "$ ···8895"}], "ESP": [{"banco": "Santander Vodno", "titular": "M", "cuenta": "···3642"}], "PAR": [{"banco": "ITAU PY", "titular": "JC", "cuenta": "US$ 026/8"}, {"banco": "ITAU PY", "titular": "JC", "cuenta": "$ 1169/1"}]};
+const TRANSFERENCIAS = {"ARG": [{"banco": "Santander", "titular": "JC", "cuenta": "033-060007/1"}, {"banco": "CAJA", "titular": "JC", "cuenta": ""}, {"banco": "Galicia", "titular": "FC", "cuenta": "4017213-8 026-7"}, {"banco": "Galicia BB", "titular": "FC", "cuenta": "4035854-1 026-2"}, {"banco": "CAJA", "titular": "FC", "cuenta": ""}, {"banco": "CAJA", "titular": "FCC", "cuenta": ""}, {"banco": "CAJA", "titular": "YAC", "cuenta": ""}, {"banco": "CAJA", "titular": "MFL", "cuenta": ""}], "USA": [{"banco": "JP Morgan (JCFC Inc)", "titular": "JC", "cuenta": "···1002"}, {"banco": "JP Morgan (JCFC Inc)", "titular": "JC", "cuenta": "···1258"}, {"banco": "JP Morgan (JCFC Inc)", "titular": "JC", "cuenta": "···7335"}, {"banco": "BNY (JCFC Inc)", "titular": "JC", "cuenta": "···4682 / ···8564"}, {"banco": "BOA", "titular": "JC", "cuenta": "···9764"}, {"banco": "BNY (Martona)", "titular": "M", "cuenta": "···1479"}, {"banco": "CHASE (Germania)", "titular": "M", "cuenta": "···3610"}, {"banco": "BNY (LATAM)", "titular": "M", "cuenta": "···4256"}, {"banco": "BNY (LATAM)", "titular": "M", "cuenta": "···1875"}, {"banco": "CHASE Key Offida", "titular": "M", "cuenta": "···7537"}, {"banco": "CHASE Miami Offida", "titular": "M", "cuenta": "···7535"}, {"banco": "CHASE Brickell Offida", "titular": "M", "cuenta": "···1231"}, {"banco": "BNY FC & BB", "titular": "FC", "cuenta": "···2048"}, {"banco": "CHASE Lana", "titular": "FC", "cuenta": "···6705"}, {"banco": "CHASE Sanber", "titular": "G", "cuenta": "···2320"}, {"banco": "CHASE Miami Fiore", "titular": "FCC", "cuenta": "···3727"}, {"banco": "CHASE Bachi Invest.", "titular": "MFL", "cuenta": "···2510"}, {"banco": "BNY Verestol", "titular": "M", "cuenta": "···2345"}, {"banco": "BNY New England", "titular": "M", "cuenta": "···3012"}, {"banco": "BNY Germania", "titular": "M", "cuenta": "···8714"}, {"banco": "BNY Grupillo", "titular": "G", "cuenta": "···2884"}, {"banco": "BNY Grupillo B", "titular": "G", "cuenta": "···4706"}, {"banco": "BNY GL Latam", "titular": "G", "cuenta": "···5176"}, {"banco": "BNY JCFC B", "titular": "JC", "cuenta": "···5946"}, {"banco": "CHASE FC & BB", "titular": "FC", "cuenta": "···9716"}, {"banco": "BNY Oeste Invest LTD", "titular": "MFL", "cuenta": "···3540"}, {"banco": "BNY Hermanos", "titular": "M", "cuenta": "···2618"}], "URU": [{"banco": "ITAU", "titular": "JC", "cuenta": "US$ ···9610"}, {"banco": "ITAU", "titular": "JC", "cuenta": "$ ···4386"}, {"banco": "ITAU Fionder", "titular": "M", "cuenta": "US$ ···8900"}, {"banco": "ITAU Fionder", "titular": "M", "cuenta": "$ ···8895"}], "ESP": [{"banco": "Santander Vodno", "titular": "M", "cuenta": "···3642"}], "PAR": [{"banco": "ITAU PY", "titular": "JC", "cuenta": "US$ 026/8"}, {"banco": "ITAU PY", "titular": "JC", "cuenta": "$ 1169/1"}]};
 const TARJETAS_CREDITO = [{"tipo": "VISA", "banco": "GALICIA", "pais": "ARG", "numero": "7917", "venc": "ago-29", "titular": "Franco Cocci", "empresa": "Franco Cocci"}, {"tipo": "AMEX", "banco": "GALICIA", "pais": "ARG", "numero": "3913", "venc": "mar-27", "titular": "Franco Cocci", "empresa": "Franco Cocci"}, {"tipo": "VISA", "banco": "SANTANDER", "pais": "ARG", "numero": "5081", "venc": "oct-28", "titular": "Franco Cocci", "empresa": "JC"}, {"tipo": "AMEX", "banco": "Directa", "pais": "USA", "numero": "2006", "venc": "nov-26", "titular": "Franco Cocci", "empresa": "Directa"}, {"tipo": "AMEX", "banco": "Directa", "pais": "ARG", "numero": "1041", "venc": "dic-25", "titular": "Franco Cocci", "empresa": "Directa"}, {"tipo": "VISA", "banco": "SANTANDER", "pais": "ARG", "numero": "5911", "venc": "oct-28", "titular": "J.C.", "empresa": "JC"}, {"tipo": "AMEX", "banco": "SANTANDER", "pais": "ARG", "numero": "7797", "venc": "ago-27", "titular": "J.C.", "empresa": "JC"}, {"tipo": "AMEX", "banco": "Directa", "pais": "USA", "numero": "2014", "venc": "nov-26", "titular": "J.C.", "empresa": "FC"}, {"tipo": "AMEX Black", "banco": "Directa", "pais": "ARG", "numero": "4003", "venc": "dic-29", "titular": "J.C.", "empresa": "JC"}, {"tipo": "AMEX Plateada", "banco": "Directa", "pais": "ARG", "numero": "2015", "venc": "", "titular": "J.C.", "empresa": "JC"}, {"tipo": "VISA", "banco": "SANTANDER", "pais": "ARG", "numero": "6078", "venc": "oct-28", "titular": "A.N.P.", "empresa": "JC"}, {"tipo": "AMEX", "banco": "SANTANDER", "pais": "ARG", "numero": "1990", "venc": "ago-27", "titular": "A.N.P.", "empresa": "JC"}, {"tipo": "AMEX", "banco": "Directa", "pais": "USA", "numero": "2022", "venc": "nov-26", "titular": "A.N.P.", "empresa": "FC"}, {"tipo": "VISA", "banco": "GALICIA", "pais": "ARG", "numero": "7685", "venc": "", "titular": "Maria Marta Grupillo", "empresa": "Franco Cocci"}, {"tipo": "AMEX", "banco": "GALICIA", "pais": "ARG", "numero": "3969", "venc": "", "titular": "Maria Marta Grupillo", "empresa": "Franco Cocci"}, {"tipo": "MASTERCARD", "banco": "GALICIA", "pais": "ARG", "numero": "8011", "venc": "", "titular": "Maria Marta Grupillo", "empresa": "Maria Marta Grupillo"}, {"tipo": "VISA", "banco": "GALICIA", "pais": "ARG", "numero": "7543", "venc": "", "titular": "Maria Marta Grupillo", "empresa": "Maria Marta Grupillo"}, {"tipo": "VISA", "banco": "SANTANDER", "pais": "ARG", "numero": "5123", "venc": "oct-28", "titular": "F.C.C.", "empresa": "JC"}, {"tipo": "AMEX", "banco": "SANTANDER", "pais": "ARG", "numero": "4458", "venc": "ago-27", "titular": "F.C.C.", "empresa": "JC"}, {"tipo": "AMEX Black", "banco": "Directa", "pais": "ARG", "numero": "1025", "venc": "dic-29", "titular": "MFL", "empresa": "JC"}, {"tipo": "AMEX Plateada", "banco": "Directa", "pais": "ARG", "numero": "1033", "venc": "dic-29", "titular": "MFL", "empresa": "JC"}, {"tipo": "VISA", "banco": "SANTANDER", "pais": "ARG", "numero": "3074", "venc": "oct-28", "titular": "MFL", "empresa": "JC"}, {"tipo": "AMEX", "banco": "SANTANDER", "pais": "ARG", "numero": "3432", "venc": "ago-27", "titular": "MFL", "empresa": "JC"}, {"tipo": "AMEX", "banco": "Directa", "pais": "ARG", "numero": "2030", "venc": "nov-26", "titular": "MFL", "empresa": "FC"}, {"tipo": "AMEX", "banco": "SANTANDER", "pais": "ARG", "numero": "4077", "venc": "oct-28", "titular": "F.C.", "empresa": "JC"}];
 const TARJETAS_DEBITO = [{"tipo": "VISA DEBITO", "banco": "GALICIA", "pais": "ARG", "numero": "6230", "venc": "jul-26", "titular": "Franco Cocci", "empresa": "Franco Cocci"}, {"tipo": "VISA DEBITO", "banco": "SANTANDER", "pais": "ARG", "numero": "8957", "venc": "jul-27", "titular": "Franco Cocci", "empresa": "JC"}, {"tipo": "VISA DEBITO", "banco": "ITAU", "pais": "URU", "numero": "4383", "venc": "mar-32", "titular": "Franco Cocci", "empresa": "JC"}, {"tipo": "VISA DEBITO", "banco": "JP MORGAN", "pais": "USA", "numero": "2958", "venc": "oct-25", "titular": "Franco Cocci", "empresa": "JCFC INC"}, {"tipo": "MASTERCARD DEBITO", "banco": "BOA", "pais": "USA", "numero": "8455", "venc": "mar-28", "titular": "Franco Cocci", "empresa": "Offida LLC"}, {"tipo": "VISA DEBITO", "banco": "CHASE", "pais": "USA", "numero": "1736", "venc": "nov-26", "titular": "Franco Cocci", "empresa": "Sanber LLC"}, {"tipo": "VISA DEBITO", "banco": "CHASE", "pais": "USA", "numero": "1488", "venc": "nov-26", "titular": "Franco Cocci", "empresa": "Miami Fiore LLC"}, {"tipo": "VISA DEBITO", "banco": "CHASE", "pais": "USA", "numero": "1314", "venc": "nov-26", "titular": "Franco Cocci", "empresa": "Lana Brickell LLC"}, {"tipo": "VISA DEBITO", "banco": "SANTANDER", "pais": "ARG", "numero": "2547", "venc": "sept-30", "titular": "J.C.", "empresa": "JC"}, {"tipo": "VISA DEBITO", "banco": "ITAU", "pais": "URU", "numero": "4375", "venc": "mar-32", "titular": "J.C.", "empresa": "JC"}, {"tipo": "VISA DEBITO", "banco": "JP MORGAN", "pais": "USA", "numero": "2966", "venc": "oct-25", "titular": "J.C.", "empresa": "JCFC INC"}, {"tipo": "VISA DEBITO", "banco": "BOA", "pais": "USA", "numero": "7563", "venc": "nov-28", "titular": "J.C.", "empresa": "Offida LLC"}, {"tipo": "MASTERCARD DEBITO", "banco": "ITAU PY", "pais": "PAR", "numero": "8957", "venc": "ene-29", "titular": "J.C.", "empresa": "JC"}, {"tipo": "VISA DEBITO", "banco": "SANTANDER", "pais": "ARG", "numero": "5530", "venc": "may-28", "titular": "A.N.P.", "empresa": "JC"}, {"tipo": "VISA DEBITO", "banco": "GALICIA", "pais": "ARG", "numero": "2352", "venc": "", "titular": "Maria Marta Grupillo", "empresa": "Maria Marta Grupillo"}, {"tipo": "VISA DEBITO", "banco": "CHASE", "pais": "ARG", "numero": "0288", "venc": "may-27", "titular": "F.C.C.", "empresa": "Miamifiore LLC"}];
 
@@ -11046,7 +11359,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260730-118';
+const APP_VERSION = '20260731-119';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
