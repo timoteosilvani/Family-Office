@@ -11408,7 +11408,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260731-121';
+const APP_VERSION = '20260731-122';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
@@ -11605,7 +11605,7 @@ async function efRendimientoBancos(tit, anio, m1, m2, refs) {
     (cur.data||[]).forEach(m => { (mensual[m.banco_id] = mensual[m.banco_id] || []).push(m); });
     (pre.data||[]).forEach(m => prevDic[m.banco_id] = m);
   }
-  const cuentas = []; let total = 0, operativas = 0;
+  const cuentas = []; let total = 0, operativas = 0, varTotal = 0, aportesInv = 0, aportesOper = 0;
   nros.forEach(n => {
     const b = bByNro[n], w = pesos[n] || 0; if (!w) return;
     const oper = !!(b && b.es_operativa);
@@ -11624,10 +11624,13 @@ async function efRendimientoBancos(tit, anio, m1, m2, refs) {
     const ap = (b ? (apByBanco[b.id]||0) : 0) * w;
     vBeg *= w; vEnd *= w;
     const rend = oper ? 0 : (vEnd - vBeg - ap);
-    if (oper) operativas += (vEnd - vBeg); else total += rend;
+    if (oper) { operativas += (vEnd - vBeg); aportesOper += ap; } else { total += rend; aportesInv += ap; }
+    varTotal += (vEnd - vBeg);
     cuentas.push({ nro: n, nombre: (b && b.nombre) || (hByNro[n] && hByNro[n].nombre) || ('#'+n), oper, vBeg, vEnd, aportes: ap, rend });
   });
-  return { total, cuentas, operativas };
+  // varTotal = variación de TODA la posición bancaria (inversión + operativas). Es el número que
+  // el estado de flujos tiene que explicar, una vez descontado el rendimiento (que no es caja).
+  return { total, cuentas, operativas, varTotal, aportesInv, aportesOper, aportesTot: aportesInv + aportesOper };
 }
 
 /* ========================= LA CAPA DE CÁLCULO ========================= */
@@ -11740,8 +11743,31 @@ async function estadosFinancieros(tit, anio, m1, m2) {
   const identificado = tarjetas + gastoAutos + deprAutos + costoNR;
   const consumo = { tarjetas, gastoAutos, comprasAutos, deprAutos, gastoNR, impNR, costoNR, identificado };
 
-  /* ---- CAMBIOS EN EL PATRIMONIO ---- */
+  /* ---- ESTADO DE FLUJOS DE EFECTIVO ----
+     "Efectivo" = la posición bancaria neta (inv account + cash − crédito). En un family office las
+     cuentas de custodia son líquidas, así que se toman como efectivo y equivalentes; el criterio va
+     declarado en la nota al pie del estado.
+     La variación de esa posición tiene dos causas: flujos de caja y revalorización de las inversiones.
+     El estado explica la primera; la segunda se descuenta en la conciliación.                        */
   const incorporaciones = Number(window._efIncorp || 0);
+  const flOper = rentaR - gastoR - impR - costoNR - gastoAutos - tarjetas;
+  const flInvPE = peDistrib - peAportes;
+  const flInvProp = -(dR.flujo + dNR.flujo);   // flujo>0 = compra (sale caja); <0 = venta (entra)
+  const flInvAutos = -dAU.flujo;
+  const flInv = flInvPE + flInvProp + flInvAutos;
+  const flFin = incorporaciones;
+  const flExplicado = flOper + flInv + flFin;
+  const varBancos = rb.varTotal;
+  const cajaReal = varBancos - rb.total;       // sacamos la revalorización: no es entrada de caja
+  const flNoIdent = cajaReal - flExplicado;    // negativo = salió plata sin explicación = consumo
+  const flujo = {
+    rentaR, gastoR, impR, costoNR, gastoAutos, tarjetas, oper: flOper,
+    pe: flInvPE, peAportes, peDistrib, prop: flInvProp, autos: flInvAutos, inv: flInv,
+    incorporaciones: flFin, fin: flFin, aportesRegistrados: rb.aportesTot,
+    explicado: flExplicado, varBancos, rendInv: rb.total, cajaReal, noIdent: flNoIdent,
+  };
+
+  /* ---- CAMBIOS EN EL PATRIMONIO ---- */
   const teorico = balance.apertura.pn + resultado.total + incorporaciones + transferencias - identificado;
   const partida = teorico - balance.cierre.pn;
   const noIdentificado = Math.max(partida, 0);
@@ -11765,7 +11791,7 @@ async function estadosFinancieros(tit, anio, m1, m2) {
     ctrlTarjetas: consumoTotal >= tarjetas,
   };
   const cobertura = { mensual, propiedades: covProp, tarjetas: covTar, autos: covAuto, bancos: anio >= 2025 };
-  return { tit, anio, m1, m2, balance, resultado, consumo, cambios, ind, cobertura, peInvAc, peUtAc };
+  return { tit, anio, m1, m2, balance, resultado, consumo, flujo, cambios, ind, cobertura, peInvAc, peUtAc };
 }
 
 /* ---------------- render de la solapa ---------------- */
@@ -11799,10 +11825,11 @@ async function renderEstados() {
   try { R = await estadosFinancieros(tit, anio, m1, m2); }
   catch (e) { cont.innerHTML = '<div class="card"><div style="color:var(--neg)">No se pudieron calcular los estados: ' + (e.message||e) + '</div></div>'; return; }
   window._efUltimo = R;
-  const B = R.balance, RE = R.resultado, C = R.consumo, CA = R.cambios, I = R.ind, CO = R.cobertura;
+  const B = R.balance, RE = R.resultado, C = R.consumo, CA = R.cambios, I = R.ind, CO = R.cobertura, FL = R.flujo;
 
   /* ---- avisos de cobertura ---- */
   const faltas = [];
+  if (per !== 'A') faltas.push('<b>Período semestral</b>: los activos no financieros se valúan una vez por año, así que el balance, las revaluaciones y las transferencias son del <b>ejercicio completo</b>; solo los flujos (renta, gastos, tarjetas, aportes) son del semestre. La partida a explicar de un semestre no es comparable con la de un ejercicio.');
   if (!CO.mensual && per !== 'A') faltas.push('<b>' + anio + ' no tiene datos mensuales</b>: solo se puede calcular el período anual. Los números que ves son del año completo.');
   if (!CO.tarjetas) faltas.push('<b>Sin gasto de tarjetas</b> para este período. En un cliente típico las tarjetas son la mayor parte del consumo, así que la partida a explicar va a estar inflada.');
   if (!CO.propiedades) faltas.push('<b>Sin movimientos de propiedades</b> cargados para este período.');
@@ -11820,7 +11847,7 @@ async function renderEstados() {
 
   /* ---- 1 Balance ---- */
   const fb = (l, k, o) => { o = o || {}; const a = B.apertura[k], c = B.cierre[k]; return '<tr' + (o.top ? ' style="border-top:2px solid var(--border2)"' : '') + '><td' + (o.bold ? ' class="bold"' : '') + '>' + l + '</td><td class="num' + (o.bold ? ' bold' : '') + '">' + efM(a) + '</td><td class="num' + (o.bold ? ' bold' : '') + '">' + efM(c) + '</td><td class="num" style="color:' + ((c-a) >= 0 ? 'var(--pos)' : 'var(--neg)') + '">' + efM(c-a) + '</td></tr>'; };
-  const cardBal = '<div class="card"><div class="section-title" style="margin-bottom:12px">1 · Balance</div><div class="table-wrap"><table>' +
+  const cardBal = '<div class="card"><div class="section-title" style="margin-bottom:12px">1 · Balance general</div><div class="table-wrap"><table>' +
     '<thead><tr><th>Concepto</th><th class="num">31/12/' + (anio-1) + '</th><th class="num">31/12/' + anio + '</th><th class="num">Variación</th></tr></thead><tbody>' +
     fb('Bancos (inversión + cash)', 'bancos') + fb('Propiedades de renta', 'propR') + fb('Propiedades de no renta', 'propNR') +
     fb('Private equity (valor residual)', 'pe') + fb('Autos', 'autos') + fb('Total activos', 'activos', {bold:1, top:1}) +
@@ -11830,7 +11857,7 @@ async function renderEstados() {
     'Las deudas y créditos personales no entran: la tabla guarda el saldo actual, no el saldo a una fecha pasada.</div></div>';
 
   /* ---- 2 Resultado ---- */
-  const cardRes = '<div class="card"><div class="section-title" style="margin-bottom:12px">2 · Resultado · ' + perTxt + '</div><div class="table-wrap"><table>' +
+  const cardRes = '<div class="card"><div class="section-title" style="margin-bottom:12px">2 · Estado de resultados · ' + perTxt + '</div><div class="table-wrap"><table>' +
     '<thead><tr><th>Concepto</th><th class="num">Importe</th><th class="num">Nota</th></tr></thead><tbody>' +
     '<tr><td colspan="3" style="background:var(--bg2);font-weight:600;font-size:11px;letter-spacing:1px">REALIZADO</td></tr>' +
     efFila('Alquileres cobrados (propiedades de renta)', RE.rentaR, {ind:1}) +
@@ -11848,8 +11875,21 @@ async function renderEstados() {
     efFila('RESULTADO TOTAL', RE.total, {bold:1, top:1, gold:1}) +
     '</tbody></table></div></div>';
 
+  /* ---- 5 Consumo y conciliación de los dos caminos ---- */
+  // Camino patrimonial: consumo identificado + partida a explicar, sin la depreciación (no es caja).
+  const _consPatr = CA.consumoTotal - C.deprAutos;
+  // Camino de caja: lo que efectivamente salió — consumo identificado en efectivo + flujo sin explicar.
+  const _consCaja = C.tarjetas + C.gastoAutos + C.costoNR + Math.max(0, -FL.noIdent);
+  const _brecha = _consCaja - _consPatr;
+  const _brechaPct = _consPatr ? Math.abs(_brecha / _consPatr) : (_consCaja ? 1 : 0);
+  const _brechaTxt = (Math.abs(_brecha) < 1)
+    ? 'Los dos caminos dan lo mismo: el consumo del período es un dato verificado, no una estimación.'
+    : (_brechaPct <= 0.05
+      ? 'Los dos caminos difieren en ' + efP(_brechaPct) + ' del consumo. Dentro de la tolerancia razonable: el perímetro está prácticamente cerrado.'
+      : 'Los dos caminos difieren en ' + efM(Math.abs(_brecha)) + ' (' + efP(_brechaPct) + ' del consumo). Mientras la brecha sea grande, el consumo sigue siendo una estimación. Las dos causas conocidas son que los aportes de bancos no distinguen traspaso interno de aporte externo, y que la deuda no se puede fechar.');
+
   /* ---- 3 Consumo ---- */
-  const cardCon = '<div class="card"><div class="section-title" style="margin-bottom:12px">3 · Consumo · ' + perTxt + '</div>' +
+  const cardCon = '<div class="card"><div class="section-title" style="margin-bottom:12px">5 · Consumo y conciliación de los dos caminos · ' + perTxt + '</div>' +
     '<div style="font-size:11px;color:var(--text3);margin-bottom:12px">Retiros del patrimonio, no gastos del patrimonio. Los gastos de las propiedades de renta no están acá: son costo de generar el ingreso y ya bajaron el resultado.</div>' +
     '<div class="table-wrap"><table><thead><tr><th>Concepto</th><th class="num">Importe</th><th class="num">Nota</th></tr></thead><tbody>' +
     efFila('Tarjetas de crédito', C.tarjetas, {ind:1}) +
@@ -11861,13 +11901,62 @@ async function renderEstados() {
     efFila(CA.partida >= 0 ? 'Consumo no identificado' : 'Ingresos o aportes sin origen', Math.abs(CA.partida), {extra:'sale del cierre patrimonial'}) +
     efFila('CONSUMO TOTAL', CA.consumoTotal, {bold:1, top:1, gold:1}) +
     '</tbody></table></div><div style="font-size:11px;color:' + (I.ctrlTarjetas ? 'var(--text3)' : 'var(--neg)') + ';margin-top:10px">' +
-    'Control de tarjetas: ' + (I.ctrlTarjetas ? 'OK — el consumo total supera el gasto de tarjetas.' : 'REVISAR — el consumo total da menos que el gasto de tarjetas, lo que indica un error de carga.') + '</div></div>';
+    'Control de tarjetas: ' + (I.ctrlTarjetas ? 'OK — el consumo total supera el gasto de tarjetas.' : 'REVISAR — el consumo total da menos que el gasto de tarjetas, lo que indica un error de carga.') + '</div>' +
+    /* --- los dos caminos al consumo --- */
+    '<div style="border-top:2px solid var(--border2);margin-top:18px;padding-top:14px">' +
+    '<div class="section-title" style="margin-bottom:8px;font-size:13px">Los dos caminos al consumo</div>' +
+    '<div style="font-size:11px;color:var(--text3);margin-bottom:10px">El mismo número calculado de dos maneras independientes: como residuo del balance (estado 4) y como salida de caja (estado 3). La depreciación de autos se saca de los dos lados porque no es un movimiento de efectivo. Cuando la brecha tiende a cero, el perímetro queda cerrado.</div>' +
+    '<div class="table-wrap"><table><thead><tr><th>Camino</th><th class="num">Consumo</th><th class="num">Origen</th></tr></thead><tbody>' +
+    efFila('Por el patrimonio (residuo del balance)', _consPatr, {extra:'estado 4'}) +
+    efFila('Por la caja (salida de las cuentas)', _consCaja, {extra:'estado 3'}) +
+    efFila('BRECHA ENTRE LOS DOS CAMINOS', _brecha, {bold:1, top:1, gold:1}) +
+    '</tbody></table></div>' +
+    '<div style="font-size:12px;color:var(--text2);margin-top:10px;line-height:1.6">' + _brechaTxt + '</div></div></div>';
+
+
+  /* ---- 3 Estado de flujos de efectivo ---- */
+  const _fSig = FL.noIdent < 0 ? 'salieron' : 'entraron';
+  const cardFlu = '<div class="card"><div class="section-title" style="margin-bottom:12px">3 · Estado de flujos de efectivo · ' + perTxt + '</div>' +
+    '<div style="font-size:11px;color:var(--text3);margin-bottom:12px">Efectivo y equivalentes = la posición bancaria neta (cuenta de inversión + cash − crédito). Las cuentas de custodia se toman como líquidas. La revaluación de esas cuentas no es un flujo y se descuenta en la conciliación.</div>' +
+    '<div class="table-wrap"><table><thead><tr><th>Concepto</th><th class="num">Importe</th><th class="num">Nota</th></tr></thead><tbody>' +
+    '<tr><td colspan="3" style="font-weight:700;color:var(--gold);font-size:11px;letter-spacing:.5px;padding-top:8px">A · ACTIVIDADES OPERATIVAS</td></tr>' +
+    efFila('Renta cobrada de propiedades de renta', FL.rentaR, {ind:1}) +
+    efFila('(−) Gastos de propiedades de renta', -FL.gastoR, {ind:1}) +
+    efFila('(−) Impuestos de propiedades de renta', -FL.impR, {ind:1}) +
+    efFila('(−) Gastos e impuestos de propiedades de uso', -FL.costoNR, {ind:1}) +
+    efFila('(−) Gastos de autos', -FL.gastoAutos, {ind:1}) +
+    efFila('(−) Tarjetas de crédito', -FL.tarjetas, {ind:1}) +
+    efFila('Flujo de las actividades operativas', FL.oper, {bold:1, top:1}) +
+    '<tr><td colspan="3" style="font-weight:700;color:var(--gold);font-size:11px;letter-spacing:.5px;padding-top:14px">B · ACTIVIDADES DE INVERSIÓN</td></tr>' +
+    efFila('Distribuciones de private equity', FL.peDistrib, {ind:1}) +
+    efFila('(−) Aportes a private equity', -FL.peAportes, {ind:1}) +
+    efFila('Compras y ventas de propiedades', FL.prop, {ind:1, extra: FL.prop < 0 ? 'salida por compras' : (FL.prop > 0 ? 'entrada por ventas, a valor de libro' : '')}) +
+    efFila('Compras y ventas de autos', FL.autos, {ind:1}) +
+    efFila('Flujo de las actividades de inversión', FL.inv, {bold:1, top:1}) +
+    '<tr><td colspan="3" style="font-weight:700;color:var(--gold);font-size:11px;letter-spacing:.5px;padding-top:14px">C · ACTIVIDADES DE FINANCIAMIENTO</td></tr>' +
+    efFila('Incorporaciones de capital externo', FL.incorporaciones, {ind:1, extra:'se carga en el estado 4'}) +
+    '<tr><td style="padding-left:18px">Variación de deuda</td><td class="num" style="color:var(--text3)">—</td><td class="num" style="font-size:11px;color:var(--text3)">la tabla de préstamos guarda el saldo actual, sin fecha</td></tr>' +
+    efFila('Flujo de las actividades de financiamiento', FL.fin, {bold:1, top:1}) +
+    efFila('FLUJO DE EFECTIVO EXPLICADO (A+B+C)', FL.explicado, {bold:1, top:1, gold:1}) +
+    '<tr><td colspan="3" style="font-weight:700;color:var(--gold);font-size:11px;letter-spacing:.5px;padding-top:16px">D · CONCILIACIÓN CON LA POSICIÓN BANCARIA</td></tr>' +
+    efFila('Variación de la posición bancaria', FL.varBancos, {ind:1, extra:'saldos mensuales, cierre menos apertura'}) +
+    (per === 'A' ? efFila('  · la misma variación según el balance', (B.cierre.bancos - B.cierre.credito) - (B.apertura.bancos - B.apertura.credito), {ind:1, extra: Math.abs(((B.cierre.bancos - B.cierre.credito) - (B.apertura.bancos - B.apertura.credito)) - FL.varBancos) < 1 ? 'coincide ✓' : 'NO coincide: revisar la carga'}) : '') +
+    efFila('(−) Rendimiento de las cuentas de inversión', -FL.rendInv, {ind:1, extra:'revaluación, no es caja'}) +
+    efFila('Flujo de efectivo real del período', FL.cajaReal, {bold:1, top:1}) +
+    efFila('(−) Flujo explicado (A+B+C)', -FL.explicado, {ind:1}) +
+    efFila('FLUJO NO IDENTIFICADO', FL.noIdent, {bold:1, top:1, gold:1}) +
+    '</tbody></table></div>' +
+    '<div style="font-size:12px;color:var(--text2);margin-top:12px;line-height:1.6">' +
+    (Math.abs(FL.noIdent) < 1 ? 'El flujo cierra exacto.' :
+      'Por las cuentas ' + _fSig + ' ' + efM(Math.abs(FL.noIdent)) + ' que ninguna fuente cargada explica. ' +
+      (FL.noIdent < 0 ? 'Ése es el consumo que no pasa por tarjeta: efectivo, transferencias y pagos directos.' : 'Hay ingresos o aportes que el sistema todavía no ve.')) +
+    '<br><span style="font-size:11px;color:var(--text3)">Los ' + efM(FL.aportesRegistrados) + ' cargados en Aportes de bancos no entran como financiamiento: la mayoría son traspasos internos entre cuentas del mismo titular y contarlos sería doble conteo. Se usan solo para medir el rendimiento de cada cuenta.</span></div></div>';
 
   /* ---- 4 Cambios en el patrimonio ---- */
   const interp = CA.partida > 0
     ? 'Positiva: falta consumo por trackear. Es lo normal — efectivo, transferencias y gastos que no pasan por tarjeta.'
     : (CA.partida < 0 ? 'Negativa: entró patrimonio sin origen registrado. Hay ingresos o aportes que el sistema no ve, o un activo que apareció sin contrapartida.' : 'Cierra exacto.');
-  const cardCam = '<div class="card"><div class="section-title" style="margin-bottom:12px">4 · Cambios en el patrimonio · ' + perTxt + '</div><div class="table-wrap"><table>' +
+  const cardCam = '<div class="card"><div class="section-title" style="margin-bottom:12px">4 · Cambios en el patrimonio neto · ' + perTxt + '</div><div class="table-wrap"><table>' +
     '<thead><tr><th>Concepto</th><th class="num">Importe</th><th class="num"></th></tr></thead><tbody>' +
     efFila('Patrimonio neto al inicio', CA.inicial, {}) +
     efFila('(+) Resultado del período', CA.resultado, {}) +
@@ -11882,7 +11971,7 @@ async function renderEstados() {
 
   /* ---- 5 Indicadores ---- */
   const ki = (l, v, t) => '<tr><td class="bold">' + l + '</td><td class="num" style="color:var(--gold)">' + v + '</td><td style="font-size:11px;color:var(--text3)">' + t + '</td></tr>';
-  const cardInd = '<div class="card"><div class="section-title" style="margin-bottom:12px">5 · Indicadores</div><div class="table-wrap"><table><tbody>' +
+  const cardInd = '<div class="card"><div class="section-title" style="margin-bottom:12px">6 · Indicadores</div><div class="table-wrap"><table><tbody>' +
     ki('Yield de las propiedades de renta', efP(I.yieldRenta), 'renta neta sobre el valor de la cartera de renta') +
     ki('Costo de tenencia de las de no renta', efP(I.costoTenencia), 'lo que cuesta por año tener paradas las propiedades de uso') +
     ki('Cobertura', efX(I.cobertura), 'cuántas veces la renta neta paga el costo de las casas de uso') +
@@ -11893,29 +11982,7 @@ async function renderEstados() {
     ki('DPI del private equity', efP(I.dpi), 'cuánto del capital invertido ya volvió') +
     '</tbody></table></div></div>';
 
-  /* ---- 6 Detalle de private equity ---- */
-  const pesos = efPesos(PE_ATTR, tit, anio);
-  const filasPE = Object.keys(pesos).map(n => { const p = efIdx(PE_HIST_DATA)[n]; if (!p) return null; const w = pesos[n];
-      const inv = efPeInv(p, anio)*w, dis = efPeUtAc(p, anio)*w, res = efPeResid(p, anio)*w, rec = efPeUtRec(p, anio)*w;
-      return { nombre: p.nombre, inv, dis, res, rec, dpi: inv ? dis/inv : 0 }; })
-    .filter(Boolean).filter(r => r.inv > 0 || r.dis > 0).sort((a,b) => b.inv - a.inv);
-  const tPE = filasPE.reduce((a,r) => ({inv:a.inv+r.inv, dis:a.dis+r.dis, res:a.res+r.res, rec:a.rec+r.rec}), {inv:0,dis:0,res:0,rec:0});
-  const barra = (v) => '<div style="height:8px;background:var(--border2);border-radius:4px;overflow:hidden;min-width:70px"><div style="height:100%;width:' + Math.min(100, v*100).toFixed(1) + '%;background:var(--gold)"></div></div>';
-  const cardPE = filasPE.length ? '<div class="card"><div class="section-title" style="margin-bottom:12px">6 · Private equity · valor residual al 31/12/' + anio + '</div><div class="table-wrap"><table>' +
-    '<thead><tr><th>Inversión</th><th class="num">Inversión acum.</th><th class="num">Distribuciones</th><th class="num">Valor residual</th><th class="num">Utilidad reconocida</th><th class="num">DPI</th><th style="width:90px">Recupero</th></tr></thead><tbody>' +
-    filasPE.map(r => '<tr><td class="bold">' + r.nombre + '</td><td class="num">' + efM(r.inv) + '</td><td class="num">' + efM(r.dis) + '</td><td class="num">' + efM(r.res) + '</td><td class="num">' + efM(r.rec) + '</td><td class="num">' + efP(r.dpi) + '</td><td>' + barra(r.inv ? r.dis/r.inv : 0) + '</td></tr>').join('') +
-    '<tr style="border-top:2px solid var(--border2)"><td class="bold" style="color:var(--gold)">TOTAL</td><td class="num bold">' + efM(tPE.inv) + '</td><td class="num bold">' + efM(tPE.dis) + '</td><td class="num bold" style="color:var(--gold)">' + efM(tPE.res) + '</td><td class="num bold">' + efM(tPE.rec) + '</td><td class="num bold">' + efP(tPE.inv ? tPE.dis/tPE.inv : 0) + '</td><td>' + barra(tPE.inv ? tPE.dis/tPE.inv : 0) + '</td></tr>' +
-    '</tbody></table></div><div style="font-size:11px;color:var(--text3);margin-top:10px;line-height:1.6">Mientras las distribuciones no superen el capital invertido, todo lo que vuelve es devolución de capital y no es resultado. La barra se llena hasta el 100% cuando se recuperó la inversión; de ahí en adelante lo que llega es utilidad.</div></div>' : '';
-
-  /* ---- detalle de cuentas de inversión ---- */
-  const cb = RE.cuentasBanco.filter(c => !c.oper);
-  const cardBk = cb.length ? '<div class="card"><div class="section-title" style="margin-bottom:12px">7 · Rendimiento de cuentas de inversión</div><div class="table-wrap"><table>' +
-    '<thead><tr><th>Cuenta</th><th class="num">Saldo inicial</th><th class="num">Saldo final</th><th class="num">Aportes netos</th><th class="num">Rendimiento</th><th class="num">%</th></tr></thead><tbody>' +
-    cb.map(c => '<tr><td>' + c.nombre + '</td><td class="num">' + efM(c.vBeg) + '</td><td class="num">' + efM(c.vEnd) + '</td><td class="num">' + efM(c.aportes) + '</td><td class="num bold">' + efM(c.rend) + '</td><td class="num" style="color:var(--text3)">' + (c.vBeg ? efP(c.rend/c.vBeg) : '—') + '</td></tr>').join('') +
-    '<tr style="border-top:2px solid var(--border2)"><td class="bold" style="color:var(--gold)">TOTAL</td><td></td><td></td><td></td><td class="num bold" style="color:var(--gold)">' + efM(RE.rendBancos) + '</td><td></td></tr>' +
-    '</tbody></table></div><div style="font-size:11px;color:var(--text3);margin-top:10px">Rendimiento = variación del saldo menos los aportes netos del período. Las cuentas operativas quedan fuera: su variación es movimiento de caja, no rendimiento.</div></div>' : '';
-
-  cont.innerHTML = kpis + aviso + cardBal + cardRes + cardCon + cardCam + cardInd + cardPE + cardBk;
+  cont.innerHTML = kpis + aviso + cardBal + cardRes + cardFlu + cardCam + cardCon + cardInd;
 }
 
 </script>
