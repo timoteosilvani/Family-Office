@@ -4484,7 +4484,7 @@ async function loadTC() {
   const set = (id, txt) => { const el = document.getElementById(id); if (el) el.textContent = txt; };
   if (src) {
     const ars = parseFloat(src.ars_usd), uyu = parseFloat(src.uyu_usd), eur = parseFloat(src.eur_usd);
-    tcCache = { ars_usd: ars, uyu_usd: uyu, eur_usd: eur };
+    tcCache = { ars_usd: ars, uyu_usd: uyu, eur_usd: eur, fecha: src.fecha || null };
     set('tc-ars', '$' + (isNaN(ars) ? '—' : ars.toLocaleString('es-AR')));
     set('tc-uyu', '$' + (isNaN(uyu) ? '—' : uyu.toFixed(3)));
     set('tc-eur', isNaN(eur) ? '—' : eur.toFixed(4));
@@ -11438,7 +11438,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260731-123';
+const APP_VERSION = '20260731-124';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
@@ -12012,7 +12012,60 @@ async function renderEstados() {
     ki('DPI del private equity', efP(I.dpi), 'cuánto del capital invertido ya volvió') +
     '</tbody></table></div></div>';
 
-  cont.innerHTML = kpis + aviso + cardBal + cardRes + cardFlu + cardCam + cardCon + cardInd;
+
+  /* ---- 7 Notas y criterios de valuación ---- */
+  const _nTC = tcCache || {};
+  const _nFechaTC = _nTC.fecha ? new Date(_nTC.fecha + 'T00:00:00').toLocaleDateString('es-AR') : 'la última semana cargada';
+  const _nota = (t, cuerpo) => '<div style="margin-bottom:16px"><div style="font-weight:700;font-size:12px;color:var(--navy);margin-bottom:5px">' + t + '</div><div style="font-size:12px;color:var(--text2);line-height:1.65">' + cuerpo + '</div></div>';
+  const _brechaEstado = (Math.abs(_brecha) < 1) ? 'cierra exacto'
+    : (_brechaPct <= 0.05 ? 'difieren en ' + efP(_brechaPct) + ', dentro de tolerancia' : 'difieren en ' + efM(Math.abs(_brecha)) + ' (' + efP(_brechaPct) + ')');
+  const cardNotas = '<div class="card"><div class="section-title" style="margin-bottom:14px">7 · Notas y criterios de valuación</div>' +
+
+    _nota('1 · Moneda y tipo de cambio',
+      'Todas las cifras están expresadas en <b>dólares estadounidenses</b>. Los saldos en pesos argentinos, pesos uruguayos y euros se convierten al tipo de cambio de cierre de ' + _nFechaTC + ': ' +
+      'ARS ' + (_nTC.ars_usd ? Number(_nTC.ars_usd).toLocaleString('es-AR') : '—') + ' · UYU ' + (_nTC.uyu_usd ? Number(_nTC.uyu_usd).toFixed(3) : '—') + ' · EUR ' + (_nTC.eur_usd ? Number(_nTC.eur_usd).toFixed(4) : '—') + ' por dólar. ' +
+      'La paridad se carga semanalmente; los períodos anteriores no se reexpresan.') +
+
+    _nota('2 · Criterios de valuación por clase de activo',
+      '<div class="table-wrap"><table style="font-size:11.5px"><thead><tr><th>Clase</th><th>Criterio</th><th>Frecuencia</th></tr></thead><tbody>' +
+      '<tr><td class="bold">Propiedades</td><td>Valor de mercado estimado por tasación</td><td>Anual, al cierre de cada ejercicio</td></tr>' +
+      '<tr><td class="bold">Cuentas bancarias</td><td>Saldo de cierre: cuenta de inversión + cash − crédito</td><td>Mensual desde 2025; anual en años anteriores</td></tr>' +
+      '<tr><td class="bold">Private equity</td><td>Valor residual: inversión acumulada − distribuciones, con piso en cero</td><td>Anual</td></tr>' +
+      '<tr><td class="bold">Autos</td><td>Valor de mercado estimado</td><td>Anual</td></tr>' +
+      '<tr><td class="bold">Sociedades</td><td>No se valorizan: son centro de costos, no activo</td><td>—</td></tr>' +
+      '</tbody></table></div>' +
+      '<div style="margin-top:8px">Las valuaciones anuales se corrigen desde la app con el lápiz ✎ del historial; cada corrección queda registrada y recalcula el patrimonio sin necesidad de una versión nueva.</div>') +
+
+    _nota('3 · Reconocimiento de resultado en private equity',
+      'Mientras las distribuciones recibidas no superen el capital invertido, todo lo que vuelve se trata como <b>devolución de capital</b> y no como resultado. La utilidad se reconoce solo por el excedente, y de forma <b>incremental por año</b>. ' +
+      'Es el criterio más conservador de los disponibles: reconoce la ganancia tarde y nunca antes de haber recuperado lo puesto. ' +
+      '<br><span style="color:var(--gold)">Advertencia de consistencia:</span> la solapa Reportes todavía muestra el private equity a inversión acumulada, no a valor residual. Los dos números conviven hasta que se unifiquen las dos vistas.') +
+
+    _nota('4 · Atribución entre titulares',
+      'Los activos del bloque compartido (<b>H</b>) se atribuyen íntegramente a JC hasta 2025 y se reparten en tercios entre FC, YAC y FCC desde 2026. Algunas propiedades cambian de titular en años determinados por sucesión. ' +
+      'Un cambio de titular <b>nunca es resultado</b>: se expone en línea propia del estado de cambios en el patrimonio. En el consolidado del Family Office estas transferencias netean a cero, porque mover un activo entre titulares no altera el patrimonio del conjunto.') +
+
+    _nota('5 · Qué no está incluido',
+      '<ul style="margin:4px 0 0 18px;padding:0">' +
+      '<li><b>Deudas y créditos personales</b>: la base guarda el saldo actual sin fecha, así que no puede reconstruirse el saldo a una fecha de balance. Por eso tampoco hay variación de deuda en el estado de flujos.</li>' +
+      '<li><b>Ganancia realizada en venta de propiedades</b>: la baja se toma a valor de libro, no contra el precio efectivo de venta.</li>' +
+      '<li><b>Sociedades</b>: se administran como centro de costos y no integran el activo.</li>' +
+      '<li><b>Patrimonio personal de MFL</b>: fuera del perímetro por decisión del cliente.</li>' +
+      '</ul>') +
+
+    _nota('6 · Perímetro y verificación',
+      'El consumo del período se calcula por <b>dos caminos independientes</b>: como residuo del balance y como salida de caja. Hoy, para este cliente y período, ' + _brechaEstado + '. ' +
+      'Mientras la brecha no tienda a cero, el consumo debe leerse como una estimación y no como un dato verificado. ' +
+      'Las dos causas conocidas de brecha son que los movimientos de capital entre cuentas no distinguen el traspaso interno del aporte externo, y que la deuda no puede fecharse.') +
+
+    _nota('7 · Cobertura de datos',
+      'Antes de interpretar cualquier número, el panel de cobertura del encabezado declara qué fuentes están cargadas para el período elegido. ' +
+      'La ausencia de gasto de tarjetas es la más significativa: en un cliente típico las tarjetas explican la mayor parte del consumo, y sin ellas la partida a explicar queda inflada.') +
+
+    '<div style="border-top:1px solid var(--border);padding-top:10px;margin-top:4px;font-size:11px;color:var(--text3)">' +
+    'Notas generadas junto con los estados, sobre los datos vigentes al momento de la consulta. Cliente: ' + (EF_NOM[tit] || tit) + ' · Período: ' + perTxt + '.</div></div>';
+
+  cont.innerHTML = kpis + aviso + cardBal + cardRes + cardFlu + cardCam + cardCon + cardInd + cardNotas;
 }
 
 </script>
