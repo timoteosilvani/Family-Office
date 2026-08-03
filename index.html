@@ -1122,7 +1122,10 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
         <div id="prop-info" class="tab-content active">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
             <div class="section-title" style="margin:0">Catálogo de Propiedades</div>
-            <button class="btn-secondary" onclick="openModal('modal-prop-nueva')">+ Nueva Propiedad</button>
+            <div style="display:flex;gap:8px">
+              <button class="btn-secondary admin-only" onclick="abrirVentaPropiedad()">Venta de propiedad</button>
+              <button class="btn-secondary" onclick="openModal('modal-prop-nueva')">+ Nueva Propiedad</button>
+            </div>
           </div>
           <div class="filters">
             <button class="filter-btn f-all active" onclick="filtroProp('all',this)" data-pais="all">Todas</button>
@@ -3896,6 +3899,28 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
   </div>
 </div>
 
+<div class="modal-overlay" id="modal-prop-venta">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">Venta de propiedad</div>
+      <button class="modal-close" onclick="closeModal('modal-prop-venta')">×</button>
+    </div>
+    <div class="modal-body">
+      <div><label class="fld">Propiedad</label><select class="fld" id="npv-prop" onchange="previewVentaProp()"></select></div>
+      <div class="form-row cols-2" style="margin-top:10px">
+        <div><label class="fld">Valor de venta (USD)</label><input class="fld" type="number" id="npv-valor" value="0" oninput="previewVentaProp()"></div>
+        <div><label class="fld">Fecha de venta</label><input class="fld" type="date" id="npv-fecha" onchange="previewVentaProp()"></div>
+      </div>
+      <div id="npv-preview" style="margin-top:14px;padding:12px 14px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);font-size:12px;line-height:1.7"></div>
+      <p style="font-size:11px;color:var(--text3);margin-top:10px;line-height:1.5">La propiedad deja de contar en el patrimonio, los totales y los informes desde que se registra la venta. El histórico de años anteriores no se toca.</p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closeModal('modal-prop-venta')">Cancelar</button>
+      <button class="btn-primary" style="width:auto;padding:10px 24px" onclick="venderPropiedad()">Registrar venta</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="modal-auto-venta">
   <div class="modal">
     <div class="modal-header">
@@ -6433,6 +6458,8 @@ async function verFichaPropiedad(id) {
       <div class="field"><label>Valor de Compra</label><p>USD ${fmt(prop.valor_compra)}</p></div>
       <div class="field"><label>Fecha de Venta</label><p>${prop.fecha_venta||'—'}</p></div>
       <div class="field"><label>Valor de Venta</label><p>${prop.valor_venta?('USD '+fmt(prop.valor_venta)):'—'}</p></div>
+      ${(prop.vendida && prop.valor_venta) ? (() => { const _lb = valorLibroProp(prop, prop.fecha_venta ? Number(String(prop.fecha_venta).slice(0,4)) : 2026); const _g = Number(prop.valor_venta) - _lb;
+        return `<div class="field"><label>Ganancia Realizada</label><p style="color:${_g>=0?'#2f9e63':'#c0605f'};font-weight:700">${_g>=0?'+':'-'}USD ${fmt(Math.abs(_g))}</p><span style="font-size:10px;color:#888">vs. valor de libro USD ${fmt(_lb)}</span></div>`; })() : ''}
       <div class="field"><label>Inversión Adicional</label><p>USD ${fmt(prop.inversion)}</p></div>
       <div class="field"><label>Superficie</label><p>${prop.m2||'—'} m²</p></div>
       ${prop.tipo === 'R' ? `<div class="field"><label>Inquilino Actual</label><p>${prop.inquilino_actual||'—'}</p></div>
@@ -7992,6 +8019,72 @@ async function guardarAuto() {
   await loadAutos();
 }
 
+// Valor de libro de una propiedad al cierre del año anterior a la venta.
+// Prioriza el histórico (que es editable con el ✎); si no está, cae a las columnas de la base.
+function valorLibroProp(prop, anioVenta) {
+  const h = PROP_HIST_DATA.find(x => x.nro === prop.nro);
+  const yPrev = String(anioVenta - 1);
+  if (h && h.valores && h.valores[yPrev] != null) return Number(h.valores[yPrev]) || 0;
+  if (yPrev === '2025' && prop.valor_2025 != null) return Number(prop.valor_2025) || 0;
+  if (yPrev === '2026' && prop.valor_2026 != null) return Number(prop.valor_2026) || 0;
+  return Number(prop.valor_2026) || Number(prop.valor_compra) || 0;
+}
+
+function abrirVentaPropiedad() {
+  const sel = document.getElementById('npv-prop');
+  const disp = (window._propsCache || []).filter(p => p.activa !== false && p.vendida !== true);
+  sel.innerHTML = disp.length
+    ? disp.map(p => `<option value="${p.id}">[${p.titular}] ${p.nombre}</option>`).join('')
+    : '<option value="">Sin propiedades activas</option>';
+  document.getElementById('npv-valor').value = 0;
+  document.getElementById('npv-fecha').value = new Date().toISOString().slice(0,10);
+  previewVentaProp();
+  openModal('modal-prop-venta');
+}
+
+// Vista previa de la ganancia realizada, antes de confirmar. Es el número que hoy se pierde:
+// la baja se toma a valor de libro y la diferencia contra el precio efectivo no queda en ningún lado.
+function previewVentaProp() {
+  const el = document.getElementById('npv-preview'); if (!el) return;
+  const id = document.getElementById('npv-prop').value;
+  const p = (window._propsCache || []).find(x => x.id === id);
+  if (!p) { el.innerHTML = '<span style="color:var(--text3)">Elegí una propiedad.</span>'; return; }
+  const vv = parseFloat(document.getElementById('npv-valor').value) || 0;
+  const fv = document.getElementById('npv-fecha').value;
+  const anio = fv ? Number(fv.slice(0,4)) : new Date().getFullYear();
+  const libro = valorLibroProp(p, anio);
+  const compra = Number(p.valor_compra) || 0;
+  const gan = vv - libro;
+  const total = vv - compra;
+  const col = v => v > 0 ? 'var(--esp)' : (v < 0 ? 'var(--usa)' : 'var(--text3)');
+  const sg = v => (v > 0 ? '+' : '') + '$' + fmt(Math.abs(v)) .replace('-','');
+  el.innerHTML =
+    '<div style="display:flex;justify-content:space-between"><span style="color:var(--text3)">Valor de libro al cierre ' + (anio-1) + '</span><span style="font-weight:600">$' + fmt(libro) + '</span></div>' +
+    '<div style="display:flex;justify-content:space-between"><span style="color:var(--text3)">Precio de venta</span><span style="font-weight:600">$' + fmt(vv) + '</span></div>' +
+    '<div style="display:flex;justify-content:space-between;border-top:1px solid var(--border);margin-top:6px;padding-top:6px"><span style="font-weight:700">Ganancia realizada</span><span style="font-weight:700;color:' + col(gan) + '">' + (gan>=0?'+':'-') + '$' + fmt(Math.abs(gan)) + '</span></div>' +
+    '<div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text3);margin-top:4px"><span>Resultado total desde la compra ($' + fmt(compra) + ')</span><span style="color:' + col(total) + '">' + (total>=0?'+':'-') + '$' + fmt(Math.abs(total)) + '</span></div>';
+}
+
+async function venderPropiedad() {
+  const id = document.getElementById('npv-prop').value;
+  if (!id) return toast('Elegí una propiedad', 'error');
+  const vv = parseFloat(document.getElementById('npv-valor').value);
+  const fv = document.getElementById('npv-fecha').value;
+  if (isNaN(vv) || vv <= 0) return toast('Poné el valor de venta', 'error');
+  if (!fv) return toast('Poné la fecha de venta', 'error');
+  const p = (window._propsCache || []).find(x => x.id === id);
+  const libro = p ? valorLibroProp(p, Number(fv.slice(0,4))) : 0;
+  const gan = vv - libro;
+  if (!confirm('Registrar la venta de "' + (p ? p.nombre : '') + '" el ' + new Date(fv+'T00:00:00').toLocaleDateString('es-AR') +
+      ' por $' + fmt(vv) + '?\n\nGanancia realizada contra el valor de libro: ' + (gan>=0?'+':'-') + '$' + fmt(Math.abs(gan)) +
+      '\n\nLa propiedad deja de contar en el patrimonio desde esta fecha.')) return;
+  const { error } = await sb.from('propiedades').update({ vendida: true, activa: false, valor_venta: vv, fecha_venta: fv }).eq('id', id);
+  if (error) return toast('Error: ' + error.message, 'error');
+  toast('Venta registrada ✓ — ganancia realizada ' + (gan>=0?'+':'-') + '$' + fmt(Math.abs(gan)), 'success');
+  closeModal('modal-prop-venta');
+  await loadPropiedades();
+}
+
 function abrirVentaAuto() {
   const sel = document.getElementById('nv-auto');
   const activos = (window._autosCache || []).filter(r => r.activo !== false && !r.vendido);
@@ -8630,10 +8723,14 @@ async function guardarHistEdit(){
   toast('Guardado ✓ (recalcula patrimonio)','success'); closeModal('modal-hist-edit');
   if(cat==='auto')renderAutosHist();else if(cat==='banco')renderBancosHist();else if(cat==='pe')renderPEHist();else renderHistorialProps('all');
 }
+// Badge del nav. OJO: tiene que contar EXACTAMENTE lo mismo que updateAlertKPIs(), o el número
+// cambia al entrar a la solapa. Los contratos de alquiler viven en su propia solapa y loadAlertas()
+// los excluye; el badge también tiene que excluirlos.
 async function actualizarBadgeAlertas() {
   try {
     const { data } = await aplicarFiltroTit(sb.from('alertas').select('*').eq('activa', true));
-    const n = (data||[]).filter(a => { const d=diasHastaAlerta(a); return d!=null && d<=7; }).length;
+    const rows = (data||[]).filter(a => a.tipo !== 'Alquiler' && a.tipo !== 'Vencimiento');
+    const n = rows.filter(a => { const d=diasHastaAlerta(a); return d!=null && d<=7; }).length;
     const b = document.getElementById('alert-nav-badge');
     if (b) { b.textContent = n>0?n:''; b.style.display = n>0?'inline':'none'; }
   } catch(e){}
@@ -11438,7 +11535,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260731-124';
+const APP_VERSION = '20260731-126';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
@@ -11695,9 +11792,15 @@ async function estadosFinancieros(tit, anio, m1, m2) {
     covProp = !!(mp && mp.length);
     (mp||[]).forEach(m => {
       const sh = shById[m.propiedad_id] || 0; if (!sh) return;
-      const ren = ((Number(m.renta)||0) + (Number(m.otro_ingreso)||0)) * sh;
-      const gas = EF_RUB_GASTO.reduce((s,k) => s + (Number(m[k])||0), 0) * sh;
-      const imp = EF_RUB_IMP.reduce((s,k) => s + (Number(m[k])||0), 0) * sh;
+      // Los rubros (gas, expensas, arba_abl, ...) se guardan en MONEDA NATIVA: para una propiedad
+      // argentina, `expensas` son pesos. Sumarlos crudo agregaba pesos como si fueran dólares.
+      // Las columnas total_*_usd ya vienen convertidas; los rubros solo se usan como respaldo
+      // cuando el total no está cargado (y ahí sí valen, porque en ese caso son USD).
+      const _sumRub = (ks) => ks.reduce((s,k) => s + (Number(m[k])||0), 0);
+      const _tot = (col, ks) => (m[col] === null || m[col] === undefined) ? _sumRub(ks) : (Number(m[col])||0);
+      const ren = _tot('total_renta_usd', ['renta','otro_ingreso']) * sh;
+      const gas = _tot('total_gastos_usd', EF_RUB_GASTO) * sh;
+      const imp = _tot('total_impuestos_usd', EF_RUB_IMP) * sh;
       if (tipoById[m.propiedad_id] === 'R') { rentaR += ren; gastoR += gas; impR += imp; }
       else { gastoNR += gas; impNR += imp; }
     });
