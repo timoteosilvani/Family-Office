@@ -1633,7 +1633,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
               <div>
                 <label class="fld">Año</label>
                 <select class="fld" id="banco-evol-anio" onchange="loadBancosEvolucion()">
-                  <option value="2026">2026</option><option value="2025">2025</option>
+                  <option value="2026">2026</option><option value="2025">2025</option><option value="2024">2024</option>
                 </select>
               </div>
               <div>
@@ -2104,7 +2104,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
               <div>
                 <label class="fld">Año</label>
                 <select class="fld" id="auto-evol-anio" onchange="loadAutosEvolucion()">
-                  <option value="2026">2026</option><option value="2025">2025</option>
+                  <option value="2026">2026</option><option value="2025">2025</option><option value="2024">2024</option>
                 </select>
               </div>
               <div>
@@ -2132,7 +2132,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
               <div>
                 <label class="fld">Año</label>
                 <select class="fld" id="carga-auto-anio">
-                  <option value="2026">2026</option><option value="2025">2025</option>
+                  <option value="2026">2026</option><option value="2025">2025</option><option value="2024">2024</option>
                 </select>
               </div>
               <div>
@@ -2289,7 +2289,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
               <div>
                 <label class="fld">Año</label>
                 <select class="fld" id="gastos-anio-tabla" onchange="verGastosTabla()">
-                  <option value="2026">2026</option><option value="2025">2025</option>
+                  <option value="2026">2026</option><option value="2025">2025</option><option value="2024">2024</option>
                 </select>
               </div>
               <div>
@@ -2331,7 +2331,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
               <div>
                 <label class="fld">Año</label>
                 <select class="fld" id="det-anio" onchange="loadDetalle()">
-                  <option value="2026">2026</option><option value="2025">2025</option>
+                  <option value="2026">2026</option><option value="2025">2025</option><option value="2024">2024</option>
                 </select>
               </div>
               <div>
@@ -2418,7 +2418,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
               <div>
                 <label class="fld">Año</label>
                 <select class="fld" id="gastos-anio-anual2" onchange="filtrarAnual2()">
-                  <option value="2026">2026</option><option value="2025">2025</option>
+                  <option value="2026">2026</option><option value="2025">2025</option><option value="2024">2024</option>
                 </select>
               </div>
               <div>
@@ -3221,7 +3221,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
               <div>
                 <label class="fld">Año</label>
                 <select class="fld" id="carga-soc-anio">
-                  <option value="2026">2026</option><option value="2025">2025</option>
+                  <option value="2026">2026</option><option value="2025">2025</option><option value="2024">2024</option>
                 </select>
               </div>
               <div>
@@ -7056,7 +7056,7 @@ function loadReportes() {
 function repPeriodoOpts(){
   const per=document.getElementById('rep-periodo'); if(!per) return;
   const tipo=document.getElementById('rep-tipo')?.value||'mensual';
-  const years=[2026,2025];
+  const years=[2026,2025,2024];
   const mn=['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
   let o='';
   if(tipo==='anual'){ o+='<option value="A-2026">2026 · Ejercicio completo</option>'; }
@@ -11535,7 +11535,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260731-126';
+const APP_VERSION = '20260803-127';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
