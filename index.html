@@ -9757,6 +9757,9 @@ async function verGastosTabla() {
     ['Saneamiento','saneamiento'],['Ascensor','ascensor'],['Otros Imp.','otros_impuestos']];
 
   let html = '';
+  // Acumuladores del consolidado: renta / gastos / impuestos por mes, en USD, de TODAS las
+  // propiedades que pasan el filtro. Es el cuadro que el COMPLETO tiene arriba del anexo.
+  const CR=[0,0,0,0,0,0,0,0,0,0,0,0], CG=[0,0,0,0,0,0,0,0,0,0,0,0], CI=[0,0,0,0,0,0,0,0,0,0,0,0];
   props.forEach(prop => {
     const byMes = movByProp[prop.id] || {};
     const moneda = Object.values(byMes)[0]?.moneda_renta || 'USD';
@@ -9766,6 +9769,7 @@ async function verGastosTabla() {
     const _secUSD = (concepts, sk) => [1,2,3,4,5,6,7,8,9,10,11,12].map(m => { const mm=byMes[m]; if(!mm) return 0; return concepts.reduce((s,[,f]) => s + convUSD(parseFloat(mm[f])||0, _mFor(mm,f,sk), anio, m), 0); });
     const _rU=_secUSD(RENTAS,'renta'), _gU=_secUSD(GASTOS,'gastos'), _iU=_secUSD(IMPUESTOS,'impuestos');
     const _nU=_rU.map((v,i)=>v-_gU[i]-_iU[i]);
+    for (let i=0;i<12;i++){ CR[i]+=_rU[i]; CG[i]+=_gU[i]; CI[i]+=_iU[i]; }
     const renderSection = (label, concepts, color, usdArr) => {
       const active = concepts.filter(([,f]) => Object.values(byMes).some(m => m[f] && parseFloat(m[f]) > 0));
       if (active.length === 0) return '';
@@ -9818,7 +9822,42 @@ async function verGastosTabla() {
     </div>`;
   });
 
-  if (res) res.innerHTML = html;
+  // ---- Consolidado de todas las propiedades (va arriba de todo) ----
+  const CN = CR.map((v,i)=>v-CG[i]-CI[i]);
+  const sum = a => a.reduce((x,y)=>x+y,0);
+  const filaCons = (label, arr, color, neg) => `<tr${neg?' style="background:var(--bg3);border-top:2px solid var(--border2)"':''}>
+      <td class="bold" style="font-size:11px;color:${color}">${label}</td>
+      <td class="num bold" style="color:${color};border-right:2px solid var(--border2)">$${fmt(sum(arr))}</td>
+      ${arr.map(v=>`<td class="num bold" style="font-size:10px;color:${color}">${v?'$'+fmt(Math.round(v)):'—'}</td>`).join('')}</tr>`;
+  const netoTot = sum(CN);
+  const consolidado = `<div class="card" style="margin-bottom:20px;border-left:3px solid var(--gold)">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+      <div>
+        <span class="bold" style="color:var(--gold)">CONSOLIDADO · ${anio}</span>
+        <span style="color:var(--text3);font-size:11px;margin-left:8px">${props.length} propiedad${props.length===1?'':'es'}${propFiltro||paisFiltro||titFiltro?' (con los filtros aplicados)':''} · todo en USD</span>
+      </div>
+      <div style="font-size:12px">Neto del año: <span class="bold ${netoTot>=0?'positive':'negative'}">$${fmt(netoTot)}</span></div>
+    </div>
+    <div class="table-wrap"><table>
+      <thead><tr>
+        <th style="min-width:120px">Concepto</th>
+        <th class="num" style="min-width:62px;border-right:2px solid var(--border2)">Total</th>
+        ${[1,2,3,4,5,6,7,8,9,10,11,12].map(m=>`<th class="num" style="min-width:55px">${meses[m]}</th>`).join('')}
+      </tr></thead>
+      <tbody>
+        ${filaCons('RENTA', CR, '#5cb85c')}
+        ${filaCons('GASTOS', CG, '#c0392b')}
+        ${filaCons('IMPUESTOS', CI, '#d4a017')}
+        <tr style="background:var(--bg3);border-top:2px solid var(--border2)">
+          <td class="bold" style="font-size:11px">NETO</td>
+          <td class="num bold ${netoTot>=0?'positive':'negative'}" style="border-right:2px solid var(--border2)">$${fmt(netoTot)}</td>
+          ${CN.map(n=>`<td class="num bold ${n>=0?'positive':'negative'}" style="font-size:10px">${n?'$'+fmt(Math.round(n)):'—'}</td>`).join('')}
+        </tr>
+      </tbody>
+    </table></div>
+  </div>`;
+
+  if (res) res.innerHTML = consolidado + html;
   } catch(err) {
     if(res) res.innerHTML = `<div class="card" style="color:var(--usa);padding:20px">Error cargando datos: ${err.message}</div>`;
     console.error('verGastosTabla error:', err);
@@ -11535,7 +11574,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260803-127';
+const APP_VERSION = '20260803-128';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
