@@ -8171,7 +8171,10 @@ function abrirVentaAuto() {
 async function venderAuto() {
   const id = document.getElementById('nv-auto').value;
   if (!id) return toast('Elegí un vehículo', 'error');
-  const upd = { vendido: true, activo: false };
+  // OJO: la tabla `autos` NO tiene columna `vendido` — escribirla hacía fallar TODA venta de auto
+  // con "column vendido does not exist". La señal de baja es `activo = false`, que es la que
+  // renderAutos ya usa para separar la tabla de vendidos.
+  const upd = { activo: false };
   const vv = parseFloat(document.getElementById('nv-valor').value);
   const fv = document.getElementById('nv-fecha').value;
   if (!isNaN(vv) && vv > 0) upd.valor_venta = vv;
@@ -11711,7 +11714,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260803-135';
+const APP_VERSION = '20260804-136';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
