@@ -9600,7 +9600,16 @@ async function filtrarAnual2() {
   const colPais = { ARG:'arg', USA:'usa', URU:'uru', ESP:'esp', PAR:'par', PY:'par' };
 
   let html = '';
+  // Consolidado: se suman los total_*_usd YA CARGADOS. Es un camino distinto al de la Vista Tabla,
+  // que recalcula desde los rubros en moneda nativa y convierte con la tabla de TC de la app.
+  // Los dos consolidados tienen que dar lo mismo; si no, hay un rubro mal cargado o un TC distinto.
+  const GR=[0,0,0,0,0,0,0,0,0,0,0,0], GG=[0,0,0,0,0,0,0,0,0,0,0,0], GI=[0,0,0,0,0,0,0,0,0,0,0,0], GN=[0,0,0,0,0,0,0,0,0,0,0,0];
+  let nProps = 0;
   Object.values(byProp).sort((a,b) => (a.prop.nro||99)-(b.prop.nro||99)).forEach(({ prop, movs: mv }) => {
+    nProps++;
+    for (let k=1;k<=12;k++){ const m=mv[k]; if(!m) continue;
+      GR[k-1]+=(m.total_renta_usd||0); GG[k-1]+=(m.total_gastos_usd||0);
+      GI[k-1]+=(m.total_impuestos_usd||0); GN[k-1]+=(m.neto_usd||0); }
     const totR = Object.values(mv).reduce((a,m)=>a+(m.total_renta_usd||0),0);
     const totG = Object.values(mv).reduce((a,m)=>a+(m.total_gastos_usd||0),0);
     const totI = Object.values(mv).reduce((a,m)=>a+(m.total_impuestos_usd||0),0);
@@ -9610,7 +9619,7 @@ async function filtrarAnual2() {
     html += `<div class="card" style="margin-bottom:12px;border-left:3px solid var(--${col})">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
         <div>
-          <span class="bold">${prop.nombre}</span>
+          <span class="bold" style="${_propViva(prop)?'':'text-decoration:line-through;color:var(--text3)'}">${prop.nombre}</span>${_badgeVendida(prop)}
           <span class="badge badge-${col}" style="margin-left:8px">${prop.pais}</span>
           <span style="color:var(--text3);font-size:11px;margin-left:6px">${prop.titular}</span>
         </div>
@@ -9650,7 +9659,41 @@ async function filtrarAnual2() {
     </div>`;
   });
 
-  document.getElementById('gastos-anual2-result').innerHTML = html ||
+  const sumG = a => a.reduce((x,y)=>x+y,0);
+  const filaG = (label, arr, color) => `<tr>
+      <td class="bold" style="font-size:11px;color:${color}">${label}</td>
+      <td class="num bold" style="color:${color};border-right:2px solid var(--border2)">$${fmt(sumG(arr))}</td>
+      ${arr.map(v=>`<td class="num bold" style="font-size:10px;color:${color}">${v?'$'+fmt(Math.round(v)):'—'}</td>`).join('')}</tr>`;
+  const netoG = sumG(GN);
+  const consolidadoG = !nProps ? '' : `<div class="card" style="margin-bottom:20px;border-left:3px solid var(--gold)">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:8px">
+      <div>
+        <span class="bold" style="color:var(--gold)">CONSOLIDADO · ${anio}</span>
+        <span style="color:var(--text3);font-size:11px;margin-left:8px">${nProps} propiedad${nProps===1?'':'es'} · todo en USD</span>
+      </div>
+      <div style="font-size:12px">Neto del año: <span class="bold ${netoG>=0?'positive':'negative'}">$${fmt(netoG)}</span></div>
+    </div>
+    <p style="font-size:11px;color:var(--text3);margin:0 0 10px">Sumado desde los <b>totales en USD ya cargados</b>. La Vista Tabla llega al mismo número por otro camino: recalcula desde los rubros en moneda nativa y convierte con el tipo de cambio de la app. Si los dos consolidados no coinciden, hay un rubro mal cargado o un tipo de cambio distinto al del COMPLETO.</p>
+    <div class="table-wrap"><table>
+      <thead><tr>
+        <th style="min-width:120px">Concepto</th>
+        <th class="num" style="min-width:62px;border-right:2px solid var(--border2)">Total</th>
+        ${[1,2,3,4,5,6,7,8,9,10,11,12].map(m=>`<th class="num" style="min-width:55px">${meses[m]}</th>`).join('')}
+      </tr></thead>
+      <tbody>
+        ${filaG('RENTA', GR, '#5cb85c')}
+        ${filaG('GASTOS', GG, '#c0392b')}
+        ${filaG('IMPUESTOS', GI, '#d4a017')}
+        <tr style="background:var(--bg3);border-top:2px solid var(--border2)">
+          <td class="bold" style="font-size:11px">NETO</td>
+          <td class="num bold ${netoG>=0?'positive':'negative'}" style="border-right:2px solid var(--border2)">$${fmt(netoG)}</td>
+          ${GN.map(n=>`<td class="num bold ${n>=0?'positive':'negative'}" style="font-size:10px">${n?'$'+fmt(Math.round(n)):'—'}</td>`).join('')}
+        </tr>
+      </tbody>
+    </table></div>
+  </div>`;
+
+  document.getElementById('gastos-anual2-result').innerHTML = (consolidadoG + html) ||
     '<div class="card" style="color:var(--text3);text-align:center;padding:32px">Sin resultados para ese filtro</div>';
 }
 
@@ -9852,6 +9895,7 @@ async function verGastosTabla() {
       </div>
       <div style="font-size:12px">Neto del año: <span class="bold ${netoTot>=0?'positive':'negative'}">$${fmt(netoTot)}</span></div>
     </div>
+    <p style="font-size:11px;color:var(--text3);margin:0 0 10px">Calculado <b>desde los rubros</b>, convirtiendo cada uno de su moneda a dólares con el tipo de cambio de la app. La Vista Global llega al mismo número por otro camino: suma los totales en USD ya cargados. Los dos tienen que coincidir.</p>
     <div class="table-wrap"><table>
       <thead><tr>
         <th style="min-width:120px">Concepto</th>
@@ -11588,7 +11632,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260803-129';
+const APP_VERSION = '20260803-130';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
