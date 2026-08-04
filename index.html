@@ -5463,7 +5463,7 @@ const PE_HIST_DATA = [
   {nro:12,nombre:"TGA FINANCIAL G",titular:"G",aporteHist:100000,utilHist:57818,terminado:false,byY:{"2025":{ia:0,ap:100000,ut:28909},"2026":{ia:100000,ap:0,ut:28909}}},
   {nro:13,nombre:"TGA FINANCIAL FC",titular:"FC",aporteHist:102000,utilHist:73484,terminado:false,byY:{"2025":{ia:0,ap:102000,ut:45221},"2026":{ia:102000,ap:0,ut:28263}}},
   {nro:14,nombre:"Ashland LOAN",titular:"FC",aporteHist:40000,utilHist:0,terminado:false,byY:{"2025":{ia:0,ap:40000,ut:0},"2026":{ia:40000,ap:0,ut:0}}},
-  {nro:15,nombre:"Panera Rosa",titular:"FC",aporteHist:260000,utilHist:62000,terminado:false,byY:{"2025":{ia:0,ap:250000,ut:36000},"2026":{ia:250000,ap:0,ut:26000}}},
+  {nro:15,nombre:"Panera Rosa",titular:"FC",aporteHist:260000,utilHist:62000,terminado:false,byY:{"2025":{ia:0,ap:260000,ut:36000},"2026":{ia:260000,ap:0,ut:26000}}},
   {nro:16,nombre:"Panera Rosa LOAN",titular:"FC",aporteHist:390000,utilHist:93000,terminado:false,byY:{"2025":{ia:0,ap:390000,ut:54000},"2026":{ia:390000,ap:0,ut:39000}}},
   {nro:17,nombre:"Camping",titular:"FC",aporteHist:186100,utilHist:0,terminado:false,byY:{"2025":{ia:0,ap:175000,ut:0},"2026":{ia:175000,ap:11100,ut:0}}},
   {nro:18,nombre:"805 Streaming",titular:"FC",aporteHist:10000,utilHist:0,terminado:false,byY:{"2025":{ia:0,ap:10000,ut:0},"2026":{ia:10000,ap:0,ut:0}}},
@@ -7829,6 +7829,21 @@ async function loadPE() {
   renderPE();
 }
 
+// Acumulado histórico de una inversión de PE, DERIVADO del historial (que es editable con el ✎).
+//   aporte   = el MÁXIMO de (inv. acumulada + aporte del año) a lo largo de los años. Es el capital que
+//              llegó a estar puesto; usar el último año lo mandaría a cero cuando la inversión se
+//              distribuye entera (Boston, Ashland).
+//   utilidad = la suma de todo lo distribuido.
+// Antes esto eran dos campos fijos (aporteHist / utilHist) que NO se movían al editar el historial ni al
+// cargar movimientos: la solapa Información mostraba un número congelado, desconectado de los datos.
+// Verificado: la fórmula reproduce exactamente los 19 valores que estaban hardcodeados.
+function peAcum(p) {
+  let ap = 0, ut = 0;
+  const yy = (p && p.byY) || {};
+  for (const y in yy) { const d = yy[y] || {}; ap = Math.max(ap, (d.ia||0) + (d.ap||0)); ut += (d.ut||0); }
+  return { aporteHist: ap, utilHist: ut };
+}
+
 function renderPE() {
   const tbody = document.getElementById('tbody-pe');
   if (!tbody) return;
@@ -7842,7 +7857,8 @@ function renderPE() {
   const norm = s => String(s||'').toLowerCase().replace(/\s+/g,' ').trim();
   const histMap = {}; PE_HIST_DATA.forEach(p => histMap[norm(p.nombre)] = p);
   tbody.innerHTML = rows.map(r => {
-    const h = histMap[norm(r.nombre)] || {aporteHist:0, utilHist:0, byY:{}};
+    const _h0 = histMap[norm(r.nombre)] || {byY:{}};
+    const h = Object.assign({}, _h0, peAcum(_h0));
     const y26 = (h.byY && h.byY['2026']) || {ap:0, ut:0};
     const rec = h.aporteHist>0 ? ((h.utilHist - h.aporteHist)/h.aporteHist*100) : 0; // recupero: en pérdida hasta recuperar el capital
     const term = h.terminado === true;
@@ -7862,7 +7878,7 @@ function renderPE() {
       <td><button class="btn-secondary" style="padding:3px 8px;font-size:11px" onclick="editPE('${r.id}')">Editar</button></td>
     </tr>`;
   }).join('');
-  const gh = b => histMap[norm(b.nombre)] || {};
+  const gh = b => { const x = histMap[norm(b.nombre)] || {}; return Object.assign({}, x, peAcum(x)); };
   const totAp = rows.reduce((a,b)=>a+(gh(b).aporteHist||0),0);
   const totUt = rows.reduce((a,b)=>a+(gh(b).utilHist||0),0);
   const totAp26 = rows.reduce((a,b)=>a+(((gh(b).byY||{})['2026']||{}).ap||0),0);
@@ -11532,7 +11548,8 @@ function renderPEClientes(rows, histMap, norm) {
   const box = cliBox('pe-info', 'pe-info-cli'); if (!box) return;
   const acc = cliAcc();
   (rows || []).forEach(r => {
-    const h = histMap[norm(r.nombre)] || {};
+    const _h0c = histMap[norm(r.nombre)] || {};
+    const h = Object.assign({}, _h0c, peAcum(_h0c));
     if (h.terminado === true) return;
     const ap26 = ((h.byY || {})['2026'] || {}).ap || 0;
     const ut26 = ((h.byY || {})['2026'] || {}).ut || 0;
@@ -11632,7 +11649,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260803-130';
+const APP_VERSION = '20260803-131';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
