@@ -11030,7 +11030,8 @@ async function loadSocEvolucion() {
   active.forEach(s => {
     const mv = movMap[s.id] || {};
     const colStr = colPais[s.pais]||'usa';
-    const totTot = MESES.reduce((a,m)=>a+(mv[m]?.total||0),0);
+    // Un solo total, siempre en dólares. Si el movimiento ya está cargado en USD, `_socUSD` lo
+    // devuelve tal cual: no se vuelve a convertir.
 
     html += `<div class="card row-${colStr}" style="margin-bottom:12px;border-left:3px solid var(--${colStr})">
       <div style="margin-bottom:10px">
@@ -11050,18 +11051,11 @@ async function loadSocEvolucion() {
               ${vals.map(({v,c})=>`<td class="num ${cls} ${c?'coment-tooltip has-coment':''}" style="font-size:11px;color:${v?color:'var(--border2)'};position:relative">${v>0?'$'+fmt(v):'—'}${c?`<span class="coment-pop">💬 ${c}</span>`:''}</td>`).join('')}
             </tr>`;
           }).join('')}
-          <tr style="border-top:1px solid var(--border2)">
-            <td class="bold" style="font-size:11px">TOTAL</td>
-            <td class="num bold negative" style="font-size:11px">${totTot>0?'$'+fmt(totTot):'—'}</td>
-            ${MESES.map(m=>{const v=mv[m]?.total||0;return`<td class="num bold negative" style="font-size:11px">${v>0?'$'+fmt(v):'—'}</td>`;}).join('')}
+          <tr style="background:var(--bg3);border-top:2px solid var(--border2)">
+            <td class="bold" style="font-size:11px">TOTAL USD</td>
+            <td class="num bold negative" style="font-size:11px">${(()=>{const t=MESES.reduce((a,m)=>a+_socUSD(mv[m],'total',m),0);return t>0?'$'+fmt(Math.round(t)):'—';})()}</td>
+            ${MESES.map(m=>{const v=_socUSD(mv[m],'total',m);return`<td class="num bold negative" style="font-size:11px">${v>0?'$'+fmt(Math.round(v)):'—'}</td>`;}).join('')}
           </tr>
-          ${(()=>{const tu=MESES.reduce((a,m)=>a+_socUSD(mv[m],'total',m),0); const mo=(Object.values(mv)[0]||{}).moneda||'USD';
-            if (mo==='USD') return '';
-            return `<tr style="background:var(--bg3);border-top:2px solid var(--border2)">
-              <td class="bold" style="font-size:11px;color:var(--gold)">TOTAL USD</td>
-              <td class="num bold" style="font-size:11px;color:var(--gold)">${tu>0?'$'+fmt(tu):'—'}</td>
-              ${MESES.map(m=>{const v=_socUSD(mv[m],'total',m);return`<td class="num bold" style="font-size:11px;color:var(--gold)">${v>0?'$'+fmt(Math.round(v)):'—'}</td>`;}).join('')}
-            </tr>`;})()}
         </tbody>
       </table></div>
     </div>`;
@@ -11717,7 +11711,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260803-134';
+const APP_VERSION = '20260803-135';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
