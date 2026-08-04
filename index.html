@@ -7997,18 +7997,23 @@ async function loadAutos() {
   const anio = new Date().getFullYear();
   const [{ data }, { data: gastosAutos }] = await Promise.all([
     aplicarFiltroTit(sb.from('autos').select('*').order('nro')),
-    sb.from('movimientos_autos').select('auto_id,patente,seguro,service,otros_gastos,total_usd').eq('anio', anio),
+    sb.from('movimientos_autos').select('auto_id,mes,moneda,detalle,patente,seguro,service,arreglos,otros_gastos,total_usd').eq('anio', anio),
   ]);
   const rows = data || [];
   window._autosCache = rows;
   // Aggregate gastos per auto
+  // Información muestra TODO en dólares: es una vista que compara autos de distintos países entre sí.
+  // Los rubros vienen en moneda nativa (la patente de un auto argentino son pesos), así que hay que
+  // convertirlos antes de sumar. Antes se sumaban crudos y se mezclaban pesos con dólares.
+  const _monR = (g, f) => (g.detalle && g.detalle[f] && g.detalle[f].moneda) || g.moneda || 'USD';
+  const _rUSD = (g, f) => convUSD(Number(g[f]) || 0, _monR(g, f), anio, g.mes || 12);
   const gasMap = {};
   (gastosAutos||[]).forEach(g => {
     if (!gasMap[g.auto_id]) gasMap[g.auto_id] = {pat:0,seg:0,srv:0,otr:0,tot:0};
-    gasMap[g.auto_id].pat += g.patente||0;
-    gasMap[g.auto_id].seg += g.seguro||0;
-    gasMap[g.auto_id].srv += g.service||0;
-    gasMap[g.auto_id].otr += g.otros_gastos||0;
+    gasMap[g.auto_id].pat += _rUSD(g,'patente');
+    gasMap[g.auto_id].seg += _rUSD(g,'seguro');
+    gasMap[g.auto_id].srv += _rUSD(g,'service');
+    gasMap[g.auto_id].otr += _rUSD(g,'otros_gastos') + _rUSD(g,'arreglos');
     gasMap[g.auto_id].tot += g.total_usd||0;
   });
   const colPais = { ARG:'arg', USA:'usa', URU:'uru', ESP:'esp', PAR:'par', PY:'par' };
@@ -11712,7 +11717,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260803-133';
+const APP_VERSION = '20260803-134';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
