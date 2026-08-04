@@ -10797,7 +10797,7 @@ async function loadAutosEvolucion() {
   res.innerHTML = '<div class="loader"><div class="spinner"></div></div>';
 
   const [{ data: autos }, { data: gastos }] = await Promise.all([
-    aplicarFiltroTit(sb.from('autos').select('*').eq('activo', true).order('nro')),
+    aplicarFiltroTit(sb.from('autos').select('*').order('nro')),
     sb.from('movimientos_autos').select('*').eq('anio', anio).order('mes'),
   ]);
 
@@ -10810,6 +10810,10 @@ async function loadAutosEvolucion() {
 
   const gasMap = {};
   (gastos||[]).forEach(g => { (gasMap[g.auto_id] ||= {})[g.mes] = g; });
+  // Un auto vendido puede haber tenido gastos hasta el mes de la venta: mientras tenga movimientos
+  // en el año consultado, figura (tachado). Antes la query filtraba activo=true y desaparecía entero.
+  const _autoVivo = a => a.activo !== false && a.vendido !== true;
+  const _badgeAuto = a => _autoVivo(a) ? '' : ('<span style="font-size:9px;background:var(--usa);color:#fff;border-radius:4px;padding:1px 5px;margin-left:6px;font-weight:600">VENDIDO' + (a.fecha_venta ? ' ' + new Date(String(a.fecha_venta)+'T00:00:00').toLocaleDateString('es-AR') : '') + '</span>');
   const active = filtered.filter(a => gasMap[a.id] && Object.keys(gasMap[a.id]).length > 0);
   if (!active.length) {
     res.innerHTML = '<div class="card" style="color:var(--text3);text-align:center;padding:32px">Sin gastos cargados para el período seleccionado</div>';
@@ -10850,14 +10854,15 @@ async function loadAutosEvolucion() {
     const totUSD = MM.reduce((s,m)=>s+(mv[m]?.total_usd||0),0);
     html += `<div class="card" style="margin-bottom:12px;border-left:3px solid var(--${colPais[a.pais]||'arg'})">
       <div style="margin-bottom:10px">
-        <span class="bold">${a.nombre}</span>
-        <span style="color:var(--text3);font-size:11px;margin-left:8px">${a.titular} · ${a.anio_modelo||''} · valores en USD</span>
+        <span class="bold" style="${_autoVivo(a)?'':'text-decoration:line-through;color:var(--text3)'}">${a.nombre}</span>${_badgeAuto(a)}
+        <span class="bold" style="display:none"></span>
+        <span style="color:var(--text3);font-size:11px;margin-left:8px">${a.titular} · ${a.anio_modelo||''}${(()=>{const mo=(Object.values(mv)[0]||{}).moneda||'USD';return mo!=='USD'?' · valores en '+mo:'';})()}</span>
       </div>
       <div class="table-wrap"><table style="font-size:11px">
         <thead><tr><th>Concepto</th><th class="num">Total</th>${MM.map(m=>`<th class="num">${meses[m]}</th>`).join('')}</tr></thead>
         <tbody>
           ${CONCEPTOS.map(([label, field]) => {
-            const vals = MM.map(m => ({ v: _rubUSD(mv[m], field, m), c: mv[m]?.comentarios?.[field]||'' }));
+            const vals = MM.map(m => ({ v: mv[m]?.[field]||0, c: mv[m]?.comentarios?.[field]||'' }));
             const tot = vals.reduce((a,b)=>a+b.v,0);
             return `<tr><td style="font-size:11px">${label}</td><td class="num bold" style="font-size:11px;color:${tot?'var(--text2)':'var(--border2)'}">${tot>0?'$'+fmt(tot):'—'}</td>${vals.map(({v,c})=>`<td class="num ${c?'coment-tooltip has-coment':''}" style="font-size:11px;color:${v?'var(--text)':'var(--border2)'};position:relative">${v>0?'$'+fmt(v):'—'}${c?`<span class="coment-pop">💬 ${c}</span>`:''}</td>`).join('')}</tr>`;
           }).join('')}
@@ -10989,22 +10994,27 @@ async function loadSocEvolucion() {
     ['Otros Gastos','otros_gastos','var(--text2)','negative'],
   ];
 
+  // Los importes se guardan en MONEDA NATIVA (Fionder SA en pesos uruguayos, Vodno en euros).
+  // Para sumar entre sociedades hay que pasarlos a dólares con el TC del mes; sumarlos crudo
+  // mezclaba monedas.
+  const _socUSD = (m, field, mes) => m ? convUSD(Number(m[field]) || 0, m.moneda || 'USD', anio, mes) : 0;
+
   // ===== CONSOLIDADO (arriba de todo, depende solo de Evolucion) =====
   let consHtml = `<div class="card" style="border:1px solid var(--gold);margin-bottom:16px">
-    <div class="bold" style="color:var(--gold);margin-bottom:8px">Consolidado mensual — Evolución (suma de todas las sociedades)</div>
-    <p style="color:var(--text3);font-size:11px;margin-bottom:10px">Depende solo de Evolución. El TOTAL debe coincidir con el de la pestaña Información.</p>
+    <div class="bold" style="color:var(--gold);margin-bottom:8px">Consolidado mensual — Evolución (suma de todas las sociedades) · en USD</div>
+    <p style="color:var(--text3);font-size:11px;margin-bottom:10px">Todo convertido a <b>dólares</b> con el tipo de cambio del mes: cada sociedad carga en su moneda (Fionder SA en pesos uruguayos, Vodno en euros). Las tablas de abajo muestran cada una en su moneda original, con su fila TOTAL USD.</p>
     <div class="table-wrap"><table style="font-size:11px">
       <thead><tr><th>Concepto</th><th class="num" style="color:var(--gold)">Total</th>${MESES.map(m=>`<th class="num">${meses[m]}</th>`).join('')}</tr></thead>
       <tbody>
         ${CONCEPTOS.map(([label,field,color,cls])=>{
-          const vals = MESES.map(m=>active.reduce((a,s)=>a+(movMap[s.id]?.[m]?.[field]||0),0));
+          const vals = MESES.map(m=>active.reduce((a,s)=>a+_socUSD(movMap[s.id]?.[m], field, m),0));
           const tot = vals.reduce((a,b)=>a+b,0);
           return `<tr><td style="color:${color}">${label}</td><td class="num ${cls} bold" style="color:${tot?color:'var(--border2)'}">${tot>0?'$'+fmt(tot):'—'}</td>${vals.map(v=>`<td class="num ${cls}">${v>0?'$'+fmt(v):'—'}</td>`).join('')}</tr>`;
         }).join('')}
         <tr style="border-top:2px solid var(--border2)">
           <td class="bold" style="color:var(--gold)">TOTAL</td>
-          <td class="num bold negative">${(()=>{const g=active.reduce((a,s)=>a+MESES.reduce((b,m)=>b+(movMap[s.id]?.[m]?.total||0),0),0);return g>0?'$'+fmt(g):'—';})()}</td>
-          ${MESES.map(m=>{const v=active.reduce((a,s)=>a+(movMap[s.id]?.[m]?.total||0),0);return`<td class="num bold negative">${v>0?'$'+fmt(v):'—'}</td>`;}).join('')}
+          <td class="num bold negative">${(()=>{const g=active.reduce((a,s)=>a+MESES.reduce((b,m)=>b+_socUSD(movMap[s.id]?.[m],'total',m),0),0);return g>0?'$'+fmt(g):'—';})()}</td>
+          ${MESES.map(m=>{const v=active.reduce((a,s)=>a+_socUSD(movMap[s.id]?.[m],'total',m),0);return`<td class="num bold negative">${v>0?'$'+fmt(v):'—'}</td>`;}).join('')}
         </tr>
       </tbody>
     </table></div>
@@ -11021,7 +11031,7 @@ async function loadSocEvolucion() {
       <div style="margin-bottom:10px">
         <span class="bold">${s.nombre}</span>
         <span class="badge badge-${colStr}" style="margin-left:8px">${s.pais}</span>
-        <span style="color:var(--text3);font-size:11px;margin-left:6px">${s.titular}${s.soc_madre?' · '+s.soc_madre:''}</span>
+        <span style="color:var(--text3);font-size:11px;margin-left:6px">${s.titular}${s.soc_madre?' · '+s.soc_madre:''}${(()=>{const mo=(Object.values(mv)[0]||{}).moneda||'USD';return mo!=='USD'?' · valores en '+mo:'';})()}</span>
       </div>
       <div class="table-wrap"><table style="font-size:11px">
         <thead><tr><th>Concepto</th><th class="num">Total</th>${MESES.map(m=>`<th class="num">${meses[m]}</th>`).join('')}</tr></thead>
@@ -11040,6 +11050,13 @@ async function loadSocEvolucion() {
             <td class="num bold negative" style="font-size:11px">${totTot>0?'$'+fmt(totTot):'—'}</td>
             ${MESES.map(m=>{const v=mv[m]?.total||0;return`<td class="num bold negative" style="font-size:11px">${v>0?'$'+fmt(v):'—'}</td>`;}).join('')}
           </tr>
+          ${(()=>{const tu=MESES.reduce((a,m)=>a+_socUSD(mv[m],'total',m),0); const mo=(Object.values(mv)[0]||{}).moneda||'USD';
+            if (mo==='USD') return '';
+            return `<tr style="background:var(--bg3);border-top:2px solid var(--border2)">
+              <td class="bold" style="font-size:11px;color:var(--gold)">TOTAL USD</td>
+              <td class="num bold" style="font-size:11px;color:var(--gold)">${tu>0?'$'+fmt(tu):'—'}</td>
+              ${MESES.map(m=>{const v=_socUSD(mv[m],'total',m);return`<td class="num bold" style="font-size:11px;color:var(--gold)">${v>0?'$'+fmt(Math.round(v)):'—'}</td>`;}).join('')}
+            </tr>`;})()}
         </tbody>
       </table></div>
     </div>`;
@@ -11695,7 +11712,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260803-132';
+const APP_VERSION = '20260803-133';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
