@@ -5863,7 +5863,7 @@ async function loadPEEvolucion() {
       return `<tr><td style="color:${color}">${label}</td><td class="num bold ${cls||''}" style="color:${t?color:'var(--border2)'}">${t?'$'+fmt(t):'—'}</td>${vals.map(v=>`<td class="num ${cls||''}">${v?'$'+fmt(v):'—'}</td>`).join('')}</tr>`; };
     let html = `<div class="card" style="border:1px solid var(--gold);margin-bottom:16px">
       <div class="bold" style="color:var(--gold);margin-bottom:8px">Consolidado mensual — Evolución (todas las inversiones)</div>
-      <p style="color:var(--text3);font-size:11px;margin-bottom:10px">Depende solo de Evolución.</p>
+      <p style="color:var(--text3);font-size:11px;margin-bottom:10px">Suma solo los movimientos mensuales cargados. El cuadro de abajo lo contrasta contra el historial anual.</p>
       <div class="table-wrap"><table style="font-size:11px">
         <thead><tr><th>Concepto</th><th class="num" style="color:var(--gold)">Total</th>${MM.map(m=>`<th class="num">${MN[m]}</th>`).join('')}</tr></thead>
         <tbody>
@@ -5872,6 +5872,47 @@ async function loadPEEvolucion() {
           ${rowC('🔴 Gastos + Imp.',gasV,'var(--usa)','negative')}
           <tr style="border-top:2px solid var(--border2)"><td class="bold" style="color:var(--gold)">NETO</td><td class="num bold" style="color:${totNeto>=0?'var(--esp)':'var(--usa)'}">$${fmt(totNeto)}</td>${netoV.map(v=>`<td class="num bold" style="color:${!v?'var(--border2)':v>=0?'var(--esp)':'var(--usa)'}">${v?'$'+fmt(v):'—'}</td>`).join('')}</tr>
         </tbody>
+      </table></div>
+    </div>`;
+
+    // ===== RECONCILIACIÓN: movimientos mensuales vs historial anual =====
+    // Son dos fuentes distintas y NO se suman: el historial es el total del año (viene del COMPLETO,
+    // editable con el ✎) y los movimientos son su detalle mes a mes. Tienen que dar lo mismo.
+    // Si el detalle está incompleto, acá se ve exactamente en qué inversión y por cuánto.
+    const _nPE = x => String(x||'').toLowerCase().replace(/\s+/g,' ').trim();
+    const _histPE = {}; PE_HIST_DATA.forEach(h => _histPE[_nPE(h.nombre)] = h);
+    const recFilas = filtered.map(pe => {
+      const mm = mMapOf(pe);
+      const h = _histPE[_nPE(pe.nombre)];
+      const d = (h && h.byY && h.byY[String(anio)]) || null;
+      const movAp = MM.reduce((a,m)=>a+(mm[m]?.aporte_capital||0),0);
+      const movUt = MM.reduce((a,m)=>a+(mm[m]?.utilidad||0),0);
+      const hAp = d ? (d.ap||0) : 0, hUt = d ? (d.ut||0) : 0;
+      return { nombre: pe.nombre, titular: pe.titular, enHist: !!d, movAp, hAp, movUt, hUt,
+               dAp: movAp-hAp, dUt: movUt-hUt };
+    }).filter(r => r.movAp || r.hAp || r.movUt || r.hUt);
+    const recMal = recFilas.filter(r => Math.abs(r.dAp) > 1 || Math.abs(r.dUt) > 1);
+    const cel = (mov, hist, dif) => {
+      const ok = Math.abs(dif) <= 1;
+      return `<td class="num">${fmt(Math.round(mov))}</td><td class="num" style="color:var(--text3)">${fmt(Math.round(hist))}</td>` +
+             `<td class="num bold" style="color:${ok?'var(--esp)':'var(--usa)'}">${ok?'✓':(dif>0?'+':'')+fmt(Math.round(dif))}</td>`;
+    };
+    if (recFilas.length) html += `<div class="card" style="margin-bottom:16px;border-left:3px solid ${recMal.length?'var(--usa)':'var(--esp)'}">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:6px">
+        <span class="bold" style="color:${recMal.length?'var(--usa)':'var(--esp)'}">Reconciliación ${anio} · detalle mensual vs. historial anual</span>
+        <span style="font-size:12px;font-weight:600;color:${recMal.length?'var(--usa)':'var(--esp)'}">${recMal.length ? recMal.length + ' inversión' + (recMal.length===1?'':'es') + ' sin cuadrar' : 'Todo cuadra ✓'}</span>
+      </div>
+      <p style="font-size:11px;color:var(--text3);margin:0 0 10px">El historial anual es el total del año; los movimientos mensuales son su detalle. <b>No se suman: tienen que coincidir.</b> Una diferencia positiva significa que cargaste de más en el mes a mes; una negativa, que falta cargar detalle.</p>
+      <div class="table-wrap"><table style="font-size:11px">
+        <thead><tr><th>Inversión</th><th>Tit.</th>
+          <th class="num">Aporte mensual</th><th class="num">Aporte historial</th><th class="num">Dif.</th>
+          <th class="num">Utilidad mensual</th><th class="num">Utilidad historial</th><th class="num">Dif.</th></tr></thead>
+        <tbody>${recFilas.map(r=>`<tr>
+          <td class="bold">${r.nombre}${r.enHist?'':' <span style="font-size:9px;color:var(--usa)">sin historial ' + anio + '</span>'}</td>
+          <td style="color:var(--text3)">${r.titular||'—'}</td>
+          ${cel(r.movAp, r.hAp, r.dAp)}
+          ${cel(r.movUt, r.hUt, r.dUt)}
+        </tr>`).join('')}</tbody>
       </table></div>
     </div>`;
 
@@ -10776,16 +10817,21 @@ async function loadAutosEvolucion() {
   }
 
   const CONCEPTOS = [['Patente','patente'],['Seguro','seguro'],['Service','service'],['Arreglos','arreglos'],['Otros','otros_gastos']];
+  // Los rubros se guardan en MONEDA NATIVA (patente en pesos, seguro a veces en dólares). Sumarlos
+  // crudo mezclaba monedas y el consolidado no cerraba contra la fila TOTAL USD, que sí venía convertida.
+  // La moneda es por rubro cuando el movimiento trae `detalle`; si no, se usa la del movimiento.
+  const _monRub = (g, field) => (g && g.detalle && g.detalle[field] && g.detalle[field].moneda) || (g && g.moneda) || 'USD';
+  const _rubUSD = (g, field, mes) => g ? convUSD(Number(g[field]) || 0, _monRub(g, field), anio, mes) : 0;
 
   // ===== CONSOLIDADO (arriba, solo Evolucion) =====
   let html = `<div class="card" style="border:1px solid var(--gold);margin-bottom:16px">
     <div class="bold" style="color:var(--gold);margin-bottom:8px">Consolidado mensual — Evolución (gastos de todos los autos)</div>
-    <p style="color:var(--text3);font-size:11px;margin-bottom:10px">Depende solo de Evolución. El TOTAL debe coincidir con la suma de Gastos de Información.</p>
+    <p style="color:var(--text3);font-size:11px;margin-bottom:10px">Todo convertido a <b>USD</b>: los rubros se cargan en moneda nativa (la patente en pesos, el seguro a veces en dólares) y acá se pasan a dólares con el tipo de cambio del mes. La suma de los rubros tiene que dar la fila TOTAL USD, que viene convertida desde la carga.</p>
     <div class="table-wrap"><table style="font-size:11px">
       <thead><tr><th>Concepto</th><th class="num" style="color:var(--gold)">Total</th>${MM.map(m=>`<th class="num">${meses[m]}</th>`).join('')}</tr></thead>
       <tbody>
         ${CONCEPTOS.map(([label,field])=>{
-          const vals = MM.map(m=>active.reduce((a,x)=>a+(gasMap[x.id]?.[m]?.[field]||0),0));
+          const vals = MM.map(m=>active.reduce((a,x)=>a+_rubUSD(gasMap[x.id]?.[m], field, m),0));
           const tot = vals.reduce((a,b)=>a+b,0);
           return `<tr><td>${label}</td><td class="num bold" style="color:${tot?'var(--text2)':'var(--border2)'}">${tot>0?'$'+fmt(tot):'—'}</td>${vals.map(v=>`<td class="num">${v>0?'$'+fmt(v):'—'}</td>`).join('')}</tr>`;
         }).join('')}
@@ -10805,13 +10851,13 @@ async function loadAutosEvolucion() {
     html += `<div class="card" style="margin-bottom:12px;border-left:3px solid var(--${colPais[a.pais]||'arg'})">
       <div style="margin-bottom:10px">
         <span class="bold">${a.nombre}</span>
-        <span style="color:var(--text3);font-size:11px;margin-left:8px">${a.titular} · ${a.anio_modelo||''}</span>
+        <span style="color:var(--text3);font-size:11px;margin-left:8px">${a.titular} · ${a.anio_modelo||''} · valores en USD</span>
       </div>
       <div class="table-wrap"><table style="font-size:11px">
         <thead><tr><th>Concepto</th><th class="num">Total</th>${MM.map(m=>`<th class="num">${meses[m]}</th>`).join('')}</tr></thead>
         <tbody>
           ${CONCEPTOS.map(([label, field]) => {
-            const vals = MM.map(m => ({ v: mv[m]?.[field]||0, c: mv[m]?.comentarios?.[field]||'' }));
+            const vals = MM.map(m => ({ v: _rubUSD(mv[m], field, m), c: mv[m]?.comentarios?.[field]||'' }));
             const tot = vals.reduce((a,b)=>a+b.v,0);
             return `<tr><td style="font-size:11px">${label}</td><td class="num bold" style="font-size:11px;color:${tot?'var(--text2)':'var(--border2)'}">${tot>0?'$'+fmt(tot):'—'}</td>${vals.map(({v,c})=>`<td class="num ${c?'coment-tooltip has-coment':''}" style="font-size:11px;color:${v?'var(--text)':'var(--border2)'};position:relative">${v>0?'$'+fmt(v):'—'}${c?`<span class="coment-pop">💬 ${c}</span>`:''}</td>`).join('')}</tr>`;
           }).join('')}
@@ -11649,7 +11695,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260803-131';
+const APP_VERSION = '20260803-132';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
