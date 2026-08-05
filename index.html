@@ -3698,11 +3698,14 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
         <div class="card" style="margin-top:16px;max-width:520px">
           <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px">
             <div class="section-title" style="font-size:13px;margin:0">TC mensual histórico</div>
-            <select class="fld" id="tc-hist-anio" style="width:auto;padding:4px 8px;font-size:12px" onchange="renderTCHist()"></select>
+            <div style="display:flex;gap:8px;align-items:center">
+              <select class="fld" id="tc-hist-anio" style="width:auto;padding:4px 8px;font-size:12px" onchange="renderTCHist()"></select>
+              <button class="btn-secondary admin-only" style="padding:4px 10px;font-size:11px" onclick="abrirTCEdit(null)">+ Mes</button>
+            </div>
           </div>
           <div class="table-wrap">
             <table style="font-size:12px">
-              <thead><tr><th>Mes</th><th class="num">USD/ARS</th><th class="num">USD/UYU</th><th class="num">USD/EUR</th></tr></thead>
+              <thead><tr><th>Mes</th><th class="num">USD/ARS</th><th class="num">USD/UYU</th><th class="num">USD/EUR</th><th class="admin-only" style="width:28px"></th></tr></thead>
               <tbody id="tbody-tc-hist"><tr><td colspan="4" style="color:var(--text3);text-align:center">—</td></tr></tbody>
             </table>
           </div>
@@ -3716,6 +3719,29 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
 <!-- ============================================
      MODALES
 ============================================ -->
+
+<!-- Modal: editar TC de un mes -->
+<div class="modal-overlay" id="modal-tc-edit">
+  <div class="modal" style="max-width:420px">
+    <div class="modal-header">
+      <div class="modal-title" id="tce-title">Editar tipo de cambio</div>
+      <button class="modal-close" onclick="closeModal('modal-tc-edit')">×</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:11px;color:var(--text3);margin:0 0 12px;line-height:1.5">Cuántas unidades de cada moneda equivalen a <b>un dólar</b>. Es el tipo de cambio con el que la app convierte todos los movimientos de ese mes, así que tiene que coincidir con el del COMPLETO.</p>
+      <div class="form-row cols-3">
+        <div><label class="fld">USD/ARS</label><input class="fld" type="number" step="0.01" id="tce-ars"></div>
+        <div><label class="fld">USD/UYU</label><input class="fld" type="number" step="0.001" id="tce-uyu"></div>
+        <div><label class="fld">USD/EUR</label><input class="fld" type="number" step="0.0001" id="tce-eur"></div>
+      </div>
+      <p style="font-size:11px;color:var(--gold);margin:10px 0 0;line-height:1.5">⚠ Cambiar esto <b>recalcula todos los importes en dólares de ese mes</b>: gastos de propiedades, autos y sociedades cargados en moneda local.</p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closeModal('modal-tc-edit')">Cancelar</button>
+      <button class="btn-primary" style="width:auto;padding:10px 24px" onclick="guardarTCEdit()">Guardar</button>
+    </div>
+  </div>
+</div>
 
 <!-- Modal: Nueva Propiedad -->
 <div class="modal-overlay" id="modal-prop-nueva">
@@ -4689,8 +4715,46 @@ function renderTCHist() {
     <tr><td>${meses[r.mes] || r.mes}</td>
       <td class="num">${num(r.ars_usd,2)}</td>
       <td class="num">${num(r.uyu_usd,3)}</td>
-      <td class="num">${num(r.eur_usd,4)}</td></tr>`).join('')
-    : '<tr><td colspan="4" style="color:var(--text3);text-align:center">Sin datos</td></tr>';
+      <td class="num">${num(r.eur_usd,4)}</td>
+      <td class="admin-only" style="text-align:center"><button onclick="abrirTCEdit(${r.mes})" title="Editar el TC de este mes" style="background:none;border:none;cursor:pointer;color:var(--gold);font-size:12px;padding:0">✎</button></td></tr>`).join('')
+    : '<tr><td colspan="5" style="color:var(--text3);text-align:center">Sin datos</td></tr>';
+}
+
+// Editar el TC de un mes del histórico. `mes` null = alta de un mes que todavía no existe.
+function abrirTCEdit(mes) {
+  const anio = parseInt(document.getElementById('tc-hist-anio').value);
+  const MN = ['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  if (mes === null) {
+    const usados = _tcMensualCache.filter(r => r.anio === anio).map(r => r.mes);
+    let libre = 1; while (usados.includes(libre) && libre <= 12) libre++;
+    if (libre > 12) return toast('El año ' + anio + ' ya tiene los 12 meses', 'error');
+    mes = libre;
+  }
+  const r = _tcMensualCache.find(x => x.anio === anio && x.mes === mes) || {};
+  window._tceCtx = { anio, mes };
+  document.getElementById('tce-title').textContent = 'Tipo de cambio · ' + MN[mes] + ' ' + anio;
+  const prev = tcFor(anio, mes) || {};
+  document.getElementById('tce-ars').value = r.ars_usd != null ? r.ars_usd : (prev.ars_usd || '');
+  document.getElementById('tce-uyu').value = r.uyu_usd != null ? r.uyu_usd : (prev.uyu_usd || '');
+  document.getElementById('tce-eur').value = r.eur_usd != null ? r.eur_usd : (prev.eur_usd || '');
+  openModal('modal-tc-edit');
+}
+
+async function guardarTCEdit() {
+  const { anio, mes } = window._tceCtx || {};
+  if (!anio || !mes) return;
+  const ars = parseFloat(document.getElementById('tce-ars').value);
+  const uyu = parseFloat(document.getElementById('tce-uyu').value);
+  const eur = parseFloat(document.getElementById('tce-eur').value);
+  if (isNaN(ars) || isNaN(uyu) || isNaN(eur)) return toast('Completá las tres cotizaciones', 'error');
+  if (ars <= 0 || uyu <= 0 || eur <= 0) return toast('Las cotizaciones tienen que ser mayores a cero', 'error');
+  const { error } = await sb.from('tipo_de_cambio')
+    .upsert({ anio, mes, ars_usd: ars, uyu_usd: uyu, eur_usd: eur }, { onConflict: 'anio,mes' });
+  if (error) return toast('Error: ' + error.message, 'error');
+  toast('Tipo de cambio actualizado ✓ — se recalcularon los importes de ese mes', 'success');
+  closeModal('modal-tc-edit');
+  await loadAllTC();          // refresca el mapa que usa convUSD
+  await loadTC_tabla();       // refresca la tabla y el cache
 }
 
 // ============================================
@@ -8171,15 +8235,23 @@ function abrirVentaAuto() {
 async function venderAuto() {
   const id = document.getElementById('nv-auto').value;
   if (!id) return toast('Elegí un vehículo', 'error');
-  // OJO: la tabla `autos` NO tiene columna `vendido` — escribirla hacía fallar TODA venta de auto
-  // con "column vendido does not exist". La señal de baja es `activo = false`, que es la que
-  // renderAutos ya usa para separar la tabla de vendidos.
-  const upd = { activo: false };
+  // La tabla `autos` puede no tener todavía las columnas de venta (vendido / valor_venta /
+  // fecha_venta): antes esto hacía fallar TODA venta con "column does not exist". Ahora se
+  // intenta con todo y, si la base las rechaza, se reintenta con lo mínimo que sí existe.
   const vv = parseFloat(document.getElementById('nv-valor').value);
   const fv = document.getElementById('nv-fecha').value;
-  if (!isNaN(vv) && vv > 0) upd.valor_venta = vv;
-  if (fv) upd.fecha_venta = fv;
-  const { error } = await sb.from('autos').update(upd).eq('id', id);
+  const full = { activo: false, vendido: true };
+  if (!isNaN(vv) && vv > 0) full.valor_venta = vv;
+  if (fv) full.fecha_venta = fv;
+  let { error } = await sb.from('autos').update(full).eq('id', id);
+  if (error && /column|does not exist|schema cache/i.test(error.message || '')) {
+    const r2 = await sb.from('autos').update({ activo: false }).eq('id', id);
+    if (r2.error) return toast('Error: ' + r2.error.message, 'error');
+    toast('Auto dado de baja ✓ — falta correr el SQL de columnas de venta para guardar importe y fecha', 'success');
+    closeModal('modal-auto-venta');
+    await loadAutos();
+    return;
+  }
   if (error) return toast('Error: ' + error.message, 'error');
   toast('Venta registrada ✓', 'success');
   closeModal('modal-auto-venta');
@@ -11714,7 +11786,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260804-136';
+const APP_VERSION = '20260804-138';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
