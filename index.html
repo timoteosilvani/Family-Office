@@ -1403,7 +1403,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
               </div>
               <div>
                 <label class="fld">Año</label>
-                <select class="fld" id="carga-prop-anio">
+                <select class="fld" id="carga-prop-anio" onchange="refrescarPropsCarga()">
                   <option value="2026">2026</option>
                   <option value="2025">2025</option>
                   <option value="2024">2024</option>
@@ -2468,7 +2468,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
               </div>
               <div>
                 <label class="fld">Año</label>
-                <select class="fld" id="carga-prop-anio2">
+                <select class="fld" id="carga-prop-anio2" onchange="refrescarPropsCarga()">
                   <option value="2026">2026</option><option value="2025">2025</option>
                   <option value="2024">2024</option><option value="2023">2023</option>
                 </select>
@@ -4388,9 +4388,45 @@ async function initApp() {
   actualizarBadgeAlertas();
 }
 
+// Año en que se vendió una propiedad. Prioriza `fecha_venta`; si no está, usa el último año del
+// histórico, que es el año de la venta (derivePropsHistByTit la excluye desde ahí).
+function anioVentaProp(p) {
+  if (p.fecha_venta) return Number(String(p.fecha_venta).slice(0, 4));
+  const h = PROP_HIST_DATA.find(x => x.nro === p.nro);
+  if (h && h.vendida && h.valores) { const ys = Object.keys(h.valores).map(Number); if (ys.length) return Math.max.apply(null, ys); }
+  return null;
+}
+
+// ¿Esta propiedad se puede cargar en el año elegido? Una vendida sigue siendo cargable en el año
+// de la venta y en los anteriores —tuvo gastos hasta que se vendió— pero no después.
+// Boulevard Artigas, vendida el 30/01/2025: aparece en 2025 y antes, no en 2026.
+function propCargableEn(p, anio) {
+  const viva = p.activa !== false && p.vendida !== true;
+  if (viva) return true;
+  const ay = anioVentaProp(p);
+  return ay === null ? true : anio <= ay;
+}
+
+// Rearma los dos selects de carga de propiedades según el año elegido en cada uno.
+function refrescarPropsCarga() {
+  const todas = window._propsCarga || [];
+  [['carga-prop-sel', 'carga-prop-anio'], ['carga-prop-sel2', 'carga-prop-anio2']].forEach(([selId, anioId]) => {
+    const sel = document.getElementById(selId); if (!sel) return;
+    const anio = parseInt((document.getElementById(anioId) || {}).value) || new Date().getFullYear();
+    const prev = sel.value;
+    const lista = todas.filter(p => propCargableEn(p, anio));
+    sel.innerHTML = '<option value="">Seleccionar propiedad...</option>' + lista.map(p => {
+      const viva = p.activa !== false && p.vendida !== true;
+      const f = p.fecha_venta ? new Date(String(p.fecha_venta) + 'T00:00:00').toLocaleDateString('es-AR') : (anioVentaProp(p) || '');
+      return `<option value="${p.id}">[${p.titular}] ${p.nombre} (${p.pais})${viva ? '' : ' · vendida ' + f}</option>`;
+    }).join('');
+    if (prev && lista.some(p => p.id === prev)) sel.value = prev;
+  });
+}
+
 async function populateAllSelects() {
   const [{ data: props }, { data: bancos }, { data: pe }, { data: autosAll }, { data: socsAll }, { data: contratosAll }, { data: deudasAll }, { data: tarjetasAll }] = await Promise.all([
-    aplicarFiltroTit(sb.from('propiedades').select('id,nombre,titular,pais,nro').eq('activa',true).eq('vendida',false).order('nro')),
+    aplicarFiltroTit(sb.from('propiedades').select('id,nombre,titular,pais,nro,activa,vendida,fecha_venta').order('nro')),
     aplicarFiltroTit(sb.from('bancos').select('id,nombre,titular,pais').eq('activo',true).order('nro')),
     aplicarFiltroTit(sb.from('private_equity').select('id,nombre,titular,pais').eq('activo',true).order('nro')),
     aplicarFiltroTit(sb.from('autos').select('*').order('nro')),
@@ -4400,10 +4436,9 @@ async function populateAllSelects() {
     sb.from('tarjetas').select('id,tarjeta,cliente,banco,numero,pais,activo').eq('activo', true),
   ]);
 
-  // Props select
-  const propSel = document.getElementById('carga-prop-sel');
-  if (propSel) propSel.innerHTML = '<option value="">Seleccionar propiedad...</option>' +
-    (props||[]).map(p => `<option value="${p.id}">[${p.titular}] ${p.nombre} (${p.pais})</option>`).join('');
+  // Props: se guardan TODAS (incluidas las vendidas) y cada select de carga se arma según el año.
+  window._propsCarga = props || [];
+  refrescarPropsCarga();
 
   // Banco select
   const bancoSel = document.getElementById('carga-banco-sel');
@@ -4440,11 +4475,6 @@ async function populateAllSelects() {
   // Also populate tabla select
   const propTabla = document.getElementById('gastos-prop-tabla');
   if (propTabla) propTabla.innerHTML = '<option value="">Seleccionar propiedad...</option>' +
-    (props||[]).map(p => `<option value="${p.id}">[${p.titular}] ${p.nombre} (${p.pais})</option>`).join('');
-
-  // Also populate gastos carga select
-  const propSel2 = document.getElementById('carga-prop-sel2');
-  if (propSel2) propSel2.innerHTML = '<option value="">Seleccionar propiedad...</option>' +
     (props||[]).map(p => `<option value="${p.id}">[${p.titular}] ${p.nombre} (${p.pais})</option>`).join('');
 
   // Populate anual2 selects
@@ -11786,7 +11816,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260804-138';
+const APP_VERSION = '20260804-139';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
