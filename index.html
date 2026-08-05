@@ -10781,7 +10781,7 @@ async function loadBancosEvolucion() {
   res.innerHTML = '<div class="loader"><div class="spinner"></div></div>';
 
   const [{ data: bancos }, { data: movs }] = await Promise.all([
-    aplicarFiltroTit(sb.from('bancos').select('*').eq('activo', true).order('nro')),
+    aplicarFiltroTit(sb.from('bancos').select('*').order('nro')),
     sb.from('movimientos_bancos').select('*').eq('anio', anio).order('mes'),
   ]);
 
@@ -10796,6 +10796,10 @@ async function loadBancosEvolucion() {
   const movMap = {};
   (movs||[]).forEach(m => { (movMap[m.banco_id] ||= {})[m.mes] = m; });
 
+  // Una cuenta dada de baja pudo tener saldo durante parte del año: mientras tenga movimientos
+  // en el año consultado, figura (tachada). Antes la query filtraba activo=true y CAJA MFL,
+  // que está inactiva, desaparecía con sus saldos de febrero a julio 2025 adentro.
+  const _bcoVivo = b => b.activo !== false;
   const active = filtered.filter(b => movMap[b.id] && Object.keys(movMap[b.id]).length > 0);
   if (!active.length) {
     res.innerHTML = '<div class="card" style="color:var(--text3);text-align:center;padding:32px">Sin datos de movimientos para los filtros seleccionados</div>';
@@ -10885,7 +10889,7 @@ async function loadBancosEvolucion() {
 
     html += `<div class="card" style="margin-bottom:12px;border-left:3px solid var(--${colPais[b.pais]||'arg'})">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-        <div><span class="bold">${b.nombre}</span>
+        <div><span class="bold" style="${_bcoVivo(b)?'':'text-decoration:line-through;color:var(--text3)'}">${b.nombre}</span>${_bcoVivo(b)?'':' <span style="font-size:9px;background:var(--usa);color:#fff;border-radius:4px;padding:1px 5px;font-weight:600">DADA DE BAJA</span>'}
           <span class="badge badge-${colPais[b.pais]||'arg'}" style="margin-left:8px">${b.pais}</span>
           <span style="color:var(--text3);font-size:11px;margin-left:6px">${b.titular}</span></div>
       </div>
@@ -11816,7 +11820,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260804-139';
+const APP_VERSION = '20260805-140';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
