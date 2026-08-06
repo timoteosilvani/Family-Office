@@ -4379,6 +4379,7 @@ function toggleSidebar() {
 async function initApp() {
   await loadTC();
   await loadHistOverrides();
+  await hidratarBancosHist();   // v141: años live → el Historial sale de movimientos_bancos
   try {
     await populateAllSelects();
   } catch(e) {
@@ -5501,10 +5502,20 @@ function renderBancosHist() {
   let data = BANCOS_HIST_DATA.filter(b => b.byY[y]);
   if (verComo) data = data.filter(b => bancoTitAnio(b.nro,y) === verComo);
   const money = v => v ? (v<0?'-$'+fmt(Math.abs(v)):'$'+fmt(v)) : '—';
+  // v141 — en años live el dato viene de Evolución: no se edita acá, se corrige cargando el mes.
+  const live = _bancoAnioLive(y);
+  const hidr = _bancosHidratados[parseInt(y)] || {};
+  const MNOM = ['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
   let body = data.map(b => { const d = b.byY[y]; const tit = bancoTitAnio(b.nro,y);
+    const mesCierre = hidr[b.nro];
+    const marca = live
+      ? (mesCierre
+          ? `<span style="font-size:9px;color:var(--esp);margin-left:6px" title="Cierre tomado de Evolución mensual (${MNOM[mesCierre]} ${y})">● ${MNOM[mesCierre]}</span>`
+          : `<span style="font-size:9px;color:var(--uru);margin-left:6px" title="Sin movimientos cargados en ${y}: este valor sigue viniendo del histórico fijo">⚠ sin carga</span>`)
+      : `<button onclick="abrirEditHist('banco',${b.nro},${y})" style="background:none;border:none;cursor:pointer;color:var(--gold);font-size:12px;margin-left:6px;padding:0" title="Editar valor histórico">✎</button>`;
     return `<tr class="row-${cp[b.pais]||'arg'}">
       <td style="color:var(--text3);font-size:11px">${b.nro}</td>
-      <td style="font-size:12px;font-weight:500">${b.nombre}<button onclick="abrirEditHist('banco',${b.nro},${y})" style="background:none;border:none;cursor:pointer;color:var(--gold);font-size:12px;margin-left:6px;padding:0" title="Editar valor histórico">✎</button></td>
+      <td style="font-size:12px;font-weight:500">${b.nombre}${marca}</td>
       <td style="font-size:11px;color:var(--text3)">${tit}</td>
       <td class="num" style="font-size:11px">${money(d.i)}</td>
       <td class="num" style="font-size:11px">${money(d.c)}</td>
@@ -6040,7 +6051,10 @@ async function loadPEEvolucion() {
             <tr style="border-top:1px solid var(--border2)">
               <td class="bold">NETO</td>
               <td class="num bold" style="color:${tNeto>=0?'var(--esp)':'var(--usa)'}">$${fmt(tNeto)}</td>
-              ${MM.map(m=>{const hasM=mm[m];const v=(mm[m]?.utilidad||0)-gp(mm,m);return `<td class="num bold" style="font-size:10px;color:${!hasM?'var(--border2)':v>=0?'var(--esp)':'var(--usa)'}">${!hasM?'—':'$'+fmt(v)}</td>`;}).join('')}
+              ${/* v141 — el NETO mensual NO restaba aporte_capital: un mes con aporte y sin utilidad
+                     mostraba $0 en vez de negativo. La columna Total (tNeto) y el consolidado de arriba
+                     sí lo restaban, así que las tres cifras no cerraban entre sí. */''}
+              ${MM.map(m=>{const hasM=mm[m];const v=(mm[m]?.utilidad||0)-(mm[m]?.aporte_capital||0)-gp(mm,m);return `<td class="num bold" style="font-size:10px;color:${!hasM?'var(--border2)':v>=0?'var(--esp)':'var(--usa)'}">${!hasM?'—':'$'+fmt(v)}</td>`;}).join('')}
             </tr>
           </tbody>
         </table></div>
@@ -7950,6 +7964,9 @@ async function guardarMovBanco() {
   toast('Banco actualizado ✓', 'success');
   await loadBancos();
   await loadBancosEvolucion();
+  // v141: si el mes cargado es el cierre de un año live, el Historial y el Patrimonio
+  // tienen que moverse con él. Re-hidratar deja las tres vistas en el mismo número.
+  if (_bancoAnioLive(anioB)) { await hidratarBancosHist(); renderBancosHist(); }
 }
 
 // ============================================
@@ -8804,17 +8821,29 @@ function _cicloAlerta(a, ref) {
   while (!_mesTocaAlerta(a, m) && guard++ < 24) { m--; if (m < 0) { m = 11; y--; } }
   return { y, m };
 }
-// Recurrente ya pagada en el CICLO en curso → se oculta de la lista activa hasta el próximo.
+// Índice de mes absoluto (para comparar ciclos sin pelearse con el cambio de año).
+function _mesIdx(y, m0) { return y * 12 + m0; }
+// v141 — Ciclo que corresponde PAGAR ahora. Es el ciclo en curso; pero si ese ya se pagó
+// (o se pagó uno adelantado), es el SIGUIENTE. Con esto el botón "✓ Pagado" nunca desaparece
+// de la lista activa: la fila que queda ahí ya representa el ciclo que viene, así que pagarla
+// registra ESE ciclo en vez de volver a pisar el anterior.
+function _cicloAPagar(a) {
+  const c = _cicloAlerta(a);
+  const f = _alertaFrec(a);
+  let idx = _mesIdx(c.y, c.m);
+  if (a.pagada_anio && a.pagada_mes) {
+    const idxPago = _mesIdx(a.pagada_anio, a.pagada_mes - 1);
+    if (idxPago >= idx) idx = idxPago + f;
+  }
+  return { y: Math.floor(idx / 12), m: idx % 12 };
+}
+// ¿El ciclo en curso ya está pagado? (o uno futuro, si se pagó adelantado).
+// Solo informativo: alimenta el chip "✓ pagó Ago" y la vista Pagadas. NO oculta el botón.
 function _alertaPagadaEsteCiclo(a) {
   if (!a.recurrente) return false;
   if (!a.pagada_anio || !a.pagada_mes) return false;
-  const f = _alertaFrec(a);
   const c = _cicloAlerta(a);
-  if (f <= 1) return a.pagada_anio === c.y && a.pagada_mes === (c.m + 1);
-  // Bimestral+: cuenta como pagada si el pago cae dentro de la ventana [ciclo, ciclo+f).
-  const idxPago  = a.pagada_anio * 12 + (a.pagada_mes - 1);
-  const idxCiclo = c.y * 12 + c.m;
-  return idxPago >= idxCiclo && idxPago < idxCiclo + f;
+  return _mesIdx(a.pagada_anio, a.pagada_mes - 1) >= _mesIdx(c.y, c.m);
 }
 // Alias histórico (se sigue usando en varios puntos del código).
 function _alertaPagadaEsteMes(a) { return _alertaPagadaEsteCiclo(a); }
@@ -8882,6 +8911,57 @@ async function loadHistOverrides(){
   try{ const {data}=await sb.from('historico_overrides').select('*');
     (data||[]).forEach(ov=>aplicarOverride(ov.categoria,ov.nro,ov.anio,ov.campo,Number(ov.valor))); }catch(e){}
 }
+
+// ============================================
+// v141 — HISTORIAL DE BANCOS ENGANCHADO A EVOLUCIÓN MENSUAL
+// ============================================
+// Hasta v140 el Historial y el Patrimonio leían SOLO el array hardcodeado BANCOS_HIST_DATA,
+// que se escribió cuando 2024 y 2025 todavía no existían en la base. Resultado: cargabas
+// diciembre 2025 en Evolución y el Historial ni se enteraba — dos fuentes para el mismo número.
+//
+// Ahora, para los años de BANCOS_ANIOS_LIVE, el cierre del año (último mes cargado de cada
+// cuenta en movimientos_bancos) PISA el hardcode. Se hace sobre el propio array, así queda
+// enganchado todo lo que lo lee: Historial, deriveActivosByTit(), Patrimonio y Estados.
+// Corre DESPUÉS de loadHistOverrides() a propósito: en años live manda Evolución, el lápiz ✎
+// sigue mandando en 2023 y anteriores (que nunca van a tener detalle mensual).
+//
+// Para sumar un año nuevo: agregarlo acá y listo.
+const BANCOS_ANIOS_LIVE = [2024, 2025, 2026];
+let _bancosHidratados = {};   // { anio: { nro: mes_de_cierre } } — qué celdas vienen del dato real
+
+async function hidratarBancosHist() {
+  _bancosHidratados = {};
+  try {
+    const [{ data: bcos }, { data: movs }] = await Promise.all([
+      sb.from('bancos').select('id,nro,nombre'),
+      sb.from('movimientos_bancos').select('*').in('anio', BANCOS_ANIOS_LIVE),
+    ]);
+    if (!bcos || !movs || !movs.length) return;
+    // Match por NOMBRE normalizado, nunca por nro: el nro no es único en `bancos`
+    // (hay dos filas con 41) y además el hardcode tiene su propia numeración.
+    const _n = s => String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
+    const porNombre = {}; BANCOS_HIST_DATA.forEach(b => porNombre[_n(b.nombre)] = b);
+    const cuenta = {}; bcos.forEach(c => cuenta[c.id] = c);
+    // Cierre del año = último mes cargado de esa cuenta en ese año.
+    const cierre = {};
+    movs.forEach(m => {
+      const k = m.anio + '|' + m.banco_id;
+      if (!cierre[k] || m.mes > cierre[k].mes) cierre[k] = m;
+    });
+    const sinMatch = new Set();
+    Object.values(cierre).forEach(m => {
+      const c = cuenta[m.banco_id]; if (!c) return;
+      const h = porNombre[_n(c.nombre)];
+      if (!h) { sinMatch.add(c.nombre); return; }
+      const u = bancoMovUSD(m);
+      h.byY[String(m.anio)] = { i: u.inv, c: u.cash, r: u.cred, n: u.neto };
+      (_bancosHidratados[m.anio] = _bancosHidratados[m.anio] || {})[h.nro] = m.mes;
+    });
+    if (sinMatch.size) console.warn('hidratarBancosHist · cuentas de la base sin equivalente en BANCOS_HIST_DATA:', [...sinMatch]);
+  } catch (e) { console.warn('hidratarBancosHist:', e.message); }
+}
+// ¿El Historial de este año sale de Evolución? Si sí, el lápiz ✎ no corresponde.
+function _bancoAnioLive(y) { return BANCOS_ANIOS_LIVE.includes(parseInt(y)); }
 function abrirEditHist(cat,nro,anioFijo){
   const item=_heSrc(cat).find(x=>x.nro===nro); _heCtx={cat,nro};
   document.getElementById('he-title').textContent='Editar histórico — '+(item?item.nombre:'');
@@ -8928,15 +9008,11 @@ function diasHasta(fecha) {
 // Alertas: fecha efectiva (para recurrentes, el vencimiento del ciclo en curso) y días hasta ella.
 function fechaEfectivaAlerta(a) {
   if (a.recurrente && a.dia_mes) {
-    // Vencimiento del CICLO EN CURSO (día X del último mes que toca). Solo saltamos al
-    // próximo ciclo si YA se pagó éste; si no se pagó, la fecha queda fija aunque ya haya
-    // pasado, para que figure como VENCIDA (y no se "corra" sola).
-    const c = _cicloAlerta(a);
-    if (!_alertaPagadaEsteCiclo(a)) return new Date(c.y, c.m, a.dia_mes);
-    const f = _alertaFrec(a);
-    let ny = c.y, nm = c.m + f;
-    while (nm > 11) { nm -= 12; ny++; }
-    return new Date(ny, nm, a.dia_mes);
+    // Vencimiento del ciclo que toca pagar: el EN CURSO si no se pagó (así figura VENCIDA
+    // y no se "corre" sola), o el siguiente si ya se pagó. `_cicloAPagar` resuelve las dos
+    // cosas, incluidos los pagos adelantados encadenados.
+    const c = _cicloAPagar(a);
+    return new Date(c.y, c.m, a.dia_mes);
   }
   return a.fecha_vencimiento ? new Date(a.fecha_vencimiento) : null;
 }
@@ -9000,10 +9076,7 @@ function renderAlertas(filtro) {
       ? '<span style="font-size:10px;color:var(--text3)">alquiler ↗</span>'
       : (pagadasView
         ? `<button class="btn-secondary" style="padding:3px 8px;font-size:11px" onclick="reabrirPagadaAlerta('${a.id}')" title="Volver a activas">↩ Reabrir</button>`
-        : yaPago
-        ? `<button class="btn-secondary" style="padding:3px 8px;font-size:11px" onclick="reabrirPagadaAlerta('${a.id}')" title="Deshacer el pago de ${cicPag}">↩ Deshacer</button>
-           <button class="btn-secondary" style="padding:3px 8px;font-size:11px;margin-left:4px" onclick="editarAlerta('${a.id}')">✎</button>`
-        : `<button class="btn-secondary" style="padding:3px 9px;font-size:11px;background:var(--esp-soft,rgba(39,174,96,.12));border-color:var(--esp);color:var(--esp)" onclick="marcarPagadaAlerta('${a.id}')" title="${a.recurrente?'Marcar pagado el ciclo en curso':'Marcar pagada'}">✓ Pagado</button>
+        : `<button class="btn-secondary" style="padding:3px 9px;font-size:11px;background:var(--esp-soft,rgba(39,174,96,.12));border-color:var(--esp);color:var(--esp)" onclick="marcarPagadaAlerta('${a.id}')" title="${a.recurrente?('Marcar pagado '+(fEf?fEf.toLocaleDateString('es-AR'):'el ciclo en curso')):'Marcar pagada'}">✓ Pagado</button>
            <button class="btn-secondary" style="padding:3px 8px;font-size:11px;margin-left:4px" onclick="editarAlerta('${a.id}')">✎</button>`);
     return `<tr${pagadasView?' style="opacity:0.7"':''}>
       <td><span class="${est.cls}" style="color:${est.color}">${est.label}</span>${yaPago?`<br><span style="font-size:9px;color:var(--esp);font-weight:600">✓ pagó ${cicPag}</span>`:''}</td>
@@ -9051,7 +9124,7 @@ async function marcarPagadaAlerta(id) {
   const a = alertasData.find(x => x.id === id); if (!a) return;
   const now = new Date();
   const upd = { fecha_pago: now.toISOString().slice(0, 10) };
-  if (a.recurrente) { const c = _cicloAlerta(a); upd.pagada_mes = c.m + 1; upd.pagada_anio = c.y; }
+  if (a.recurrente) { const c = _cicloAPagar(a); upd.pagada_mes = c.m + 1; upd.pagada_anio = c.y; }
   else { upd.pagada = true; upd.activa = false; }
   const { error } = await sb.from('alertas').update(upd).eq('id', id);
   if (error) return toast('Error: ' + error.message + ' (¿corriste alertas_pagadas.sql?)', 'error');
@@ -11820,7 +11893,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260805-140';
+const APP_VERSION = '20260805-141';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
