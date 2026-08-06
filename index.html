@@ -5506,6 +5506,17 @@ function renderBancosHist() {
   const live = _bancoAnioLive(y);
   const hidr = _bancosHidratados[parseInt(y)] || {};
   const MNOM = ['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  // v142 — Un año live sin NINGÚN diciembre cargado todavía no tiene cierre: el Historial
+  // queda en blanco a propósito en vez de mostrar el hardcode viejo, que sería un número
+  // inventado. Es el caso del año en curso hasta que cargues diciembre.
+  if (live && !Object.keys(hidr).length) {
+    tbody.innerHTML = `<tr><td colspan="7" style="color:var(--text3);text-align:center;padding:28px;font-size:12px">
+      El historial de <b>${y}</b> se arma con el <b>cierre de diciembre</b>, que todavía no está cargado.<br>
+      Mientras tanto, el saldo vivo de cada cuenta está en <b>Bancos › Información</b> (último mes cargado).
+    </td></tr>`;
+    const _d = document.getElementById('bancos-hist-dist'); if (_d) _d.innerHTML = '';
+    return;
+  }
   let body = data.map(b => { const d = b.byY[y]; const tit = bancoTitAnio(b.nro,y);
     const mesCierre = hidr[b.nro];
     const marca = live
@@ -5553,6 +5564,28 @@ function renderBancosHist() {
 // ============================================
 // HISTORIAL DE PRIVATE EQUITY
 // ============================================
+// v142 — El historial se busca por NOMBRE contra la tabla `private_equity`, y los `nro` no sirven:
+// en la base falta el 10, así que de ahí en adelante están corridos +1 respecto del hardcode
+// (base 11 TGA = hardcode 10, base 14 TGA FINANCIAL FC = hardcode 13, etc.).
+// De los 19 nombres, el único que no coincide literalmente es este. Sin el alias, "TGA FINANCIAL"
+// no encontraba su historial y la reconciliación mostraba "aporte historial 0" contra los
+// 100.000 cargados en abril 2025 — la diferencia de 100.000 que aparecía en pantalla.
+const PE_ALIAS = { 'tga financial': 'tga financial jc' };
+const _peNorm = s => String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
+// Índice nombre→historial, con los alias ya resueltos. Se arma una vez, al primer uso.
+let _peHistIdx = null;
+function _peHistDe(nombre) {
+  if (!_peHistIdx) {
+    _peHistIdx = {};
+    PE_HIST_DATA.forEach(p => { _peHistIdx[_peNorm(p.nombre)] = p; });
+    for (const base in PE_ALIAS) {
+      const h = _peHistIdx[_peNorm(PE_ALIAS[base])];
+      if (h) _peHistIdx[base] = h;
+    }
+  }
+  return _peHistIdx[_peNorm(nombre)] || null;
+}
+
 const PE_HIST_DATA = [
   {nro:1,nombre:"Global Seg",titular:"FC",aporteHist:257000,utilHist:17599,terminado:false,byY:{"2018":{ia:250000,ap:0,ut:0},"2019":{ia:250000,ap:0,ut:0},"2020":{ia:250000,ap:0,ut:0},"2021":{ia:250000,ap:0,ut:0},"2022":{ia:250000,ap:0,ut:0},"2023":{ia:250000,ap:7000,ut:0},"2024":{ia:257000,ap:0,ut:0},"2025":{ia:257000,ap:0,ut:11599},"2026":{ia:257000,ap:0,ut:6000}}},
   {nro:2,nombre:"Vannier",titular:"H",aporteHist:449131,utilHist:417579,terminado:false,byY:{"2020":{ia:0,ap:389131,ut:17551},"2021":{ia:389131,ap:0,ut:324401},"2022":{ia:389131,ap:60000,ut:0},"2023":{ia:449131,ap:0,ut:0},"2024":{ia:449131,ap:0,ut:33750},"2025":{ia:449131,ap:0,ut:11434},"2026":{ia:449131,ap:0,ut:30443}}},
@@ -5984,11 +6017,9 @@ async function loadPEEvolucion() {
     // Son dos fuentes distintas y NO se suman: el historial es el total del año (viene del COMPLETO,
     // editable con el ✎) y los movimientos son su detalle mes a mes. Tienen que dar lo mismo.
     // Si el detalle está incompleto, acá se ve exactamente en qué inversión y por cuánto.
-    const _nPE = x => String(x||'').toLowerCase().replace(/\s+/g,' ').trim();
-    const _histPE = {}; PE_HIST_DATA.forEach(h => _histPE[_nPE(h.nombre)] = h);
     const recFilas = filtered.map(pe => {
       const mm = mMapOf(pe);
-      const h = _histPE[_nPE(pe.nombre)];
+      const h = _peHistDe(pe.nombre);   // v142: resuelve el alias TGA FINANCIAL ↔ TGA FINANCIAL JC
       const d = (h && h.byY && h.byY[String(anio)]) || null;
       const movAp = MM.reduce((a,m)=>a+(mm[m]?.aporte_capital||0),0);
       const movUt = MM.reduce((a,m)=>a+(mm[m]?.utilidad||0),0);
@@ -7966,7 +7997,7 @@ async function guardarMovBanco() {
   await loadBancosEvolucion();
   // v141: si el mes cargado es el cierre de un año live, el Historial y el Patrimonio
   // tienen que moverse con él. Re-hidratar deja las tres vistas en el mismo número.
-  if (_bancoAnioLive(anioB)) { await hidratarBancosHist(); renderBancosHist(); }
+  if (_bancoAnioLive(anioB) && mesB === 12) { await hidratarBancosHist(); renderBancosHist(); }
 }
 
 // ============================================
@@ -8006,10 +8037,10 @@ function renderPE() {
     return peSortDir*(va-vb);
   });
   const colPais = { ARG:'arg', USA:'usa', URU:'uru', ESP:'esp', PAR:'par', PY:'par' };
-  const norm = s => String(s||'').toLowerCase().replace(/\s+/g,' ').trim();
+  const norm = _peNorm;
   const histMap = {}; PE_HIST_DATA.forEach(p => histMap[norm(p.nombre)] = p);
   tbody.innerHTML = rows.map(r => {
-    const _h0 = histMap[norm(r.nombre)] || {byY:{}};
+    const _h0 = _peHistDe(r.nombre) || {byY:{}};   // v142: vía alias
     const h = Object.assign({}, _h0, peAcum(_h0));
     const y26 = (h.byY && h.byY['2026']) || {ap:0, ut:0};
     const rec = h.aporteHist>0 ? ((h.utilHist - h.aporteHist)/h.aporteHist*100) : 0; // recupero: en pérdida hasta recuperar el capital
@@ -8030,7 +8061,7 @@ function renderPE() {
       <td><button class="btn-secondary" style="padding:3px 8px;font-size:11px" onclick="editPE('${r.id}')">Editar</button></td>
     </tr>`;
   }).join('');
-  const gh = b => { const x = histMap[norm(b.nombre)] || {}; return Object.assign({}, x, peAcum(x)); };
+  const gh = b => { const x = _peHistDe(b.nombre) || {}; return Object.assign({}, x, peAcum(x)); };   // v142: vía alias
   const totAp = rows.reduce((a,b)=>a+(gh(b).aporteHist||0),0);
   const totUt = rows.reduce((a,b)=>a+(gh(b).utilHist||0),0);
   const totAp26 = rows.reduce((a,b)=>a+(((gh(b).byY||{})['2026']||{}).ap||0),0);
@@ -8942,12 +8973,13 @@ async function hidratarBancosHist() {
     const _n = s => String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
     const porNombre = {}; BANCOS_HIST_DATA.forEach(b => porNombre[_n(b.nombre)] = b);
     const cuenta = {}; bcos.forEach(c => cuenta[c.id] = c);
-    // Cierre del año = último mes cargado de esa cuenta en ese año.
+    // v142 — El Historial es el CIERRE del año, así que solo lo llena DICIEMBRE.
+    // En v141 tomaba el último mes cargado, y eso daba un "cierre 2026" con el saldo de
+    // julio, que no es un cierre de nada. El año en curso queda en blanco hasta que
+    // exista diciembre; mientras tanto el saldo vivo se mira en Información, que ya usa
+    // el último mes cargado de cada cuenta.
     const cierre = {};
-    movs.forEach(m => {
-      const k = m.anio + '|' + m.banco_id;
-      if (!cierre[k] || m.mes > cierre[k].mes) cierre[k] = m;
-    });
+    movs.forEach(m => { if (m.mes === 12) cierre[m.anio + '|' + m.banco_id] = m; });
     const sinMatch = new Set();
     Object.values(cierre).forEach(m => {
       const c = cuenta[m.banco_id]; if (!c) return;
@@ -11792,7 +11824,7 @@ function renderPEClientes(rows, histMap, norm) {
   const box = cliBox('pe-info', 'pe-info-cli'); if (!box) return;
   const acc = cliAcc();
   (rows || []).forEach(r => {
-    const _h0c = histMap[norm(r.nombre)] || {};
+    const _h0c = _peHistDe(r.nombre) || {};   // v142: vía alias
     const h = Object.assign({}, _h0c, peAcum(_h0c));
     if (h.terminado === true) return;
     const ap26 = ((h.byY || {})['2026'] || {}).ap || 0;
@@ -11893,7 +11925,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260805-141';
+const APP_VERSION = '20260805-142';
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
