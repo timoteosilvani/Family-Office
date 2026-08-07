@@ -3656,46 +3656,16 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
 
       <!-- ======== TIPO DE CAMBIO ======== -->
       <div id="page-tipo_cambio" class="page">
-        <div class="section-title">Tipo de Cambio Semanal</div>
-        <p style="color:var(--text3);font-size:13px;margin-bottom:20px">Cierre semanal (domingo); se usa toda la semana (dom→sáb). Base: USD.</p>
-        <div class="card">
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr><th>Semana</th><th class="num">USD/ARS</th>
-                <th class="num">USD/UYU</th><th class="num">USD/EUR</th><th></th></tr>
-              </thead>
-              <tbody id="tbody-tc">
-                <tr><td colspan="5"><div class="loader"><div class="spinner"></div></div></td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-        <div class="card" style="margin-top:16px">
-          <div class="section-title" style="font-size:14px">Actualizar TC semanal</div>
-          <div class="form-row cols-2">
-            <div>
-              <label class="fld">Semana (se ancla al domingo)</label>
-              <input class="fld" type="date" id="tc-fecha" onchange="onTcFechaChange()">
-            </div>
-            <div>
-              <label class="fld">Semana seleccionada</label>
-              <input class="fld" id="tc-semana-lbl" readonly style="color:var(--text3)">
-            </div>
-          </div>
-          <div class="form-row cols-3">
-            <div><label class="fld">USD/ARS</label><input class="fld" type="number" id="tc-ars-in" step="0.01" placeholder="1220"></div>
-            <div><label class="fld">USD/UYU</label><input class="fld" type="number" id="tc-uyu-in" step="0.001" placeholder="42.415"></div>
-            <div><label class="fld">USD/EUR</label><input class="fld" type="number" id="tc-eur-in" step="0.0001" placeholder="0.9638"></div>
-          </div>
-          <div style="display:flex;justify-content:flex-end;margin-top:8px">
-            <button class="btn-primary" style="width:auto;padding:10px 24px" onclick="guardarTCSemana()">Guardar semana</button>
-          </div>
-          <p style="color:var(--text3);font-size:11px;margin-top:6px">Cargá los valores de cierre del domingo mirando investing (USD/ARS, USD/UYU, USD/EUR). Se usan toda la semana y refrescan el mes en curso para las conversiones.</p>
-        </div>
+        <!-- v144 — El TC vuelve a ser MENSUAL. Se retiró la tabla de cierres semanales y su
+             formulario de carga: `tipo_de_cambio` (una fila por mes) es la única fuente, que es
+             además la que usa convUSD() para TODAS las conversiones de la app. La tabla
+             `tc_semanal` y el RPC set_tc_semanal quedan en la base sin uso; no hace falta
+             borrarlos, simplemente ya nada los lee. -->
+        <div class="section-title">Tipo de Cambio</div>
+        <p style="color:var(--text3);font-size:13px;margin-bottom:20px">Una paridad por mes, base USD. Es la que usan <b>todas</b> las conversiones de la app: cambiar un mes reexpresa todos los importes en dólares de ese mes.</p>
 
         <!-- Histórico mensual (compacto) con filtro por año -->
-        <div class="card" style="margin-top:16px;max-width:520px">
+        <div class="card" style="max-width:520px">
           <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px">
             <div class="section-title" style="font-size:13px;margin:0">TC mensual histórico</div>
             <div style="display:flex;gap:8px;align-items:center">
@@ -4267,7 +4237,7 @@ const pagesMeta = {
   autos: { title: 'Vehículos', subtitle: 'Valuación del parque automotor' },
   deudas: { title: 'Deudas y Créditos', subtitle: 'Registro de préstamos y compensaciones' },
   organigramas: { title: 'Organigramas', subtitle: 'Estructura societaria' },
-  tipo_cambio: { title: 'Tipo de Cambio', subtitle: 'Paridades semanales (cierre domingo) USD/ARS · USD/UYU · USD/EUR' },
+  tipo_cambio: { title: 'Tipo de Cambio', subtitle: 'Paridad mensual USD/ARS · USD/UYU · USD/EUR' },
   gastos: { title: 'Gastos por Propiedad', subtitle: 'Vista mensual y anual de rentas, gastos e impuestos' },
   alertas: { title: 'Alertas', subtitle: 'Vencimientos, renovaciones y avisos importantes' },
   sociedades: { title: 'Sociedades', subtitle: 'Gastos y movimientos de las sociedades' },
@@ -4550,18 +4520,22 @@ async function refrescarVistaActual() {
 // TIPO DE CAMBIO
 // ============================================
 async function loadTC() {
-  // Banner + tcCache = semana más reciente cargada (tc_semanal).
-  // Fallback (compat / tabla aún no creada): mes actual de tipo_de_cambio.
+  // v144 — MENSUAL. `tipo_de_cambio` es la única fuente: es la misma tabla que lee convUSD(),
+  // así que el banner del header y las conversiones no pueden discrepar nunca más.
+  // Antes leía primero tc_semanal, y el banner podía mostrar una paridad distinta de la que
+  // efectivamente se usaba para convertir.
   let src = null;
-  try {
-    const { data } = await sb.from('tc_semanal').select('*').order('fecha', { ascending: false }).limit(1);
-    if (data && data[0]) src = data[0];
-  } catch (e) { /* tc_semanal puede no existir todavía */ }
-  if (!src) {
-    const now = new Date();
+  const now = new Date();
+  {
     const { data } = await sb.from('tipo_de_cambio')
       .select('*').eq('anio', now.getFullYear()).eq('mes', now.getMonth() + 1).maybeSingle();
     src = data;
+  }
+  // Si el mes en curso todavía no se cargó, mostramos el último mes que exista (y avisamos cuál).
+  if (!src) {
+    const { data } = await sb.from('tipo_de_cambio')
+      .select('*').order('anio', { ascending: false }).order('mes', { ascending: false }).limit(1);
+    if (data && data[0]) { src = data[0]; src._esViejo = true; }
   }
   const set = (id, txt) => { const el = document.getElementById(id); if (el) el.textContent = txt; };
   if (src) {
@@ -4659,13 +4633,16 @@ function onTcFechaChange() {
 }
 
 async function loadTC_tabla() {
+  // v144 — La vista semanal se retiró. Si el tbody no existe (que es el caso desde v144),
+  // salimos sin tocar la base: no tiene sentido pegarle a tc_semanal para no mostrar nada.
+  const tbody = document.getElementById('tbody-tc');
+  if (!tbody) return;
   let data = [];
   try {
     const result = await sb.from('tc_semanal').select('*').order('fecha', { ascending: false });
     data = result.data || [];
   } catch(e) { console.warn('tc_semanal error:', e.message); data = []; }
   _tcSemCache = data;
-  const tbody = document.getElementById('tbody-tc');
   const num = (v, dec) => (v===null||v===undefined||isNaN(parseFloat(v))) ? '—' : parseFloat(v).toLocaleString('es-AR',{minimumFractionDigits:dec,maximumFractionDigits:dec});
   tbody.innerHTML = (data.length ? data.map(r => `
     <tr>
@@ -5440,31 +5417,31 @@ function renderAutosHist() {
 // HISTORIAL DE BANCOS
 // ============================================
 const BANCOS_HIST_DATA = [
-  {nro:1,nombre:"SANTANDER RIO - 007/1",titular:"FC",pais:"ARG",byY:{"2018":{i:76076,c:0,r:0,n:76076},"2019":{i:26046,c:0,r:0,n:26046},"2020":{i:21331,c:0,r:0,n:21331},"2021":{i:44645,c:0,r:0,n:44645},"2022":{i:33644,c:0,r:0,n:33644},"2023":{i:4170,c:0,r:0,n:4170},"2024":{i:251935,c:0,r:0,n:251935},"2025":{i:38417,c:0,r:0,n:38417},"2026":{i:38214,c:31202,r:0,n:69417}}},
-  {nro:2,nombre:"JP MORGAN (JCFC Inc) - 7335",titular:"FC",pais:"USA",byY:{"2018":{i:3450439,c:0,r:0,n:3450439},"2019":{i:1080938,c:0,r:0,n:1080938},"2020":{i:967908,c:0,r:410000,n:557908},"2021":{i:942433,c:0,r:410000,n:532433},"2022":{i:989116,c:0,r:410000,n:579116},"2023":{i:788813,c:0,r:0,n:788813},"2024":{i:610883,c:0,r:0,n:610883},"2025":{i:236303,c:0,r:0,n:236303},"2026":{i:243814,c:22455,r:0,n:266269}}},
-  {nro:3,nombre:"BNY (JCFC Inc) - 8564",titular:"FC",pais:"USA",byY:{"2018":{i:1920479,c:0,r:0,n:1920479},"2019":{i:1354613,c:0,r:0,n:1354613},"2020":{i:1177907,c:0,r:0,n:1177907},"2021":{i:1096502,c:0,r:0,n:1096502},"2022":{i:995153,c:0,r:0,n:995153},"2023":{i:330260,c:0,r:0,n:330260},"2024":{i:228381,c:0,r:0,n:228381},"2025":{i:181103,c:0,r:0,n:181103},"2026":{i:181820,c:1092,r:0,n:182912}}},
-  {nro:4,nombre:"BANK OF AMERICA - 9764",titular:"FC",pais:"USA",byY:{"2018":{i:19101,c:0,r:0,n:19101},"2019":{i:9586,c:0,r:0,n:9586},"2020":{i:6634,c:0,r:0,n:6634},"2021":{i:49721,c:0,r:0,n:49721},"2022":{i:15230,c:0,r:0,n:15230},"2023":{i:50678,c:0,r:0,n:50678},"2024":{i:44886,c:0,r:0,n:44886},"2025":{i:79751,c:0,r:0,n:79751},"2026":{i:0,c:61433,r:0,n:61433}}},
-  {nro:5,nombre:"ITAU - $ 4386 - US$ 9610",titular:"FC",pais:"URU",byY:{"2018":{i:51671,c:0,r:0,n:51671},"2019":{i:39684,c:0,r:0,n:39684},"2020":{i:657393,c:0,r:0,n:657393},"2021":{i:120660,c:0,r:0,n:120660},"2022":{i:41439,c:0,r:0,n:41439},"2023":{i:274611,c:0,r:0,n:274611},"2024":{i:379936,c:0,r:0,n:379936},"2025":{i:33020,c:0,r:0,n:33020},"2026":{i:0,c:44162,r:0,n:44162}}},
-  {nro:6,nombre:"Max Valores - 10889",titular:"JC",pais:"ARG",byY:{"2020":{i:17911,c:0,r:0,n:17911},"2021":{i:7,c:0,r:0,n:7},"2022":{i:4000,c:0,r:0,n:4000},"2026":{i:0,c:0,r:0,n:0}}},
-  {nro:7,nombre:"CAJA JC",titular:"FC",pais:"ARG",byY:{"2018":{i:210000,c:0,r:0,n:210000},"2020":{i:7105,c:0,r:0,n:7105},"2021":{i:897385,c:0,r:0,n:897385},"2022":{i:601182,c:0,r:0,n:601182},"2024":{i:117000,c:0,r:0,n:117000},"2026":{i:0,c:150000,r:0,n:150000}}},
-  {nro:8,nombre:"GALICIA - 8 026-7",titular:"FC",pais:"ARG",byY:{"2018":{i:112889,c:0,r:0,n:112889},"2019":{i:3568,c:0,r:0,n:3568},"2020":{i:1292,c:0,r:0,n:1292},"2021":{i:2154,c:0,r:0,n:2154},"2022":{i:1605,c:0,r:0,n:1605},"2023":{i:891,c:0,r:0,n:891},"2024":{i:1361,c:0,r:0,n:1361},"2025":{i:14853,c:0,r:0,n:14853},"2026":{i:11499,c:16977,r:0,n:28475}}},
+  {nro:1,nombre:"SANTANDER RIO - 007/1",titular:"FC",pais:"ARG",byY:{"2018":{i:76076,c:0,r:0,n:76076},"2019":{i:26046,c:0,r:0,n:26046},"2020":{i:21331,c:0,r:0,n:21331},"2021":{i:44645,c:0,r:0,n:44645},"2022":{i:0,c:20694.32,r:0,n:20694.32},"2023":{i:4170,c:0,r:0,n:4170},"2024":{i:251935,c:0,r:0,n:251935},"2025":{i:38417,c:0,r:0,n:38417},"2026":{i:38214,c:31202,r:0,n:69417}}},
+  {nro:2,nombre:"JP MORGAN (JCFC Inc) - 7335",titular:"FC",pais:"USA",byY:{"2018":{i:3450439,c:0,r:0,n:3450439},"2019":{i:1080938,c:0,r:0,n:1080938},"2020":{i:967908,c:0,r:410000,n:557908},"2021":{i:942433,c:0,r:410000,n:532433},"2022":{i:696792,c:74033,r:410000,n:360825},"2023":{i:788813,c:0,r:0,n:788813},"2024":{i:610883,c:0,r:0,n:610883},"2025":{i:236303,c:0,r:0,n:236303},"2026":{i:243814,c:22455,r:0,n:266269}}},
+  {nro:3,nombre:"BNY (JCFC Inc) - 8564",titular:"FC",pais:"USA",byY:{"2018":{i:1920479,c:0,r:0,n:1920479},"2019":{i:1354613,c:0,r:0,n:1354613},"2020":{i:1177907,c:0,r:0,n:1177907},"2021":{i:1096502,c:0,r:0,n:1096502},"2022":{i:979345,c:10008,r:0,n:989353},"2023":{i:330260,c:0,r:0,n:330260},"2024":{i:228381,c:0,r:0,n:228381},"2025":{i:181103,c:0,r:0,n:181103},"2026":{i:181820,c:1092,r:0,n:182912}}},
+  {nro:4,nombre:"BANK OF AMERICA - 9764",titular:"FC",pais:"USA",byY:{"2018":{i:19101,c:0,r:0,n:19101},"2019":{i:9586,c:0,r:0,n:9586},"2020":{i:6634,c:0,r:0,n:6634},"2021":{i:49721,c:0,r:0,n:49721},"2022":{i:0,c:17733,r:0,n:17733},"2023":{i:50678,c:0,r:0,n:50678},"2024":{i:44886,c:0,r:0,n:44886},"2025":{i:79751,c:0,r:0,n:79751},"2026":{i:0,c:61433,r:0,n:61433}}},
+  {nro:5,nombre:"ITAU - $ 4386 - US$ 9610",titular:"FC",pais:"URU",byY:{"2018":{i:51671,c:0,r:0,n:51671},"2019":{i:39684,c:0,r:0,n:39684},"2020":{i:657393,c:0,r:0,n:657393},"2021":{i:120660,c:0,r:0,n:120660},"2022":{i:0,c:61000.04,r:0,n:61000.04},"2023":{i:274611,c:0,r:0,n:274611},"2024":{i:379936,c:0,r:0,n:379936},"2025":{i:33020,c:0,r:0,n:33020},"2026":{i:0,c:44162,r:0,n:44162}}},
+  {nro:6,nombre:"Max Valores - 10889",titular:"JC",pais:"ARG",byY:{"2020":{i:17911,c:0,r:0,n:17911},"2021":{i:7,c:0,r:0,n:7},"2022":{i:0,c:50000,r:0,n:50000},"2026":{i:0,c:0,r:0,n:0}}},
+  {nro:7,nombre:"CAJA JC",titular:"FC",pais:"ARG",byY:{"2018":{i:210000,c:0,r:0,n:210000},"2020":{i:7105,c:0,r:0,n:7105},"2021":{i:897385,c:0,r:0,n:897385},"2022":{i:0,c:6433.53,r:0,n:6433.53},"2024":{i:117000,c:0,r:0,n:117000},"2026":{i:0,c:150000,r:0,n:150000}}},
+  {nro:8,nombre:"GALICIA - 8 026-7",titular:"FC",pais:"ARG",byY:{"2018":{i:112889,c:0,r:0,n:112889},"2019":{i:3568,c:0,r:0,n:3568},"2020":{i:1292,c:0,r:0,n:1292},"2021":{i:2154,c:0,r:0,n:2154},"2022":{i:578.03,c:1728.08,r:0,n:2306.11},"2023":{i:891,c:0,r:0,n:891},"2024":{i:1361,c:0,r:0,n:1361},"2025":{i:14853,c:0,r:0,n:14853},"2026":{i:11499,c:16977,r:0,n:28475}}},
   {nro:9,nombre:"GALICA BB - 1 026-2",titular:"FC",pais:"ARG",byY:{"2019":{i:1412,c:0,r:0,n:1412},"2020":{i:340,c:0,r:0,n:340},"2021":{i:1880,c:0,r:0,n:1880},"2022":{i:1858,c:0,r:0,n:1858},"2025":{i:83,c:0,r:0,n:83},"2026":{i:0,c:0,r:0,n:0}}},
-  {nro:10,nombre:"CITI - 8339",titular:"FC",pais:"USA",byY:{"2019":{i:4985,c:0,r:0,n:4985},"2020":{i:7090,c:0,r:0,n:7090},"2021":{i:7090,c:0,r:0,n:7090},"2022":{i:7090,c:0,r:0,n:7090},"2023":{i:15586,c:0,r:0,n:15586},"2024":{i:48597,c:0,r:0,n:48597},"2026":{i:0,c:0,r:0,n:0}}},
-  {nro:11,nombre:"CAJA FC",titular:"FC",pais:"ARG",byY:{"2018":{i:17000,c:0,r:0,n:17000},"2019":{i:15380,c:0,r:0,n:15380},"2020":{i:50686,c:0,r:0,n:50686},"2021":{i:170135,c:0,r:0,n:170135},"2022":{i:96659,c:0,r:0,n:96659},"2023":{i:84135,c:0,r:0,n:84135},"2024":{i:321460,c:0,r:0,n:321460},"2025":{i:224525,c:0,r:0,n:224525},"2026":{i:0,c:225219,r:0,n:225219}}},
-  {nro:12,nombre:"BNY (Martona) - 1479",titular:"M",pais:"USA",byY:{"2018":{i:76723003,c:0,r:0,n:76723003},"2019":{i:88336835,c:0,r:0,n:88336835},"2020":{i:90734766,c:0,r:3500000,n:87234766},"2021":{i:83183677,c:0,r:0,n:83183677},"2022":{i:76844137,c:0,r:0,n:76844137},"2023":{i:74076598,c:0,r:0,n:74076598},"2024":{i:78076997,c:0,r:0,n:78076997},"2025":{i:80694175,c:0,r:0,n:80694175},"2026":{i:76494331,c:759166,r:0,n:77253498}}},
-  {nro:13,nombre:"CHASE (Germania) - 3610",titular:"M",pais:"USA",byY:{"2019":{i:491913,c:0,r:0,n:491913},"2020":{i:341028,c:0,r:0,n:341028},"2021":{i:415826,c:0,r:3437438,n:-3021612},"2022":{i:399771,c:0,r:3437438,n:-3037667},"2023":{i:450469,c:0,r:3305882,n:-2855413},"2024":{i:391855,c:0,r:3200000,n:-2808145},"2025":{i:574997,c:0,r:3198156,n:-2623159},"2026":{i:0,c:432650,r:0,n:432650}}},
-  {nro:14,nombre:"BNY (LATAM) - 1875",titular:"M",pais:"USA",byY:{"2020":{i:0,c:0,r:1998815,n:-1998815},"2021":{i:3751504,c:0,r:3005318,n:746186},"2022":{i:3675457,c:0,r:3032361,n:643096},"2023":{i:3810401,c:0,r:2166951,n:1643450},"2024":{i:3915328,c:0,r:2934081,n:981246},"2025":{i:4082056,c:0,r:2590034,n:1492023},"2026":{i:4113036,c:7605,r:2956404,n:1164236}}},
-  {nro:15,nombre:"CHASE Key Offida - 7537",titular:"M",pais:"USA",byY:{"2021":{i:30370,c:0,r:0,n:30370},"2022":{i:60397,c:0,r:0,n:60397},"2023":{i:93396,c:0,r:0,n:93396},"2024":{i:96277,c:0,r:0,n:96277},"2025":{i:94932,c:0,r:0,n:94932},"2026":{i:0,c:108617,r:0,n:108617}}},
-  {nro:16,nombre:"CHASE Miami Offida - 7535",titular:"M",pais:"USA",byY:{"2021":{i:2318853,c:0,r:0,n:2318853},"2022":{i:60772,c:0,r:0,n:60772},"2023":{i:87306,c:0,r:0,n:87306},"2024":{i:139833,c:0,r:0,n:139833},"2025":{i:44563,c:0,r:0,n:44563},"2026":{i:0,c:138200,r:0,n:138200}}},
-  {nro:17,nombre:"CHASE Brickell Offida - 1231",titular:"M",pais:"USA",byY:{"2021":{i:1366212,c:0,r:1012619,n:353593},"2022":{i:1363292,c:0,r:971304,n:391988},"2023":{i:1509564,c:0,r:1058513,n:451052},"2024":{i:1585982,c:0,r:1131698,n:454284},"2025":{i:1664989,c:0,r:1198194,n:466795},"2026":{i:1486485,c:206625,r:1222945,n:470164}}},
-  {nro:18,nombre:"BNY FC & BB - 2048",titular:"FC",pais:"USA",byY:{"2021":{i:542613,c:0,r:402640,n:139973},"2022":{i:517484,c:0,r:406264,n:111220},"2023":{i:453788,c:0,r:406268,n:47520},"2024":{i:516013,c:0,r:407919,n:108095},"2025":{i:398346,c:0,r:431887,n:-33541},"2026":{i:421749,c:990,r:441020,n:-18281}}},
-  {nro:19,nombre:"CHASE Lana - 6705",titular:"FC",pais:"USA",byY:{"2021":{i:13004,c:0,r:0,n:13004},"2022":{i:25068,c:0,r:0,n:25068},"2023":{i:39242,c:0,r:0,n:39242},"2024":{i:25557,c:0,r:0,n:25557},"2025":{i:18179,c:0,r:0,n:18179},"2026":{i:0,c:28596,r:0,n:28596}}},
-  {nro:20,nombre:"CHASE Sanber - 2320",titular:"G",pais:"USA",byY:{"2021":{i:23727,c:0,r:0,n:23727},"2022":{i:34912,c:0,r:0,n:34912},"2023":{i:59657,c:0,r:0,n:59657},"2024":{i:68582,c:0,r:0,n:68582},"2025":{i:148320,c:0,r:0,n:148320},"2026":{i:0,c:181747,r:0,n:181747}}},
-  {nro:21,nombre:"CHASE Miami Fiore - 3727",titular:"FCC",pais:"USA",byY:{"2021":{i:3304,c:0,r:0,n:3304},"2022":{i:5800,c:0,r:0,n:5800},"2023":{i:12987,c:0,r:0,n:12987},"2024":{i:12899,c:0,r:0,n:12899},"2025":{i:5369,c:0,r:0,n:5369},"2026":{i:0,c:5761,r:0,n:5761}}},
-  {nro:22,nombre:"CHASE Bachi Invest. - 2510",titular:"MFL",pais:"USA",byY:{"2023":{i:20676,c:0,r:0,n:20676},"2024":{i:34257,c:0,r:0,n:34257},"2025":{i:51053,c:0,r:0,n:51053},"2026":{i:0,c:54901,r:0,n:54901}}},
-  {nro:23,nombre:"SANTANDER Fionder - 2856",titular:"M",pais:"URU",byY:{"2023":{i:261252,c:0,r:0,n:261252},"2024":{i:192127,c:0,r:0,n:192127},"2025":{i:98388,c:0,r:0,n:98388},"2026":{i:0,c:0,r:0,n:0}}},
-  {nro:24,nombre:"SANTANDER Vodno - 3642",titular:"M",pais:"ESP",byY:{"2023":{i:155547,c:0,r:0,n:155547},"2024":{i:167036,c:0,r:0,n:167036},"2025":{i:30986,c:0,r:0,n:30986},"2026":{i:0,c:8147,r:0,n:8147}}},
-  {nro:25,nombre:"BNY Verestol - 2345",titular:"M",pais:"USA",byY:{"2023":{i:3287,c:0,r:0,n:3287},"2024":{i:3125,c:0,r:0,n:3125},"2025":{i:2738,c:0,r:0,n:2738},"2026":{i:0,c:2913,r:0,n:2913}}},
+  {nro:10,nombre:"CITI - 8339",titular:"FC",pais:"USA",byY:{"2019":{i:4985,c:0,r:0,n:4985},"2020":{i:7090,c:0,r:0,n:7090},"2021":{i:7090,c:0,r:0,n:7090},"2022":{i:0,c:7090,r:0,n:7090},"2023":{i:15586,c:0,r:0,n:15586},"2024":{i:48597,c:0,r:0,n:48597},"2026":{i:0,c:0,r:0,n:0}}},
+  {nro:11,nombre:"CAJA FC",titular:"FC",pais:"ARG",byY:{"2018":{i:17000,c:0,r:0,n:17000},"2019":{i:15380,c:0,r:0,n:15380},"2020":{i:50686,c:0,r:0,n:50686},"2021":{i:170135,c:0,r:0,n:170135},"2022":{i:0,c:85578.03,r:0,n:85578.03},"2023":{i:84135,c:0,r:0,n:84135},"2024":{i:321460,c:0,r:0,n:321460},"2025":{i:224525,c:0,r:0,n:224525},"2026":{i:0,c:225219,r:0,n:225219}}},
+  {nro:12,nombre:"BNY (Martona) - 1479",titular:"M",pais:"USA",byY:{"2018":{i:76723003,c:0,r:0,n:76723003},"2019":{i:88336835,c:0,r:0,n:88336835},"2020":{i:90734766,c:0,r:3500000,n:87234766},"2021":{i:83183677,c:0,r:0,n:83183677},"2022":{i:71518654,c:854231,r:0,n:72372885},"2023":{i:74076598,c:0,r:0,n:74076598},"2024":{i:78076997,c:0,r:0,n:78076997},"2025":{i:80694175,c:0,r:0,n:80694175},"2026":{i:76494331,c:759166,r:0,n:77253498}}},
+  {nro:13,nombre:"CHASE (Germania) - 3610",titular:"M",pais:"USA",byY:{"2019":{i:491913,c:0,r:0,n:491913},"2020":{i:341028,c:0,r:0,n:341028},"2021":{i:415826,c:0,r:3437438,n:-3021612},"2022":{i:0,c:424937,r:3338882.42,n:-2913945.42},"2023":{i:450469,c:0,r:3305882,n:-2855413},"2024":{i:391855,c:0,r:3200000,n:-2808145},"2025":{i:574997,c:0,r:3198156,n:-2623159},"2026":{i:0,c:432650,r:0,n:432650}}},
+  {nro:14,nombre:"BNY (LATAM) - 1875",titular:"M",pais:"USA",byY:{"2020":{i:0,c:0,r:1998815,n:-1998815},"2021":{i:3751504,c:0,r:3005318,n:746186},"2022":{i:3675716,c:3356.48,r:3097127,n:581945.48},"2023":{i:3810401,c:0,r:2166951,n:1643450},"2024":{i:3915328,c:0,r:2934081,n:981246},"2025":{i:4082056,c:0,r:2590034,n:1492023},"2026":{i:4113036,c:7605,r:2956404,n:1164236}}},
+  {nro:15,nombre:"CHASE Key Offida - 7537",titular:"M",pais:"USA",byY:{"2021":{i:30370,c:0,r:0,n:30370},"2022":{i:0,c:71212,r:0,n:71212},"2023":{i:93396,c:0,r:0,n:93396},"2024":{i:96277,c:0,r:0,n:96277},"2025":{i:94932,c:0,r:0,n:94932},"2026":{i:0,c:108617,r:0,n:108617}}},
+  {nro:16,nombre:"CHASE Miami Offida - 7535",titular:"M",pais:"USA",byY:{"2021":{i:2318853,c:0,r:0,n:2318853},"2022":{i:0,c:27013,r:0,n:27013},"2023":{i:87306,c:0,r:0,n:87306},"2024":{i:139833,c:0,r:0,n:139833},"2025":{i:44563,c:0,r:0,n:44563},"2026":{i:0,c:138200,r:0,n:138200}}},
+  {nro:17,nombre:"CHASE Brickell Offida - 1231",titular:"M",pais:"USA",byY:{"2021":{i:1366212,c:0,r:1012619,n:353593},"2022":{i:1306191,c:71049,r:992049,n:385191},"2023":{i:1509564,c:0,r:1058513,n:451052},"2024":{i:1585982,c:0,r:1131698,n:454284},"2025":{i:1664989,c:0,r:1198194,n:466795},"2026":{i:1486485,c:206625,r:1222945,n:470164}}},
+  {nro:18,nombre:"BNY FC & BB - 2048",titular:"FC",pais:"USA",byY:{"2021":{i:542613,c:0,r:402640,n:139973},"2022":{i:473027,c:18934,r:384940,n:107021},"2023":{i:453788,c:0,r:406268,n:47520},"2024":{i:516013,c:0,r:407919,n:108095},"2025":{i:398346,c:0,r:431887,n:-33541},"2026":{i:421749,c:990,r:441020,n:-18281}}},
+  {nro:19,nombre:"CHASE Lana - 6705",titular:"FC",pais:"USA",byY:{"2021":{i:13004,c:0,r:0,n:13004},"2022":{i:0,c:11686,r:0,n:11686},"2023":{i:39242,c:0,r:0,n:39242},"2024":{i:25557,c:0,r:0,n:25557},"2025":{i:18179,c:0,r:0,n:18179},"2026":{i:0,c:28596,r:0,n:28596}}},
+  {nro:20,nombre:"CHASE Sanber - 2320",titular:"G",pais:"USA",byY:{"2021":{i:23727,c:0,r:0,n:23727},"2022":{i:0,c:34912,r:0,n:34912},"2023":{i:59657,c:0,r:0,n:59657},"2024":{i:68582,c:0,r:0,n:68582},"2025":{i:148320,c:0,r:0,n:148320},"2026":{i:0,c:181747,r:0,n:181747}}},
+  {nro:21,nombre:"CHASE Miami Fiore - 3727",titular:"FCC",pais:"USA",byY:{"2021":{i:3304,c:0,r:0,n:3304},"2022":{i:0,c:9992,r:0,n:9992},"2023":{i:12987,c:0,r:0,n:12987},"2024":{i:12899,c:0,r:0,n:12899},"2025":{i:5369,c:0,r:0,n:5369},"2026":{i:0,c:5761,r:0,n:5761}}},
+  {nro:22,nombre:"CHASE Bachi Invest. - 2510",titular:"MFL",pais:"USA",byY:{"2022":{i:0,c:0,r:0,n:0},"2023":{i:20676,c:0,r:0,n:20676},"2024":{i:34257,c:0,r:0,n:34257},"2025":{i:51053,c:0,r:0,n:51053},"2026":{i:0,c:54901,r:0,n:54901}}},
+  {nro:23,nombre:"SANTANDER Fionder - 2856",titular:"M",pais:"URU",byY:{"2022":{i:0,c:430763.38,r:0,n:430763.38},"2023":{i:261252,c:0,r:0,n:261252},"2024":{i:192127,c:0,r:0,n:192127},"2025":{i:98388,c:0,r:0,n:98388},"2026":{i:0,c:0,r:0,n:0}}},
+  {nro:24,nombre:"SANTANDER Vodno - 3642",titular:"M",pais:"ESP",byY:{"2022":{i:0,c:169750,r:0,n:169750},"2023":{i:155547,c:0,r:0,n:155547},"2024":{i:167036,c:0,r:0,n:167036},"2025":{i:30986,c:0,r:0,n:30986},"2026":{i:0,c:8147,r:0,n:8147}}},
+  {nro:25,nombre:"BNY Verestol - 2345",titular:"M",pais:"USA",byY:{"2022":{i:0,c:4765,r:0,n:4765},"2023":{i:3287,c:0,r:0,n:3287},"2024":{i:3125,c:0,r:0,n:3125},"2025":{i:2738,c:0,r:0,n:2738},"2026":{i:0,c:2913,r:0,n:2913}}},
   {nro:26,nombre:"BNY MFL 139",titular:"MFL",pais:"USA",byY:{"2023":{i:188517,c:0,r:0,n:188517},"2026":{i:0,c:0,r:0,n:0}}},
   {nro:27,nombre:"CAJA FCC",titular:"FCC",pais:"ARG",byY:{"2023":{i:0,c:0,r:1065,n:-1065},"2024":{i:13,c:0,r:150000,n:-149987},"2025":{i:19113,c:0,r:0,n:19113},"2026":{i:0,c:9983,r:0,n:9983}}},
   {nro:28,nombre:"CAJA YAC",titular:"YAC",pais:"ARG",byY:{"2023":{i:3821,c:0,r:0,n:3821},"2024":{i:137655,c:0,r:0,n:137655},"2025":{i:86780,c:0,r:0,n:86780},"2026":{i:0,c:53709,r:0,n:53709}}},
@@ -5629,6 +5606,12 @@ function renderPEHist() {
   const _peP = {"Global Seg":"arg","Vannier":"arg","CRC":"uru","Panera Rosa":"arg","Panera Rosa LOAN":"arg","Camping":"arg","805 Streaming":"arg"};
   const _cpP = n => _peP[n] || 'usa';
   const _utAc = p => Object.entries(p.byY).reduce((s,[yy,d]) => yy<=y ? s+(d.ut||0) : s, 0);
+  // v144 — `ia` es la inversión acumulada AL INICIO del año y `ap` el aporte DE ese año, así que
+  // la acumulada al CIERRE es ia+ap. La columna mostraba `ia` sola mientras la de utilidad ya
+  // acumulaba el año en curso: TGA FINANCIAL JC en 2025 (ia:0 · ap:100.000) mostraba 0 de inversión
+  // acumulada y +28.874 de utilidad acumulada. Ahora las dos columnas cierran el mismo período.
+  // Es además el criterio que ya usaba el cuadro de distribución por cliente de más abajo.
+  const _invAc = d => (d.ia||0) + (d.ap||0);
   let data = PE_HIST_DATA.filter(p => p.byY[y]);
   if (verComo) data = data.filter(p => { const w=pePesosAnio(p.nro,y); return Object.keys(w).length ? w[verComo]!=null : ((PE_HIST_DATA.find(x=>x.nro===p.nro)||{}).titular===verComo); });
   let body = data.map(p => { const d = p.byY[y]; const ua = _utAc(p); const tit = peTitAnio(p.nro,y);
@@ -5639,12 +5622,12 @@ function renderPEHist() {
       <td style="color:var(--text3);font-size:11px;${ns}">${p.nro}</td>
       <td style="font-size:12px;font-weight:500;${isT?'text-decoration:line-through;color:var(--text3)':''}">${p.nombre}${p.terminado?' <span style="font-size:9px;background:var(--text3);color:#fff;border-radius:4px;padding:1px 5px;margin-left:4px">TERMINADO</span>':''}<button onclick="abrirEditHist('pe',${p.nro},${y})" style="background:none;border:none;cursor:pointer;color:var(--gold);font-size:12px;margin-left:6px;padding:0" title="Editar valor histórico">✎</button></td>
       <td style="font-size:11px;color:var(--text3);${ns}">${tit}</td>
-      <td class="num" style="font-size:11px;${ns}">${d.ia?'$'+fmt(d.ia):'—'}</td>
+      <td class="num" style="font-size:11px;${ns}">${_invAc(d)?'$'+fmt(_invAc(d)):'—'}</td>
       <td class="num" style="font-size:11px;color:${ua?'var(--esp)':''};${ns}">${ua?'+$'+fmt(ua):'—'}</td>
       <td class="num" style="font-size:11px;border-left:2px solid var(--border2);color:${d.ap?'var(--esp)':''};${ns}">${d.ap?'+$'+fmt(d.ap):'—'}</td>
       <td class="num" style="font-size:11px;color:${d.ut?'var(--esp)':''};${ns}">${d.ut?'+$'+fmt(d.ut):'—'}</td>
     </tr>`; }).join('');
-  const T = data.reduce((a,p) => { const d=p.byY[y]; a.ia+=d.ia; a.ap+=d.ap; a.ut+=d.ut; a.ua+=_utAc(p); return a; }, {ia:0,ap:0,ut:0,ua:0});
+  const T = data.reduce((a,p) => { const d=p.byY[y]; a.ia+=_invAc(d); a.ap+=(d.ap||0); a.ut+=(d.ut||0); a.ua+=_utAc(p); return a; }, {ia:0,ap:0,ut:0,ua:0});
   body += `<tr style="background:var(--bg3);border-top:2px solid var(--border2)">
     <td colspan="3" class="bold" style="color:var(--gold)">TOTAL</td>
     <td class="num bold" style="color:var(--gold);font-size:11px">$${fmt(T.ia)}</td>
@@ -11925,7 +11908,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260806-143';
+const APP_VERSION = '20260807-144';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
@@ -12521,7 +12504,7 @@ async function renderEstados() {
     _nota('1 · Moneda y tipo de cambio',
       'Todas las cifras están expresadas en <b>dólares estadounidenses</b>. Los saldos en pesos argentinos, pesos uruguayos y euros se convierten al tipo de cambio de cierre de ' + _nFechaTC + ': ' +
       'ARS ' + (_nTC.ars_usd ? Number(_nTC.ars_usd).toLocaleString('es-AR') : '—') + ' · UYU ' + (_nTC.uyu_usd ? Number(_nTC.uyu_usd).toFixed(3) : '—') + ' · EUR ' + (_nTC.eur_usd ? Number(_nTC.eur_usd).toFixed(4) : '—') + ' por dólar. ' +
-      'La paridad se carga semanalmente; los períodos anteriores no se reexpresan.') +
+      'La paridad se carga por mes; los períodos anteriores no se reexpresan.') +
 
     _nota('2 · Criterios de valuación por clase de activo',
       '<div class="table-wrap"><table style="font-size:11.5px"><thead><tr><th>Clase</th><th>Criterio</th><th>Frecuencia</th></tr></thead><tbody>' +
