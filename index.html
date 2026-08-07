@@ -4632,36 +4632,13 @@ function onTcFechaChange() {
   g('tc-ars-in', r ? r.ars_usd : ''); g('tc-uyu-in', r ? r.uyu_usd : ''); g('tc-eur-in', r ? r.eur_usd : '');
 }
 
+// v145 — FIX de la regresión de v144. Esta función cargaba la tabla semanal Y, recién en su
+// ÚLTIMA línea, el histórico mensual. Al retirar la vista semanal le puse un `return` temprano
+// cuando no encontraba el tbody, y con eso me llevé puesta la llamada a loadTCHist(): el TC
+// mensual histórico dejó de cargarse y la tabla quedaba vacía.
+// Ahora esta función es únicamente el histórico mensual. Quien la llame sigue funcionando igual.
 async function loadTC_tabla() {
-  // v144 — La vista semanal se retiró. Si el tbody no existe (que es el caso desde v144),
-  // salimos sin tocar la base: no tiene sentido pegarle a tc_semanal para no mostrar nada.
-  const tbody = document.getElementById('tbody-tc');
-  if (!tbody) return;
-  let data = [];
-  try {
-    const result = await sb.from('tc_semanal').select('*').order('fecha', { ascending: false });
-    data = result.data || [];
-  } catch(e) { console.warn('tc_semanal error:', e.message); data = []; }
-  _tcSemCache = data;
-  const num = (v, dec) => (v===null||v===undefined||isNaN(parseFloat(v))) ? '—' : parseFloat(v).toLocaleString('es-AR',{minimumFractionDigits:dec,maximumFractionDigits:dec});
-  tbody.innerHTML = (data.length ? data.map(r => `
-    <tr>
-      <td>${_rangoSemana(r.fecha)}</td>
-      <td class="num">${num(r.ars_usd,2)}</td>
-      <td class="num">${num(r.uyu_usd,3)}</td>
-      <td class="num">${num(r.eur_usd,4)}</td>
-      <td><button class="btn-secondary" style="padding:4px 10px;font-size:11px" onclick="editTC('${r.fecha}')">Editar</button></td>
-    </tr>`).join('') : '<tr><td colspan="5" style="color:var(--text3);text-align:center">Sin semanas cargadas</td></tr>');
-  // Default: domingo de la semana en curso, si el campo está vacío
-  const fEl = document.getElementById('tc-fecha');
-  if (fEl && !fEl.value) { fEl.value = _domingoDe(_ymd(new Date())); onTcFechaChange(); }
   try { await loadTCHist(); } catch(e) { console.warn('loadTCHist:', e.message); }
-}
-
-// Carga una semana existente en el editor (por fecha del domingo).
-function editTC(fecha) {
-  const fEl = document.getElementById('tc-fecha'); if (fEl) fEl.value = fecha;
-  onTcFechaChange();
 }
 
 async function guardarTCSemana() {
@@ -5425,7 +5402,7 @@ const BANCOS_HIST_DATA = [
   {nro:6,nombre:"Max Valores - 10889",titular:"JC",pais:"ARG",byY:{"2020":{i:17911,c:0,r:0,n:17911},"2021":{i:7,c:0,r:0,n:7},"2022":{i:0,c:50000,r:0,n:50000},"2026":{i:0,c:0,r:0,n:0}}},
   {nro:7,nombre:"CAJA JC",titular:"FC",pais:"ARG",byY:{"2018":{i:210000,c:0,r:0,n:210000},"2020":{i:7105,c:0,r:0,n:7105},"2021":{i:897385,c:0,r:0,n:897385},"2022":{i:0,c:6433.53,r:0,n:6433.53},"2024":{i:117000,c:0,r:0,n:117000},"2026":{i:0,c:150000,r:0,n:150000}}},
   {nro:8,nombre:"GALICIA - 8 026-7",titular:"FC",pais:"ARG",byY:{"2018":{i:112889,c:0,r:0,n:112889},"2019":{i:3568,c:0,r:0,n:3568},"2020":{i:1292,c:0,r:0,n:1292},"2021":{i:2154,c:0,r:0,n:2154},"2022":{i:578.03,c:1728.08,r:0,n:2306.11},"2023":{i:891,c:0,r:0,n:891},"2024":{i:1361,c:0,r:0,n:1361},"2025":{i:14853,c:0,r:0,n:14853},"2026":{i:11499,c:16977,r:0,n:28475}}},
-  {nro:9,nombre:"GALICA BB - 1 026-2",titular:"FC",pais:"ARG",byY:{"2019":{i:1412,c:0,r:0,n:1412},"2020":{i:340,c:0,r:0,n:340},"2021":{i:1880,c:0,r:0,n:1880},"2022":{i:1858,c:0,r:0,n:1858},"2025":{i:83,c:0,r:0,n:83},"2026":{i:0,c:0,r:0,n:0}}},
+  {nro:9,nombre:"GALICA BB - 1 026-2",titular:"FC",pais:"ARG",byY:{"2019":{i:1412,c:0,r:0,n:1412},"2020":{i:340,c:0,r:0,n:340},"2021":{i:1880,c:0,r:0,n:1880},"2022":{i:0,c:578,r:0,n:578},"2025":{i:83,c:0,r:0,n:83},"2026":{i:0,c:0,r:0,n:0}}},
   {nro:10,nombre:"CITI - 8339",titular:"FC",pais:"USA",byY:{"2019":{i:4985,c:0,r:0,n:4985},"2020":{i:7090,c:0,r:0,n:7090},"2021":{i:7090,c:0,r:0,n:7090},"2022":{i:0,c:7090,r:0,n:7090},"2023":{i:15586,c:0,r:0,n:15586},"2024":{i:48597,c:0,r:0,n:48597},"2026":{i:0,c:0,r:0,n:0}}},
   {nro:11,nombre:"CAJA FC",titular:"FC",pais:"ARG",byY:{"2018":{i:17000,c:0,r:0,n:17000},"2019":{i:15380,c:0,r:0,n:15380},"2020":{i:50686,c:0,r:0,n:50686},"2021":{i:170135,c:0,r:0,n:170135},"2022":{i:0,c:85578.03,r:0,n:85578.03},"2023":{i:84135,c:0,r:0,n:84135},"2024":{i:321460,c:0,r:0,n:321460},"2025":{i:224525,c:0,r:0,n:224525},"2026":{i:0,c:225219,r:0,n:225219}}},
   {nro:12,nombre:"BNY (Martona) - 1479",titular:"M",pais:"USA",byY:{"2018":{i:76723003,c:0,r:0,n:76723003},"2019":{i:88336835,c:0,r:0,n:88336835},"2020":{i:90734766,c:0,r:3500000,n:87234766},"2021":{i:83183677,c:0,r:0,n:83183677},"2022":{i:71518654,c:854231,r:0,n:72372885},"2023":{i:74076598,c:0,r:0,n:74076598},"2024":{i:78076997,c:0,r:0,n:78076997},"2025":{i:80694175,c:0,r:0,n:80694175},"2026":{i:76494331,c:759166,r:0,n:77253498}}},
@@ -11908,7 +11885,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260807-144';
+const APP_VERSION = '20260807-145';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
