@@ -11925,9 +11925,13 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260805-142';
+const APP_VERSION = '20260806-143';
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('/Family-Office/sw.js').then(reg => {
+  // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
+  // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
+  // Con la ruta absoluta vieja daba 404 en el dominio nuevo: el SW no se instalaba y CACHE_VERSION
+  // dejaba de forzar la actualización — sin ningún error visible.
+  navigator.serviceWorker.register('sw.js').then(reg => {
     reg.addEventListener('updatefound', () => {
       const newWorker = reg.installing;
       newWorker.addEventListener('statechange', () => {

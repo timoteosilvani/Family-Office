@@ -4,12 +4,16 @@
 // forzar actualización en todos los dispositivos
 // ============================================
 
-const CACHE_VERSION = '20260805-142'; // <-- actualizar en cada deploy
+const CACHE_VERSION = '20260806-143'; // <-- actualizar en cada deploy
 const CACHE_NAME = 'fo-cache-' + CACHE_VERSION;
 
+// Rutas RELATIVAS al sw.js, nunca absolutas. Con la app en usuario.github.io/Family-Office/
+// resuelven a /Family-Office/ y /Family-Office/index.html, exactamente igual que antes. El día
+// que el repo tenga dominio propio, GitHub Pages lo sirve desde la RAÍZ del dominio y estas dos
+// mismas líneas resuelven a / y /index.html. Un solo archivo sirve para los dos casos.
 const PRECACHE = [
-  '/Family-Office/',
-  '/Family-Office/index.html',
+  './',
+  './index.html',
 ];
 
 self.addEventListener('install', e => {
