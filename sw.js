@@ -4,7 +4,7 @@
 // forzar actualización en todos los dispositivos
 // ============================================
 
-const CACHE_VERSION = '20260807-145'; // <-- actualizar en cada deploy
+const CACHE_VERSION = '20260811-146'; // <-- actualizar en cada deploy
 const CACHE_NAME = 'fo-cache-' + CACHE_VERSION;
 
 // Rutas RELATIVAS al sw.js, nunca absolutas. Con la app en usuario.github.io/Family-Office/
@@ -14,6 +14,13 @@ const CACHE_NAME = 'fo-cache-' + CACHE_VERSION;
 const PRECACHE = [
   './',
   './index.html',
+  // v146 — el manifest y los íconos también se precachean: sin esto, la app instalada
+  // en el celular pierde el ícono y el modo pantalla completa al quedarse sin señal.
+  './manifest.webmanifest',
+  './icon-192.png',
+  './icon-512.png',
+  './icon-maskable.png',
+  './apple-icon.png',
 ];
 
 self.addEventListener('install', e => {

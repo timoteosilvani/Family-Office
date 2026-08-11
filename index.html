@@ -8,6 +8,15 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<!-- v146 — PWA instalable. El manifest es lo que hace que Chrome/Android ofrezca "Instalar
+     aplicación" (sin él solo crea un acceso directo) y que abra a pantalla completa.
+     iPhone ignora el manifest para el ícono: usa exclusivamente apple-touch-icon, por eso va
+     aparte. Rutas RELATIVAS, igual que el service worker: funcionan en /Family-Office/ y en la
+     raíz de un dominio propio sin tocar nada. -->
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-icon.png">
+<meta name="apple-mobile-web-app-title" content="OFFIDA">
+<meta name="theme-color" content="#0f0f0f">
 <title>Family Office</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
@@ -11885,7 +11894,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260807-145';
+const APP_VERSION = '20260811-146';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
