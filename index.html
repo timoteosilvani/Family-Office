@@ -5082,7 +5082,7 @@ function renderPatrimonioPivot() {
   const rows = titulares.map(tit => {
     const isFO = tit === 'FO';
     const vals = anios.map(a => {
-      const src = patData.filter(r => r.anio===a && (isFO || r.titular===tit));
+      const src = patData.filter(r => r.anio===a && (isFO ? r.titular!=='MFL' : r.titular===tit));
       return src.reduce((s,row) => s + (campo === 'total' ? (row.propiedades||0)+(row.banco||0)+(row.private_equity||0)+(row.autos||0) : (row[campo]||0)), 0);
     });
     const v25 = vals[anios.indexOf(2025)] || vals[anios.length-2] || 0;
@@ -5148,7 +5148,7 @@ function renderPatrimonioLinea() {
 
   titulares.forEach(tit => {
     const vals = anios.map(a => {
-      const src = patData.filter(r => r.anio===a && (tit==='FO' || r.titular===tit));
+      const src = patData.filter(r => r.anio===a && (tit==='FO' ? r.titular!=='MFL' : r.titular===tit));
       if (!src.length) return null;
       return src.reduce((s,r)=> s+(r.propiedades||0)+(r.banco||0)+(r.private_equity||0)+(r.autos||0), 0);
     });
@@ -7333,7 +7333,9 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
     ${vencTable}`;
 }
 
-// Titulares que suman al FO consolidado. 'H' entra una sola vez (no se reparte ÷3: el total es el mismo).
+// Titulares que se TRAEN para el FO consolidado. 'H' entra una sola vez (no se reparte ÷3).
+// MFL sigue en la lista a proposito: hay que traerlo para no perder Nordelta, que hasta 2024
+// era de JC. La exclusion de MFL del total la hace cuentaFO(), no este filtro.
 const FO_TITULARES = ['JC','FC','FCC','MFL','YAC','M','G','H'];
 
 // Dispatcher de Reportes: Mensual · Semestral (S1/S2) · Anual — un solo motor para los tres.
@@ -7385,8 +7387,13 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
     sb.from('bancos').select('*').in('titular', titFilter),
     sb.from('prestamos').select('*, propiedad:propiedad_id(nombre)').in('titular', titFilter).then(r=>r, ()=>({data:[]})),
   ]);
-  const props = (propsR.data||[]).filter(p => p.activa !== false && p.vendida !== true);
-  const pe = peR.data||[], autos = autosR.data||[], bancos = (bancosR.data||[]).filter(b => b.activo !== false);
+  // MFL se ve pero NO contabiliza: en el consolidado sus activos se excluyen.
+  // Excepcion: Nordelta (propiedad nro 3) era de JC hasta 2024, asi que hasta ese año si suma.
+  // Se sigue trayendo MFL en la query justamente para no perder Nordelta.
+  const cuentaFO = r => !esFO || r.titular !== 'MFL' || (r.nro === 3 && ANIO <= 2024);
+  const props = (propsR.data||[]).filter(p => p.activa !== false && p.vendida !== true).filter(cuentaFO);
+  const pe = (peR.data||[]).filter(cuentaFO), autos = (autosR.data||[]).filter(cuentaFO),
+        bancos = (bancosR.data||[]).filter(b => b.activo !== false).filter(cuentaFO);
   const bancoIds = bancos.map(b=>b.id);
 
   // Bancos: saldo final (2026) + saldo inicial (dic 2025) + aportes → rendimiento (Dietz $)
@@ -11894,7 +11901,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260811-146';
+const APP_VERSION = '20260813-147';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
@@ -11964,7 +11971,8 @@ function efPeUtRec(p, y){ return Math.max(0, efPeUtAc(p,y) - efPeInv(p,y)); }
 function efPesos(attr, tit, y) {
   if (tit !== 'FO') return (attr[tit] || {})[y] || {};
   const o = {};
-  for (const t in attr) { const it = (attr[t] || {})[y] || {}; for (const nn in it) o[nn] = (o[nn] || 0) + it[nn]; }
+  for (const t in attr) { if (t === 'MFL') continue;   // MFL se ve pero no contabiliza
+    const it = (attr[t] || {})[y] || {}; for (const nn in it) o[nn] = (o[nn] || 0) + it[nn]; }
   return o;
 }
 function efSumAttr(attr, tit, y, valFn) {
@@ -11976,7 +11984,9 @@ function efIdx(arr) { const o = {}; arr.forEach(x => o[x.nro] = x); return o; }
 
 /* ---------- propiedades: mismas reglas de atribución que derivePropsHistByTit ---------- */
 function efShareProp(nro, titular, anio, tit) {
-  if (tit === 'FO') return 1;   // consolidado: cada propiedad cuenta una sola vez
+  // Consolidado: cada propiedad cuenta una sola vez, salvo las que ese año son de MFL.
+  // MFL se ve pero NO contabiliza. Nordelta (nro 3) era de JC hasta 2024: hasta ahi si suma.
+  if (tit === 'FO') return efShareProp(nro, titular, anio, 'MFL') ? 0 : 1;
   if (titular === 'H') { if (anio <= 2025) return tit === 'JC' ? 1 : 0; return ['FC','YAC','FCC'].includes(tit) ? 1/3 : 0; }
   if (nro === 29) return tit === (anio <= 2024 ? 'JC' : 'M')  ? 1 : 0;
   if (nro === 43) return tit === (anio <= 2025 ? 'JC' : 'M')  ? 1 : 0;
