@@ -4793,7 +4793,7 @@ function makeLegend(containerId, labels, colors, values, total) {
 }
 
 async function loadDashboard() {
-  const [{ data: props }, { data: bancosMovsRaw }, { data: pe }, { data: autos }, { data: bancosCat }, { data: propMovs }] = await Promise.all([
+  let [{ data: props }, { data: bancosMovsRaw }, { data: pe }, { data: autos }, { data: bancosCat }, { data: propMovs }] = await Promise.all([
     aplicarFiltroTit(sb.from('propiedades').select('id, pais, valor_2026, titular, tipo').eq('activa', true).eq('vendida', false)),
     sb.from('movimientos_bancos').select('*').eq('anio', 2026),
     aplicarFiltroTit(sb.from('private_equity').select('titular, pais, valor_2026').eq('activo', true)),
@@ -4801,6 +4801,17 @@ async function loadDashboard() {
     aplicarFiltroTit(sb.from('bancos').select('id, pais, activo, titular')),
     sb.from('movimientos_propiedades').select('propiedad_id,total_renta_usd,total_gastos_usd,total_impuestos_usd').eq('anio', 2026),
   ]);
+
+  // MFL se ve pero NO contabiliza: queda fuera de TODOS los totales del consolidado
+  // (patrimonio total, KPIs por pais, donut, tabla de titulares, renta/no renta,
+  // matriz pais x clase). Se filtra aca, en la fuente, para que ningun total lo herede.
+  // Viendo "como MFL" si suma: ahi el dashboard ES el patrimonio propio de MFL.
+  if (verComo !== 'MFL') {
+    props     = (props||[]).filter(x => x.titular !== 'MFL');
+    pe        = (pe||[]).filter(x => x.titular !== 'MFL');
+    autos     = (autos||[]).filter(x => x.titular !== 'MFL');
+    bancosCat = (bancosCat||[]).filter(x => x.titular !== 'MFL');
+  }
 
   // Map banco_id -> pais / titular (+ set de activos)
   const bancosPaisMap = {};
@@ -5099,9 +5110,9 @@ function renderPatrimonioPivot() {
     </tr>`;
   });
 
-  // Fila de totales
+  // Fila de totales = el consolidado de esta tabla (no hay fila FO). MFL no suma.
   const totals = anios.map(a => {
-    return patData.filter(r=>r.anio===a).reduce((sum,r) => {
+    return patData.filter(r=>r.anio===a && (verComo==='MFL' || r.titular!=='MFL')).reduce((sum,r) => {
       if (campo === 'total') return sum + (r.propiedades||0)+(r.banco||0)+(r.private_equity||0)+(r.autos||0);
       return sum + (r[campo]||0);
     }, 0);
@@ -7531,7 +7542,8 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
     const _propDer = derivePropsHistByTit();
     const _act = deriveActivosByTit();
     const byY = {};
-    (ph||[]).forEach(r => { const sh=(r.titular==='H'&&esH)?1/3:1; const y=r.anio; const h=r.anio<=2025;
+    (ph||[]).forEach(r => { if (esFO && r.titular==='MFL') return;   // MFL se ve pero no contabiliza
+      const sh=(r.titular==='H'&&esH)?1/3:1; const y=r.anio; const h=r.anio<=2025;
       const propV=h?((_propDer[r.titular]&&_propDer[r.titular][r.anio])||0):(Number(r.propiedades)||0);
       const bancoV=h?((_act.banco[r.titular]||{})[r.anio]||0):(Number(r.banco)||0);
       const peV=h?((_act.pe[r.titular]||{})[r.anio]||0):(Number(r.private_equity)||0);
@@ -11901,7 +11913,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260813-147';
+const APP_VERSION = '20260813-148';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
