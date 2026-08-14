@@ -1587,6 +1587,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
           <button class="tab-btn" onclick="switchTab('banco','carga',this)">Carga</button>
           <button class="tab-btn" onclick="switchTab('banco','aportes',this)">Aportes</button>
           <button class="tab-btn" onclick="switchTab('banco','transferencias',this);loadTransferencias()">Transferencias</button>
+          <button class="tab-btn" onclick="switchTab('banco','linkeo',this);loadLinkeo()">Linkeo <span id="linkeo-badge" style="display:none;background:var(--usa);color:#fff;border-radius:10px;padding:0 6px;font-size:10px;margin-left:4px"></span></button>
         </div>
 
         <div id="banco-info" class="tab-content active">
@@ -1812,6 +1813,21 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
           </div>
           <div class="section-title" style="margin-bottom:12px">Transferencias registradas</div>
           <div id="transf-lista"><div class="loader"><div class="spinner"></div></div></div>
+        </div>
+
+        <div id="banco-linkeo" class="tab-content">
+          <div style="display:inline-block;background:var(--gold-soft);border:1px solid var(--gold);color:var(--gold);border-radius:20px;padding:4px 14px;font-size:11px;font-weight:600;letter-spacing:0.5px;margin-bottom:14px">LINKEO DE PAGOS Y COBROS</div>
+          <p style="color:var(--text3);font-size:12px;margin-bottom:16px">Cada movimiento tiene que decir de que cuenta sale o a cual entra. Lo que ya tiene regla se linkea solo al volcar el COMPLETO; lo que no, aparece aca. Cuando asignas una cuenta se guarda como regla y de ahi en adelante se aplica sola.</p>
+          <div id="linkeo-kpis" class="grid-3" style="margin-bottom:18px"></div>
+          <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
+            <label class="fld" style="margin:0">Año</label>
+            <select class="fld" id="lk-anio" style="width:auto" onchange="loadLinkeo()"></select>
+            <button class="btn-secondary" style="width:auto;padding:8px 16px" onclick="aplicarReglasTodo()">Aplicar reglas a lo ya cargado</button>
+          </div>
+          <div class="section-title" style="margin-bottom:12px">Pendientes de linkeo</div>
+          <div id="linkeo-pendientes"><div class="loader"><div class="spinner"></div></div></div>
+          <div class="section-title" style="margin:22px 0 12px">Reglas guardadas</div>
+          <div id="linkeo-reglas"></div>
         </div>
       </div>
       <div id="page-private_equity" class="page">
@@ -7197,6 +7213,187 @@ async function loadTransferencias() {
 
 
 // ============================================
+// LINKEO DE PAGOS Y COBROS (v153)
+// Cada movimiento dice de que cuenta sale / a cual entra. Las reglas
+// (activo + rubro -> cuenta) viven en reglas_pago y se aplican solas.
+// ============================================
+let _lkBancos = [], _lkReglas = [];
+
+const LK_TIPOS = [
+  { key:'propiedad', tabla:'movimientos_propiedades', fk:'propiedad_id', cat:'propiedades', label:'Propiedades',
+    montos:['total_gastos_usd','total_impuestos_usd'] },
+  { key:'auto',      tabla:'movimientos_autos',       fk:'auto_id',      cat:'autos',       label:'Autos',
+    montos:['total_usd'] },
+  { key:'sociedad',  tabla:'movimientos_sociedades',  fk:'sociedad_id',  cat:'sociedades',  label:'Sociedades',
+    montos:['total'] },
+  { key:'pe',        tabla:'movimientos_pe',          fk:'pe_id',        cat:'private_equity', label:'Private Equity',
+    montos:['gastos','impuestos'] },
+];
+
+function lkAnioSel() { return parseInt(document.getElementById('lk-anio')?.value) || new Date().getFullYear(); }
+
+async function loadLinkeo() {
+  const selA = document.getElementById('lk-anio');
+  if (selA && !selA.options.length) {
+    const hoy = new Date().getFullYear();
+    selA.innerHTML = [hoy, hoy-1, hoy-2, hoy-3, hoy-4, hoy-5, hoy-6].map(y => `<option value="${y}">${y}</option>`).join('');
+  }
+  const anio = lkAnioSel();
+  const cont = document.getElementById('linkeo-pendientes');
+  if (!cont) return;
+  cont.innerHTML = '<div class="loader"><div class="spinner"></div></div>';
+
+  const [{ data: bcs }, { data: rgs }] = await Promise.all([
+    sb.from('bancos').select('id,nro,nombre,titular,activo').order('nro'),
+    sb.from('reglas_pago').select('*').then(r=>r, ()=>({data:null})),
+  ]);
+  if (rgs === null) { cont.innerHTML = '<p style="color:var(--usa);font-size:13px">Falta la tabla <code>reglas_pago</code>. Corré el SQL de linkeo.</p>'; return; }
+  _lkBancos = (bcs||[]).filter(b => b.activo !== false);
+  _lkReglas = rgs || [];
+
+  // catalogos + movimientos sin cuenta, por tipo
+  const bloques = [];
+  let totalPend = 0;
+  for (const t of LK_TIPOS) {
+    const [{ data: cat }, { data: movs }] = await Promise.all([
+      sb.from(t.cat).select('id,nro,nombre,titular'),
+      sb.from(t.tabla).select('*').eq('anio', anio).is('cuenta_pago_id', null).then(r=>r, ()=>({data:[]})),
+    ]);
+    const porId = {}; (cat||[]).forEach(c => porId[c.id] = c);
+    const byAct = {};
+    (movs||[]).forEach(m => {
+      const a = porId[m[t.fk]]; if (!a) return;
+      const monto = t.montos.reduce((x,k) => x + (Number(m[k])||0), 0);
+      if (!byAct[a.id]) byAct[a.id] = { act:a, meses:[], monto:0, ids:[] };
+      byAct[a.id].meses.push(m.mes); byAct[a.id].monto += monto; byAct[a.id].ids.push(m.id);
+    });
+    const filas = Object.values(byAct).filter(x => x.monto > 0).sort((a,b) => b.monto - a.monto);
+    totalPend += filas.length;
+    if (filas.length) bloques.push({ t, filas });
+  }
+
+  // KPIs
+  const conCuenta = _lkReglas.filter(r => r.cuenta_id).length;
+  const sinCuenta = _lkReglas.length - conCuenta;
+  document.getElementById('linkeo-kpis').innerHTML = [
+    ['Activos sin cuenta asignada', totalPend, totalPend ? 'var(--usa)' : 'var(--esp)'],
+    ['Reglas con cuenta', conCuenta, 'var(--esp)'],
+    ['Reglas sin resolver', sinCuenta, sinCuenta ? 'var(--gold)' : 'var(--text2)'],
+  ].map(([lbl,val,col]) => `<div style="border:1px solid var(--border);border-radius:8px;padding:14px;text-align:center">
+      <div style="font-size:10px;letter-spacing:1px;color:var(--text3);text-transform:uppercase;margin-bottom:6px">${lbl}</div>
+      <div style="font-size:22px;font-weight:300;color:${col}">${val}</div></div>`).join('');
+  const badge = document.getElementById('linkeo-badge');
+  if (badge) { badge.textContent = totalPend || ''; badge.style.display = totalPend ? 'inline-block' : 'none'; }
+
+  const opts = '<option value="">— sin asignar —</option>' +
+    _lkBancos.map(b => `<option value="${b.id}">${b.nombre} (${b.titular})</option>`).join('');
+
+  cont.innerHTML = !bloques.length
+    ? `<p style="color:var(--esp);font-size:13px">Todo ${anio} está linkeado.</p>`
+    : bloques.map(({t,filas}) => `<div class="card" style="margin-bottom:14px">
+        <div class="section-title" style="margin:0 0 10px;font-size:14px">${t.label} <span style="color:var(--text3);font-weight:400;font-size:11px">(${filas.length})</span></div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>N°</th><th>Activo</th><th>Titular</th><th class="num">Meses</th><th class="num">Monto USD</th><th style="min-width:230px">Cuenta</th><th></th></tr></thead>
+          <tbody>${filas.map(f => `<tr>
+            <td style="color:var(--text3)">${f.act.nro ?? '—'}</td>
+            <td class="bold">${f.act.nombre}</td>
+            <td>${f.act.titular || '—'}</td>
+            <td class="num">${f.meses.length}</td>
+            <td class="num">$${fmt(f.monto)}</td>
+            <td><select class="fld" style="padding:5px;font-size:12px" id="lk-sel-${f.act.id}">${opts}</select></td>
+            <td><button class="btn-secondary" style="padding:3px 10px;font-size:11px"
+                  onclick="linkearActivo('${t.key}','${t.tabla}','${f.act.id}',${f.act.nro ?? 'null'},'${(f.act.nombre||'').replace(/'/g,"\\'")}')">Linkear</button></td>
+          </tr>`).join('')}</tbody>
+        </table></div>
+      </div>`).join('');
+
+  renderReglas();
+}
+
+function renderReglas() {
+  const cont = document.getElementById('linkeo-reglas');
+  if (!cont) return;
+  if (!_lkReglas.length) { cont.innerHTML = '<p style="color:var(--text3);font-size:13px">Sin reglas guardadas.</p>'; return; }
+  const nomB = {}; _lkBancos.forEach(b => nomB[b.id] = b.nombre);
+  const opts = id => '<option value="">— sin asignar —</option>' +
+    _lkBancos.map(b => `<option value="${b.id}"${b.id===id?' selected':''}>${b.nombre}</option>`).join('');
+  const byCat = {};
+  _lkReglas.forEach(r => { (byCat[r.categoria] = byCat[r.categoria] || []).push(r); });
+  cont.innerHTML = Object.keys(byCat).sort().map(cat => {
+    const rs = byCat[cat].slice().sort((a,b) => (a.activo_nro-b.activo_nro) || a.rubro.localeCompare(b.rubro));
+    return `<div class="card" style="margin-bottom:14px">
+      <div class="section-title" style="margin:0 0 10px;font-size:14px">${cat} <span style="color:var(--text3);font-weight:400;font-size:11px">(${rs.length})</span></div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>N°</th><th>Rubro</th><th>Medio</th><th style="min-width:210px">Cuenta</th><th>Referencia</th><th>Proveedor</th><th class="num">Día</th></tr></thead>
+        <tbody>${rs.map(r => `<tr>
+          <td style="color:var(--text3)">${r.activo_nro}</td>
+          <td class="bold">${r.rubro}</td>
+          <td style="font-size:11px;color:${r.medio==='Pendiente'?'var(--usa)':'var(--text2)'}">${r.medio||'—'}</td>
+          <td><select class="fld" style="padding:4px;font-size:11px" onchange="guardarRegla('${r.id}', this.value)">${opts(r.cuenta_id)}</select></td>
+          <td style="font-size:11px;color:var(--gold)">${r.referencia||''}</td>
+          <td style="font-size:11px;color:var(--text3)">${r.proveedor||''}</td>
+          <td class="num" style="font-size:11px;color:var(--text3)">${r.dia_pago??''}</td>
+        </tr>`).join('')}</tbody>
+      </table></div>
+    </div>`;
+  }).join('');
+}
+
+// Asigna la cuenta a TODOS los movimientos del activo en el año, y deja la regla.
+async function linkearActivo(catKey, tabla, activoId, activoNro, nombre) {
+  const cuenta = document.getElementById('lk-sel-' + activoId)?.value;
+  if (!cuenta) return toast('Elegí una cuenta primero', 'error');
+  const anio = lkAnioSel();
+  const fk = LK_TIPOS.find(t => t.key === catKey).fk;
+  const { error } = await sb.from(tabla).update({ cuenta_pago_id: cuenta })
+    .eq(fk, activoId).eq('anio', anio).is('cuenta_pago_id', null);
+  if (error) return toast('Error: ' + error.message, 'error');
+  if (activoNro !== null && activoNro !== undefined) {
+    await sb.from('reglas_pago').upsert({
+      categoria: catKey, activo_nro: activoNro, rubro: '*', cuenta_id: cuenta,
+      medio: 'Asignado desde la app', updated_at: new Date().toISOString(),
+    }, { onConflict: 'categoria,activo_nro,rubro' });
+  }
+  toast(`${nombre} linkeado ✓`, 'success');
+  await loadLinkeo();
+}
+
+async function guardarRegla(id, cuentaId) {
+  const { error } = await sb.from('reglas_pago')
+    .update({ cuenta_id: cuentaId || null, updated_at: new Date().toISOString() }).eq('id', id);
+  if (error) return toast('Error: ' + error.message, 'error');
+  toast('Regla actualizada ✓', 'success');
+  const r = _lkReglas.find(x => x.id === id); if (r) r.cuenta_id = cuentaId || null;
+}
+
+// Corre las reglas sobre lo ya cargado: para cada activo usa la cuenta que mas
+// se repite entre sus reglas (las reglas son por rubro; el movimiento es uno solo).
+async function aplicarReglasTodo() {
+  const anio = lkAnioSel();
+  if (!confirm(`Aplicar las reglas a todos los movimientos de ${anio} que todavía no tengan cuenta?`)) return;
+  const { data: rgs } = await sb.from('reglas_pago').select('*');
+  const dom = {};
+  (rgs||[]).filter(r => r.cuenta_id).forEach(r => {
+    const k = r.categoria + '|' + r.activo_nro;
+    (dom[k] = dom[k] || {})[r.cuenta_id] = (dom[k][r.cuenta_id] || 0) + (r.rubro === '*' ? 100 : 1);
+  });
+  let tocados = 0;
+  for (const t of LK_TIPOS) {
+    const { data: cat } = await sb.from(t.cat).select('id,nro');
+    for (const a of (cat||[])) {
+      const votos = dom[t.key + '|' + a.nro]; if (!votos) continue;
+      const cuenta = Object.keys(votos).sort((x,y) => votos[y]-votos[x])[0];
+      const { count } = await sb.from(t.tabla)
+        .update({ cuenta_pago_id: cuenta }, { count: 'exact' })
+        .eq(t.fk, a.id).eq('anio', anio).is('cuenta_pago_id', null);
+      tocados += count || 0;
+    }
+  }
+  toast(`${tocados} movimientos linkeados ✓`, 'success');
+  await loadLinkeo();
+}
+
+// ============================================
 // PROPIEDADES VENDIDAS (v152) — historial de salidas de la cartera
 // ============================================
 async function renderPropsVendidas() {
@@ -12134,7 +12331,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260814-152';
+const APP_VERSION = '20260814-153';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
