@@ -1579,6 +1579,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
           <button class="tab-btn" onclick="switchTab('banco','evolucion',this)">Evolución Mensual</button>
           <button class="tab-btn" onclick="switchTab('banco','carga',this)">Carga</button>
           <button class="tab-btn" onclick="switchTab('banco','aportes',this)">Aportes</button>
+          <button class="tab-btn" onclick="switchTab('banco','transferencias',this);loadTransferencias()">Transferencias</button>
         </div>
 
         <div id="banco-info" class="tab-content active">
@@ -1783,6 +1784,27 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
           </div>
           <div class="section-title" style="margin-bottom:12px">Movimientos registrados</div>
           <div id="aportes-lista"><div class="loader"><div class="spinner"></div></div></div>
+        </div>
+
+        <div id="banco-transferencias" class="tab-content">
+          <div style="display:inline-block;background:var(--gold-soft);border:1px solid var(--gold);color:var(--gold);border-radius:20px;padding:4px 14px;font-size:11px;font-weight:600;letter-spacing:0.5px;margin-bottom:14px">&#8646; TRANSFERENCIAS</div>
+          <p style="color:var(--text3);font-size:12px;margin-bottom:16px">Se registran las transferencias mayores a USD 10.000, entre cuentas propias o hacia una cuenta ajena. Una transferencia entre cuentas propias aparece en las dos: como enviada en el origen y como recibida en el destino.</p>
+          <div class="card" id="tr-form-card" style="margin-bottom:20px">
+            <div class="grid-2">
+              <div><label class="fld">Cuenta de origen</label><select class="fld" id="tr-origen"></select></div>
+              <div><label class="fld">Fecha</label><input class="fld" type="date" id="tr-fecha"></div>
+              <div><label class="fld">Cuenta de destino</label><select class="fld" id="tr-destino" onchange="trToggleExterno()"></select></div>
+              <div id="tr-ext-wrap" style="display:none"><label class="fld">Nombre de la cuenta ajena</label><input class="fld" id="tr-externo" placeholder="Ej: Escribania Perez"></div>
+              <div><label class="fld">Monto</label><input class="fld" type="number" id="tr-monto" value="0"></div>
+              <div><label class="fld">Moneda</label><select class="fld" id="tr-moneda"><option value="USD">USD</option><option value="ARS">ARS</option><option value="UYU">UYU</option><option value="EUR">EUR</option></select></div>
+              <div style="grid-column:1/-1"><label class="fld">Concepto</label><input class="fld" id="tr-concepto" placeholder="Para que fue la transferencia"></div>
+            </div>
+            <div style="display:flex;justify-content:flex-end;margin-top:12px">
+              <button class="btn-primary" style="width:auto;padding:10px 24px" onclick="guardarTransferencia()">Registrar</button>
+            </div>
+          </div>
+          <div class="section-title" style="margin-bottom:12px">Transferencias registradas</div>
+          <div id="transf-lista"><div class="loader"><div class="spinner"></div></div></div>
         </div>
       </div>
       <div id="page-private_equity" class="page">
@@ -7084,6 +7106,137 @@ async function loadAportes() {
 }
 
 // Acordeón de Aportes: muestra/oculta los movimientos de una cuenta.
+
+// ============================================
+// TRANSFERENCIAS ENTRE CUENTAS  (v149)
+// Una transferencia entre cuentas propias se guarda UNA vez y se muestra DOS:
+// como enviada en el origen y como recibida en el destino. Si el destino es una
+// cuenta ajena, banco_destino_id queda NULL y solo aparece en el origen.
+// ============================================
+let _trBancos = {};
+
+function trToggleExterno() {
+  const wrap = document.getElementById('tr-ext-wrap');
+  const esExt = document.getElementById('tr-destino')?.value === '__EXT__';
+  if (wrap) wrap.style.display = esExt ? 'block' : 'none';
+}
+
+async function loadTransferencias() {
+  const { data: bcs } = await aplicarFiltroTit(sb.from('bancos').select('id,nombre,titular,activo').order('nro'));
+  _trBancos = {}; (bcs || []).forEach(b => _trBancos[b.id] = b);
+  const opts = (bcs || []).filter(b => b.activo !== false)
+    .map(b => `<option value="${b.id}">${b.nombre} (${b.titular})</option>`).join('');
+  const so = document.getElementById('tr-origen'); if (so) so.innerHTML = opts;
+  const sd = document.getElementById('tr-destino');
+  if (sd) sd.innerHTML = opts + '<option value="__EXT__">— Cuenta ajena —</option>';
+  trToggleExterno();
+
+  const cont = document.getElementById('transf-lista');
+  if (!cont) return;
+  const { data, error } = await sb.from('transferencias_bancos').select('*').order('fecha', { ascending: false });
+  if (error) { cont.innerHTML = `<p style="color:var(--usa);font-size:13px">No se pudo leer transferencias (${error.message}). ¿Corriste el SQL que crea <code>transferencias_bancos</code>?</p>`; return; }
+  const rows = data || [];
+  if (!rows.length) { cont.innerHTML = '<p style="color:var(--text3);font-size:13px">Sin transferencias registradas todavía.</p>'; return; }
+
+  // Cada transferencia se indexa en su cuenta de origen y, si es interna, en la de destino.
+  const byBank = {};
+  rows.forEach(r => {
+    (byBank[r.banco_origen_id] = byBank[r.banco_origen_id] || []).push({ ...r, _dir: 'out' });
+    if (r.banco_destino_id) (byBank[r.banco_destino_id] = byBank[r.banco_destino_id] || []).push({ ...r, _dir: 'in' });
+  });
+  const nom = id => (_trBancos[id] || {}).nombre || '—';
+  const destinoDe = r => r.banco_destino_id ? nom(r.banco_destino_id) : (r.destino_externo || 'Cuenta ajena');
+
+  cont.innerHTML = '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:14px;align-items:start">' +
+    Object.keys(byBank).sort((a,b) => nom(a).localeCompare(nom(b))).map(bid => {
+      const trs = byBank[bid].slice().sort((a,b) => String(b.fecha).localeCompare(String(a.fecha)));
+      const salidas = trs.filter(t => t._dir === 'out').reduce((a,t) => a + (Number(t.monto_usd) || 0), 0);
+      const entradas = trs.filter(t => t._dir === 'in').reduce((a,t) => a + (Number(t.monto_usd) || 0), 0);
+      const neto = entradas - salidas;
+      return `<div class="card" style="margin:0">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;cursor:pointer" onclick="toggleTransfBank('${bid}')" title="Mostrar/ocultar transferencias">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span id="tr-chev-${bid}" style="color:var(--text3);font-size:11px;width:10px;display:inline-block">&#9656;</span>
+            <div class="section-title" style="margin:0;font-size:14px">${nom(bid)}</div>
+            <span style="font-size:11px;color:var(--text3)">(${trs.length})</span>
+            <button class="btn-secondary" title="Nueva transferencia desde esta cuenta" style="padding:1px 9px;font-size:15px;font-weight:700;line-height:1.1" onclick="event.stopPropagation();nuevaTransfCuenta('${bid}')">+</button>
+          </div>
+          <div style="font-size:12px;color:var(--text3)">Neto: <b style="color:${neto<0?'var(--usa)':'var(--esp)'}">$${fmt(neto)}</b></div>
+        </div>
+        <div id="tr-body-${bid}" style="display:none">
+          <div class="table-wrap"><table>
+            <thead><tr><th>Fecha</th><th></th><th>Contraparte</th><th class="num">Monto</th><th></th></tr></thead>
+            <tbody>${trs.map(t => {
+              const out = t._dir === 'out';
+              const otra = out ? destinoDe(t) : nom(t.banco_origen_id);
+              const nativo = (t.moneda && t.moneda !== 'USD') ? ` <span style="color:var(--text3);font-size:11px">(${fmt(t.monto)} ${t.moneda})</span>` : '';
+              return `<tr>
+                <td>${t.fecha}</td>
+                <td style="color:${out?'var(--usa)':'var(--esp)'};font-weight:700" title="${out?'Enviada':'Recibida'}">${out?'&#8599;':'&#8600;'}</td>
+                <td>${otra}${t.concepto ? ` · <span style="color:var(--text3);font-size:11px">${t.concepto}</span>` : ''}</td>
+                <td class="num" style="color:${out?'var(--usa)':'var(--esp)'}">${out?'-':'+'}$${fmt(Number(t.monto_usd)||0)}${nativo}</td>
+                <td class="num"><button class="btn-secondary" style="padding:1px 7px;font-size:11px" onclick="borrarTransferencia('${t.id}')">&#215;</button></td>
+              </tr>`;
+            }).join('')}</tbody>
+          </table></div>
+        </div>
+      </div>`;
+    }).join('') + '</div>';
+}
+
+function toggleTransfBank(bid) {
+  const body = document.getElementById('tr-body-' + bid);
+  const chev = document.getElementById('tr-chev-' + bid);
+  if (!body) return;
+  const abierto = body.style.display !== 'none';
+  body.style.display = abierto ? 'none' : 'block';
+  if (chev) chev.innerHTML = abierto ? '&#9656;' : '&#9662;';
+}
+
+function nuevaTransfCuenta(bid) {
+  const so = document.getElementById('tr-origen'); if (so) so.value = bid;
+  const f = document.getElementById('tr-fecha'); if (f && !f.value) f.value = new Date().toISOString().slice(0,10);
+  document.getElementById('tr-form-card')?.scrollIntoView({ behavior:'smooth', block:'center' });
+  document.getElementById('tr-monto')?.focus();
+}
+
+async function guardarTransferencia() {
+  const origen = document.getElementById('tr-origen').value;
+  const destSel = document.getElementById('tr-destino').value;
+  const fecha = document.getElementById('tr-fecha').value;
+  const monto = Math.abs(parseFloat(document.getElementById('tr-monto').value) || 0);
+  const moneda = document.getElementById('tr-moneda').value || 'USD';
+  const externo = (document.getElementById('tr-externo').value || '').trim();
+  const concepto = (document.getElementById('tr-concepto').value || '').trim();
+  if (!origen || !fecha || !monto) return toast('Completá origen, fecha y monto', 'error');
+  if (destSel === '__EXT__' && !externo) return toast('Escribí el nombre de la cuenta ajena', 'error');
+  if (destSel !== '__EXT__' && destSel === origen) return toast('El origen y el destino no pueden ser la misma cuenta', 'error');
+
+  const [y, m] = fecha.split('-').map(Number);
+  const montoUsd = convUSD(monto, moneda, y, m);
+  if (montoUsd < 10000 && !confirm('Esta transferencia es de USD ' + fmt(montoUsd) + ', menor a 10.000. ¿La registrás igual?')) return;
+
+  const { error } = await sb.from('transferencias_bancos').insert({
+    fecha, banco_origen_id: origen,
+    banco_destino_id: destSel === '__EXT__' ? null : destSel,
+    destino_externo: destSel === '__EXT__' ? externo : null,
+    monto, moneda, monto_usd: montoUsd, concepto,
+    created_by: currentUser?.id,
+  });
+  if (error) return toast('Error: ' + error.message, 'error');
+  toast('Transferencia registrada ✓', 'success');
+  ['tr-monto','tr-externo','tr-concepto'].forEach(id => { const el = document.getElementById(id); if (el) el.value = id === 'tr-monto' ? '0' : ''; });
+  await loadTransferencias();
+}
+
+async function borrarTransferencia(id) {
+  if (!confirm('¿Borrar esta transferencia?')) return;
+  const { error } = await sb.from('transferencias_bancos').delete().eq('id', id);
+  if (error) return toast('Error: ' + error.message, 'error');
+  toast('Borrada', 'success');
+  await loadTransferencias();
+}
+
 function toggleAporteBank(bid) {
   const body = document.getElementById('ap-body-' + bid);
   const chev = document.getElementById('ap-chev-' + bid);
@@ -11916,7 +12069,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260814-149';
+const APP_VERSION = '20260814-150';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
