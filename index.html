@@ -1126,6 +1126,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
           <button class="tab-btn" onclick="switchTab('prop','alquileres',this)">🏠 Alquileres</button>
           <button class="tab-btn" onclick="switchTab('prop','historial',this);renderHistorialProps('all')">📈 Historial</button>
           <button class="tab-btn" onclick="switchTab('prop','adjuntos',this)">📎 Adjuntos</button>
+          <button class="tab-btn" onclick="switchTab('prop','vendidas',this);renderPropsVendidas()">Vendidas</button>
         </div>
 
         <div id="prop-info" class="tab-content active">
@@ -1568,6 +1569,12 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
               </tbody>
             </table>
           </div>
+        </div>
+
+        <div id="prop-vendidas" class="tab-content">
+          <div style="display:inline-block;background:var(--gold-soft);border:1px solid var(--gold);color:var(--gold);border-radius:20px;padding:4px 14px;font-size:11px;font-weight:600;letter-spacing:0.5px;margin-bottom:14px">PROPIEDADES VENDIDAS</div>
+          <p style="color:var(--text3);font-size:12px;margin-bottom:16px">Historial de las propiedades que salieron de la cartera, con su fecha y valor de venta. No suman al patrimonio.</p>
+          <div id="props-vendidas-lista"><div class="loader"><div class="spinner"></div></div></div>
         </div>
       </div>
 
@@ -6962,13 +6969,17 @@ function renderBancos(paisFiltro) {
   }).join('') || '';
 
   // Totals (Neto = Inv + Cash - Credito de ESTE cuadro, recalculado por fila)
-  const tInv  = rows.reduce((a,b) => a+(usdMap[b.id]?.inv||0), 0);
-  const tCash = rows.reduce((a,b) => a+(usdMap[b.id]?.cash||0), 0);
-  const tSub  = rows.reduce((a,b) => a+(usdMap[b.id]?.sub||0), 0);
-  const tCred = rows.reduce((a,b) => a+(usdMap[b.id]?.cred||0), 0);
-  const tNeto = rows.reduce((a,b) => a+(usdMap[b.id]?.neto||0), 0);
+  // MFL se ve pero NO contabiliza: sus cuentas quedan listadas arriba pero fuera
+  // del TOTAL, para que este numero coincida con el dashboard y el patrimonio.
+  const _sumables = rows.filter(b => verComo === 'MFL' || b.titular !== 'MFL');
+  const _hayMFL = rows.length !== _sumables.length;
+  const tInv  = _sumables.reduce((a,b) => a+(usdMap[b.id]?.inv||0), 0);
+  const tCash = _sumables.reduce((a,b) => a+(usdMap[b.id]?.cash||0), 0);
+  const tSub  = _sumables.reduce((a,b) => a+(usdMap[b.id]?.sub||0), 0);
+  const tCred = _sumables.reduce((a,b) => a+(usdMap[b.id]?.cred||0), 0);
+  const tNeto = _sumables.reduce((a,b) => a+(usdMap[b.id]?.neto||0), 0);
   tbody.innerHTML += `<tr style="background:var(--bg3);border-top:2px solid var(--border2)">
-    <td colspan="4" class="bold" style="color:var(--gold)">TOTAL (último mes por banco)</td>
+    <td colspan="4" class="bold" style="color:var(--gold)">TOTAL (último mes por banco)${_hayMFL ? '<span style="font-weight:400;color:var(--text3);font-size:11px"> · sin MFL</span>' : ''}</td>
     <td class="num bold" style="color:var(--gold)">$${fmt(tInv)}</td>
     <td class="num bold" style="color:var(--gold)">$${fmt(tCash)}</td>
     <td class="num bold" style="color:var(--text2)">$${fmt(tSub)}</td>
@@ -7182,6 +7193,60 @@ async function loadTransferencias() {
         </div>
       </div>`;
     }).join('') + '</div>';
+}
+
+
+// ============================================
+// PROPIEDADES VENDIDAS (v152) — historial de salidas de la cartera
+// ============================================
+async function renderPropsVendidas() {
+  const cont = document.getElementById('props-vendidas-lista');
+  if (!cont) return;
+  const { data, error } = await aplicarFiltroTit(
+    sb.from('propiedades').select('*').eq('vendida', true).order('fecha_venta', { ascending: false }));
+  if (error) { cont.innerHTML = `<p style="color:var(--usa);font-size:13px">${error.message}</p>`; return; }
+  const rows = data || [];
+  if (!rows.length) { cont.innerHTML = '<p style="color:var(--text3);font-size:13px">No hay propiedades vendidas registradas.</p>'; return; }
+  const colPais = { ARG:'var(--arg)', USA:'var(--usa)', URU:'var(--uru)', ESP:'var(--esp)' };
+  const anio = f => f ? String(f).slice(0,4) : '—';
+  const total = rows.reduce((a,r) => a + (Number(r.valor_venta)||0), 0);
+  // agrupadas por año de venta, de la mas reciente a la mas vieja
+  const byY = {};
+  rows.forEach(r => { (byY[anio(r.fecha_venta)] = byY[anio(r.fecha_venta)] || []).push(r); });
+  const anios = Object.keys(byY).sort((a,b) => b.localeCompare(a));
+  cont.innerHTML = `
+    <div class="grid-3" style="margin-bottom:18px">
+      <div style="border:1px solid var(--border);border-radius:8px;padding:14px;text-align:center">
+        <div style="font-size:10px;letter-spacing:1px;color:var(--text3);text-transform:uppercase;margin-bottom:6px">Propiedades vendidas</div>
+        <div style="font-size:22px;font-weight:300;color:var(--gold)">${rows.length}</div></div>
+      <div style="border:1px solid var(--border);border-radius:8px;padding:14px;text-align:center">
+        <div style="font-size:10px;letter-spacing:1px;color:var(--text3);text-transform:uppercase;margin-bottom:6px">Total vendido</div>
+        <div style="font-size:22px;font-weight:300;color:var(--gold)">$${fmt(total)}</div></div>
+      <div style="border:1px solid var(--border);border-radius:8px;padding:14px;text-align:center">
+        <div style="font-size:10px;letter-spacing:1px;color:var(--text3);text-transform:uppercase;margin-bottom:6px">Período</div>
+        <div style="font-size:22px;font-weight:300;color:var(--text2)">${anios[anios.length-1]} — ${anios[0]}</div></div>
+    </div>` +
+    anios.map(y => {
+      const rs = byY[y];
+      const sub = rs.reduce((a,r) => a + (Number(r.valor_venta)||0), 0);
+      return `<div class="card" style="margin-bottom:14px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+          <div class="section-title" style="margin:0;font-size:14px">${y}</div>
+          <div style="font-size:12px;color:var(--text3)">${rs.length} ${rs.length===1?'propiedad':'propiedades'} · <b style="color:var(--gold)">$${fmt(sub)}</b></div>
+        </div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>N°</th><th>Propiedad</th><th>Titular</th><th>País</th><th>Fecha de venta</th><th class="num">Valor de venta</th></tr></thead>
+          <tbody>${rs.map(r => `<tr>
+            <td style="color:var(--text3)">${r.nro}</td>
+            <td class="bold">${r.nombre}</td>
+            <td>${r.titular}</td>
+            <td><span style="color:${colPais[r.pais]||'var(--text3)'}">${r.pais||'—'}</span></td>
+            <td>${r.fecha_venta || '<span style="color:var(--text3)">sin fecha</span>'}</td>
+            <td class="num bold">$${fmt(Number(r.valor_venta)||0)}</td>
+          </tr>`).join('')}</tbody>
+        </table></div>
+      </div>`;
+    }).join('');
 }
 
 function toggleTransfBank(bid) {
@@ -12069,7 +12134,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260814-150';
+const APP_VERSION = '20260814-152';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
