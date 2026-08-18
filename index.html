@@ -7939,10 +7939,11 @@ async function renderRepSoc() {
     const bs = banAct .filter(b => !b.sociedad_id && b.titular === c);
     const as = autAct .filter(x => !x.sociedad_id && x.titular === c);
     let ten = 0, renta = 0, rend = 0;
-    ps.forEach(p => { ten += vProp(p.nro); renta += resProp(p).neto; });
-    bs.forEach(b => { const r = resBan(b); ten += r.saldo; rend += r.rend; });
-    as.forEach(x => { ten += vAuto(x.nro); });
-    return { cli:c, ten, renta, rend, res: renta + rend, nProps:ps.length, nBan:bs.length, nAut:as.length };
+    const det = [];
+    ps.forEach(p => { const v = vProp(p.nro); ten += v; renta += resProp(p).neto; det.push({t:'Propiedad', nro:p.nro, nom:p.nombre, v}); });
+    bs.forEach(b => { const r = resBan(b); ten += r.saldo; rend += r.rend; det.push({t:'Cuenta', nro:b.nro, nom:b.nombre, v:r.saldo}); });
+    as.forEach(x => { const v = vAuto(x.nro); ten += v; det.push({t:'Auto', nro:x.nro, nom:x.nombre, v}); });
+    return { cli:c, ten, renta, rend, res: renta + rend, nProps:ps.length, nBan:bs.length, nAut:as.length, det };
   }).filter(d => d.nProps + d.nBan + d.nAut > 0);
 
   // ═══════════════ RENDER ═══════════════
@@ -8026,10 +8027,20 @@ async function renderRepSoc() {
     </div>
 
     ${directo.length ? `<div class="card" style="margin-top:16px">
-      <div class="section-title" style="font-size:14px;margin-bottom:10px">Activos sin sociedad — a nombre del cliente</div>
+      <div class="section-title" style="font-size:14px;margin-bottom:4px">Activos SIN sociedad — a nombre del cliente</div>
+      <p style="font-size:11px;color:var(--text3);margin:0 0 10px">Estos son los que todavía no tienen sociedad asignada. Clic en un cliente para ver cuáles son, uno por uno.</p>
       <div class="table-wrap"><table style="font-size:13px">
         <thead><tr><th>Cliente</th><th class="num">Propiedades</th><th class="num">Cuentas</th><th class="num">Autos</th><th class="num">Tenencia</th><th class="num">Resultado ${ANIO}</th></tr></thead>
-        <tbody>${directo.map(d=>`<tr><td><b>${d.cli}</b></td><td class="num">${d.nProps||'—'}</td><td class="num">${d.nBan||'—'}</td><td class="num">${d.nAut||'—'}</td><td class="num">${money(d.ten)}</td><td class="num">${signo(d.res)}</td></tr>`).join('')}</tbody>
+        <tbody>${directo.map(d=>`
+          <tr style="cursor:pointer" onclick="toggleRSoc('cli:${d.cli}')">
+            <td><span style="color:var(--text3);font-size:11px">${_rsocOpen['cli:'+d.cli]?'▾':'▸'}</span> <b>${d.cli}</b></td>
+            <td class="num">${d.nProps||'—'}</td><td class="num">${d.nBan||'—'}</td><td class="num">${d.nAut||'—'}</td>
+            <td class="num">${money(d.ten)}</td><td class="num">${signo(d.res)}</td></tr>
+          ${_rsocOpen['cli:'+d.cli] ? `<tr><td colspan="6" style="background:var(--bg2,rgba(0,0,0,.02));padding:10px 16px 14px 28px">
+            <table style="font-size:12px;width:100%"><thead><tr><th>Tipo</th><th>Activo</th><th class="num">Valor ${ANIO}</th></tr></thead><tbody>
+            ${d.det.slice().sort((x,y)=>x.t.localeCompare(y.t)||(x.nro??9999)-(y.nro??9999))
+                 .map(x=>`<tr><td style="color:var(--text3)">${x.t}</td><td>${x.nom} <span style="color:var(--text3);font-size:10px">#${x.nro ?? '—'}</span></td><td class="num">${x.v?money(x.v):'—'}</td></tr>`).join('')}
+            </tbody></table></td></tr>` : ''}`).join('')}</tbody>
       </table></div>
     </div>` : ''}
 
@@ -12718,7 +12729,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260818-157';
+const APP_VERSION = '20260818-158';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
