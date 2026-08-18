@@ -7250,6 +7250,11 @@ function lkRegla(cat, nro, rubro) {
   return _lkReglas.find(r => r.categoria===cat && r.activo_nro===nro && r.rubro===rubro)
       || _lkReglas.find(r => r.categoria===cat && r.activo_nro===nro && r.rubro==='*');
 }
+// Una regla esta resuelta si apunta a una cuenta O si es efectivo: CASH no tiene
+// cuenta_id y aun asi es una respuesta valida a "de donde sale / a donde entra".
+function lkResuelta(r) {
+  return !!(r && (r.cuenta_id || r.medio === 'Efectivo' || r.referencia === 'CASH'));
+}
 
 async function loadLinkeo() {
   const selA = document.getElementById('lk-anio');
@@ -7291,13 +7296,13 @@ async function loadLinkeo() {
     // separar los que no tienen cuenta
     const filas = Object.values(acum).filter(x => {
       const r = lkRegla(t.key, x.act.nro, x.rubro);
-      x.regla = r; return !(r && r.cuenta_id);
+      x.regla = r; return !lkResuelta(r);
     }).sort((a,b) => b.monto - a.monto);
     pendRubros += filas.length; pendMonto += filas.reduce((s,x)=>s+x.monto,0);
     if (filas.length) bloques.push({ t, filas });
   }
 
-  const conCuenta = _lkReglas.filter(r => r.cuenta_id).length;
+  const conCuenta = _lkReglas.filter(lkResuelta).length;
   document.getElementById('linkeo-kpis').innerHTML = [
     ['Rubros sin cuenta', pendRubros, pendRubros ? 'var(--usa)' : 'var(--esp)'],
     ['Monto sin linkear', '$'+fmt(pendMonto), pendMonto ? 'var(--gold)' : 'var(--esp)'],
@@ -7408,8 +7413,9 @@ function renderReglas() {
   const cont = document.getElementById('linkeo-reglas');
   if (!cont) return;
   if (!_lkReglas.length) { cont.innerHTML = '<p style="color:var(--text3);font-size:13px">Sin reglas guardadas.</p>'; return; }
-  const opts = id => '<option value="">— sin asignar —</option>' +
-    _lkBancos.map(b => `<option value="${b.id}"${b.id===id?' selected':''}>${b.nombre}</option>`).join('');
+  const opts = (id, esCash) => '<option value="">— sin asignar —</option>' +
+    _lkBancos.map(b => `<option value="${b.id}"${b.id===id?' selected':''}>${b.nombre}</option>`).join('') +
+    `<option value="__CASH__"${esCash?' selected':''}>CASH / efectivo</option>`;
   const byCat = {};
   _lkReglas.forEach(r => { (byCat[r.categoria] = byCat[r.categoria] || []).push(r); });
   const LBL = { propiedad:'Propiedades', auto:'Autos', sociedad:'Sociedades', pe:'Private Equity' };
@@ -7424,7 +7430,7 @@ function renderReglas() {
           <td class="bold">${_lkCat[cat+'|'+r.activo_nro] || '—'}</td>
           <td>${r.rubro === '*' ? '<span style="color:var(--gold)">todos</span>' : (LK_NOM[r.rubro]||r.rubro)}</td>
           <td style="font-size:11px;color:${r.medio==='Pendiente'?'var(--usa)':'var(--text2)'}">${r.medio||'—'}</td>
-          <td><select class="fld" style="padding:4px;font-size:11px" onchange="guardarRegla('${r.id}', this.value)">${opts(r.cuenta_id)}</select></td>
+          <td><select class="fld" style="padding:4px;font-size:11px" onchange="guardarRegla('${r.id}', this.value)">${opts(r.cuenta_id, r.medio==='Efectivo'||r.referencia==='CASH')}</select></td>
           <td style="font-size:11px;color:var(--gold)">${r.referencia||''}</td>
           <td style="font-size:11px;color:var(--text3)">${r.proveedor||''}</td>
           <td class="num" style="font-size:11px;color:var(--text3)">${r.dia_pago??''}</td>
@@ -7435,11 +7441,20 @@ function renderReglas() {
 }
 
 async function guardarRegla(id, cuentaId) {
-  const { error } = await sb.from('reglas_pago')
-    .update({ cuenta_id: cuentaId || null, updated_at: new Date().toISOString() }).eq('id', id);
+  const esCash = cuentaId === '__CASH__';
+  const patch = {
+    cuenta_id : esCash ? null : (cuentaId || null),
+    medio     : esCash ? 'Efectivo' : undefined,
+    referencia: esCash ? 'CASH' : undefined,
+    updated_at: new Date().toISOString(),
+  };
+  Object.keys(patch).forEach(k => patch[k] === undefined && delete patch[k]);
+  const { error } = await sb.from('reglas_pago').update(patch).eq('id', id);
   if (error) return toast('Error: ' + error.message, 'error');
   toast('Regla actualizada ✓', 'success');
-  const r = _lkReglas.find(x => x.id === id); if (r) r.cuenta_id = cuentaId || null;
+  const r = _lkReglas.find(x => x.id === id);
+  if (r) { r.cuenta_id = patch.cuenta_id; if (esCash) { r.medio='Efectivo'; r.referencia='CASH'; } }
+  await loadLinkeo();
 }
 
 // Propaga la cuenta de las reglas a la columna cuenta_pago_id de cada movimiento,
@@ -12407,7 +12422,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260814-154';
+const APP_VERSION = '20260814-155';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
