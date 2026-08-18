@@ -7294,10 +7294,15 @@ async function loadLinkeo() {
       }));
     });
     // separar los que no tienen cuenta
+    // Orden: por nro de activo (el mismo del COMPLETO y de la app) y, dentro de
+    // cada uno, en el orden en que los rubros figuran en el anexo.
+    const ordenRubro = {}; let k = 0;
+    t.grupos.forEach(gr => gr.campos.forEach(c => ordenRubro[c] = k++));
     const filas = Object.values(acum).filter(x => {
       const r = lkRegla(t.key, x.act.nro, x.rubro);
       x.regla = r; return !lkResuelta(r);
-    }).sort((a,b) => b.monto - a.monto);
+    }).sort((a,b) => ((a.act.nro ?? 9999) - (b.act.nro ?? 9999))
+                  || ((ordenRubro[a.rubro] ?? 99) - (ordenRubro[b.rubro] ?? 99)));
     pendRubros += filas.length; pendMonto += filas.reduce((s,x)=>s+x.monto,0);
     if (filas.length) bloques.push({ t, filas });
   }
@@ -7323,8 +7328,7 @@ async function loadLinkeo() {
       // agrupar por activo para poder plegar
       const byAct = {};
       filas.forEach(f => { (byAct[f.act.id] = byAct[f.act.id] || { act:f.act, rubros:[] }).rubros.push(f); });
-      const acts = Object.values(byAct).sort((a,b) =>
-        b.rubros.reduce((s,x)=>s+x.monto,0) - a.rubros.reduce((s,x)=>s+x.monto,0));
+      const acts = Object.values(byAct).sort((a,b) => (a.act.nro ?? 9999) - (b.act.nro ?? 9999));
       return `<div class="card" style="margin-bottom:14px">
         <div class="section-title" style="margin:0 0 10px;font-size:14px">${t.label}
           <span style="color:var(--text3);font-weight:400;font-size:11px">(${filas.length} rubros en ${acts.length} activos)</span></div>
@@ -7334,6 +7338,7 @@ async function loadLinkeo() {
             <div style="display:flex;justify-content:space-between;align-items:center;padding:9px 12px;cursor:pointer" onclick="lkToggle('${a.act.id}')">
               <div style="display:flex;align-items:center;gap:8px">
                 <span id="lk-chev-${a.act.id}" style="color:var(--text3);font-size:11px;width:10px;display:inline-block">&#9662;</span>
+                <span style="color:var(--text3);font-size:11px;min-width:22px;display:inline-block">${a.act.nro ?? ''}</span>
                 <span class="bold">${a.act.nombre}</span>
                 <span style="font-size:11px;color:var(--text3)">${a.act.titular||''} · ${a.rubros.length} ${a.rubros.length===1?'rubro':'rubros'}</span>
               </div>
@@ -12422,7 +12427,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260814-155';
+const APP_VERSION = '20260814-156';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
