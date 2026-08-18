@@ -3652,6 +3652,12 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
       </div>
 
       <div id="page-reportes" class="page">
+        <div class="tabs">
+          <button class="tab-btn active" onclick="switchTab('rep','patrimonial',this)">Patrimonial</button>
+          <button class="tab-btn" onclick="switchTab('rep','sociedades',this);renderRepSoc()">Sociedades</button>
+        </div>
+
+        <div id="rep-patrimonial" class="tab-content active" style="display:block">
         <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:16px;margin-bottom:20px">
           <div>
             <div class="section-title" style="margin-bottom:4px">Informe Patrimonial</div>
@@ -3666,6 +3672,24 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
           </div>
         </div>
         <div id="rep-contenido"><p style="color:var(--text3)">Elegí un cliente para generar el informe.</p></div>
+        </div><!-- /rep-patrimonial -->
+
+        <!-- v157 — Reporte de Sociedades: tenencia y resultado por sociedad, con
+             consolidado de rama. Los activos se linkean por sociedad_id y las
+             sociedades entre si por sociedad_madre_id; la raiz cuelga del cliente. -->
+        <div id="rep-sociedades" class="tab-content">
+          <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:16px;margin-bottom:20px">
+            <div>
+              <div class="section-title" style="margin-bottom:4px">Reporte de Sociedades</div>
+              <p style="color:var(--text3);font-size:13px;margin:0">Qué tiene y cuánto dio cada sociedad, con el consolidado de su rama. Los activos sin sociedad quedan a nombre del cliente.</p>
+            </div>
+            <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+              <div><label class="fld">Cliente</label><select class="fld" id="rsoc-cliente" style="min-width:170px" onchange="renderRepSoc()"></select></div>
+              <div><label class="fld">Año</label><select class="fld" id="rsoc-anio" onchange="renderRepSoc()"></select></div>
+            </div>
+          </div>
+          <div id="rsoc-contenido"><p style="color:var(--text3)">—</p></div>
+        </div><!-- /rep-sociedades -->
       </div>
 
       <!-- ======== ORGANIGRAMAS ======== -->
@@ -4364,7 +4388,7 @@ function mountExport() {
 }
 
 function switchTab(group, tab, el) {
-  const pageMap = { prop:'propiedades', banco:'bancos', pe:'private_equity', org:'organigramas', soc:'sociedades', aut:'autos', gasto:'gastos', tar:'tarjetas' };
+  const pageMap = { prop:'propiedades', banco:'bancos', pe:'private_equity', org:'organigramas', soc:'sociedades', aut:'autos', gasto:'gastos', tar:'tarjetas', rep:'reportes' };
   const pageId = pageMap[group] || group;
   const page = document.getElementById('page-' + pageId);
   if (!page) { console.error('Page not found: page-' + pageId); return; }
@@ -7735,6 +7759,7 @@ function loadReportes() {
     sel.innerHTML = '<option value="">— Elegí —</option>' + REP_CLIENTES.map(c => `<option value="${c.code}">${c.nombre} (${c.code})</option>`).join('');
   }
   repPeriodoOpts();
+  loadRepSoc();
 }
 
 // Puebla el desplegable de Período según el Tipo de reporte elegido
@@ -7750,6 +7775,272 @@ function repPeriodoOpts(){
   per.innerHTML=o;
 }
 function repTipoChange(){ repPeriodoOpts(); generarReporte(); }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   REPORTE DE SOCIEDADES  (v157)
+   ───────────────────────────────────────────────────────────────────────
+   Cada activo pertenece a un cliente y, si esta dentro de una estructura,
+   tambien a una sociedad (propiedades.sociedad_id / bancos.sociedad_id /
+   autos.sociedad_id). Las sociedades cuelgan unas de otras por
+   sociedades.sociedad_madre_id; la raiz de cada rama cuelga del cliente
+   (sociedades.titular). Los activos sin sociedad_id van directo al cliente.
+
+   TENENCIA  = valor del activo al cierre del año. Sale de PROP_HIST_DATA /
+     BANCOS_HIST_DATA / AUTOS_HIST_DATA (indexados por nro), que es la MISMA
+     fuente que usa Patrimonio Historico: asi los numeros cierran contra esa
+     pantalla y contra el COMPLETO, sin depender de que este cargado 2026 en
+     Supabase.
+
+   RESULTADO = renta neta de propiedades
+             + rendimiento bancario (variacion del saldo neta de aportes,
+               solo cuentas de inversion; las operativas no rinden)
+             - gastos propios de la sociedad (impuestos + otros gastos de
+               movimientos_sociedades).
+     Los APORTES a la sociedad no son gasto: son capital. Se muestran aparte.
+
+   RAMA = la sociedad + todas sus descendientes (consolidado del subarbol).
+   ═══════════════════════════════════════════════════════════════════════ */
+let _RSOC = null;          // cache de datos (se llena una vez por sesion)
+const _rsocOpen = {};      // id de sociedad -> detalle desplegado
+
+function loadRepSoc() {
+  const c = document.getElementById('rsoc-cliente');
+  if (c && !c.options.length)
+    c.innerHTML = '<option value="">Todos los clientes</option>' +
+      REP_CLIENTES.filter(x => x.code !== 'FO')
+        .map(x => `<option value="${x.code}">${x.nombre} (${x.code})</option>`).join('');
+  const a = document.getElementById('rsoc-anio');
+  if (a && !a.options.length) {
+    let o = ''; for (let y = 2026; y >= 2019; y--) o += `<option value="${y}">${y}</option>`;
+    a.innerHTML = o;
+  }
+}
+
+function _rsocIdx() {
+  if (_RSOC._ph) return;
+  _RSOC._ph = {}; (typeof PROP_HIST_DATA  !== 'undefined' ? PROP_HIST_DATA  : []).forEach(x => _RSOC._ph[x.nro] = x);
+  _RSOC._ah = {}; (typeof AUTOS_HIST_DATA !== 'undefined' ? AUTOS_HIST_DATA : []).forEach(x => _RSOC._ah[x.nro] = x);
+  _RSOC._bh = {}; (typeof BANCOS_HIST_DATA!== 'undefined' ? BANCOS_HIST_DATA: []).forEach(x => _RSOC._bh[x.nro] = x);
+}
+
+function toggleRSoc(id) { _rsocOpen[id] = !_rsocOpen[id]; renderRepSoc(); }
+
+async function renderRepSoc() {
+  const cont = document.getElementById('rsoc-contenido'); if (!cont) return;
+  loadRepSoc();
+  const ANIO = +(document.getElementById('rsoc-anio')?.value) || 2026;
+  const CLI  = document.getElementById('rsoc-cliente')?.value || '';
+
+  if (!_RSOC) {
+    cont.innerHTML = '<div class="loader"><div class="spinner"></div></div>';
+    const [s, p, b, a, ms, mp, ab, ra] = await Promise.all([
+      sb.from('sociedades').select('*').order('nro'),
+      sb.from('propiedades').select('id,nro,nombre,titular,pais,activa,vendida,sociedad_id'),
+      sb.from('bancos').select('id,nro,nombre,titular,pais,activo,es_operativa,sociedad_id'),
+      sb.from('autos').select('id,nro,nombre,titular,pais,activo,sociedad_id'),
+      sb.from('movimientos_sociedades').select('sociedad_id,anio,aportes,impuestos,otros_gastos'),
+      sb.from('movimientos_propiedades').select('propiedad_id,anio,total_renta_usd,total_gastos_usd,total_impuestos_usd,neto_usd'),
+      sb.from('aportes_bancos').select('banco_id,fecha,tipo,monto'),
+      sb.from('renta_anual_prop').select('*'),
+    ]);
+    if (s.error) { cont.innerHTML = `<div class="card" style="color:var(--usa)">No se pudo leer sociedades: ${s.error.message}</div>`; return; }
+    _RSOC = { socs:s.data||[], props:p.data||[], bancos:b.data||[], autos:a.data||[],
+              movSoc:ms.data||[], movProp:mp.data||[], apBan:ab.data||[], rentaAn:ra.data||[] };
+  }
+  _rsocIdx();
+
+  const Y = String(ANIO), Y0 = String(ANIO - 1);
+  const vProp = n => Number(_RSOC._ph[n]?.valores?.[Y]) || 0;
+  const vAuto = n => Number(_RSOC._ah[n]?.valores?.[Y]) || 0;
+  const vBan  = (n, yy) => { const v = _RSOC._bh[n]?.byY?.[yy]; return v ? (Number(v.n) || 0) : null; };
+
+  // ── resultado de propiedades del año: movimientos_propiedades y, si no hay, renta_anual_prop
+  const mpY = {};   // propiedad_id -> {renta,gastos,neto}
+  _RSOC.movProp.forEach(m => {
+    if (Number(m.anio) !== ANIO) return;
+    const d = mpY[m.propiedad_id] || (mpY[m.propiedad_id] = { renta:0, gastos:0, neto:0 });
+    d.renta  += Number(m.total_renta_usd) || 0;
+    d.gastos += (Number(m.total_gastos_usd)||0) + (Number(m.total_impuestos_usd)||0);
+    d.neto   += Number(m.neto_usd) || 0;
+  });
+  const raY = {};   // nro -> {renta,gastos,neto}
+  _RSOC.rentaAn.forEach(r => {
+    if (Number(r.anio) !== ANIO) return;
+    const renta = Number(r.renta)||0, neta = Number(r.renta_neta)||0;
+    raY[r.nro] = { renta, gastos: renta - neta, neto: neta };
+  });
+  const resProp = p => mpY[p.id] || raY[p.nro] || { renta:0, gastos:0, neto:0 };
+
+  // ── aportes/retiros bancarios del año (para netear el rendimiento)
+  const apY = {};
+  _RSOC.apBan.forEach(x => {
+    if (String(x.fecha||'').slice(0,4) !== Y) return;
+    apY[x.banco_id] = (apY[x.banco_id]||0) + (x.tipo==='retiro' ? -1 : 1) * Math.abs(Number(x.monto)||0);
+  });
+  // rendimiento de una cuenta: variacion del saldo neta de aportes. Operativas = 0.
+  const resBan = b => {
+    const fin = vBan(b.nro, Y), ini = vBan(b.nro, Y0);
+    if (fin === null) return { saldo: 0, rend: 0 };
+    if (b.es_operativa || ini === null) return { saldo: fin, rend: 0 };
+    return { saldo: fin, rend: fin - ini - (apY[b.id]||0) };
+  };
+
+  // ── gastos propios de cada sociedad
+  const gSoc = {};
+  _RSOC.movSoc.forEach(m => {
+    if (Number(m.anio) !== ANIO) return;
+    const d = gSoc[m.sociedad_id] || (gSoc[m.sociedad_id] = { gasto:0, aportes:0 });
+    d.gasto   += (Number(m.impuestos)||0) + (Number(m.otros_gastos)||0);
+    d.aportes += Number(m.aportes)||0;
+  });
+
+  // ── armado del arbol
+  const socs = _RSOC.socs.filter(s => !CLI || s.titular === CLI);
+  const socIds = new Set(socs.map(s => s.id));
+  const hijos = {}; const raices = [];
+  socs.forEach(s => {
+    const m = s.sociedad_madre_id;
+    if (m && socIds.has(m)) (hijos[m] = hijos[m] || []).push(s);
+    else raices.push(s);
+  });
+
+  const propAct = _RSOC.props.filter(p => p.activa !== false && p.vendida !== true);
+  const banAct  = _RSOC.bancos.filter(b => b.activo !== false);
+  const autAct  = _RSOC.autos.filter(x => x.activo !== false);
+
+  const propia = {};   // sociedad_id -> {ten, renta, rend, gasto, aportes, res, act:{...}}
+  socs.forEach(s => {
+    const ps = propAct.filter(p => p.sociedad_id === s.id);
+    const bs = banAct .filter(b => b.sociedad_id === s.id);
+    const as = autAct .filter(x => x.sociedad_id === s.id);
+    let ten = 0, renta = 0, rend = 0;
+    const pd = ps.map(p => { const v = vProp(p.nro), r = resProp(p); ten += v; renta += r.neto; return { p, v, r }; });
+    const bd = bs.map(b => { const r = resBan(b); ten += r.saldo; rend += r.rend; return { b, ...r }; });
+    const ad = as.map(x => { const v = vAuto(x.nro); ten += v; return { a:x, v }; });
+    const g = gSoc[s.id] || { gasto:0, aportes:0 };
+    propia[s.id] = { ten, renta, rend, gasto:g.gasto, aportes:g.aportes,
+                     res: renta + rend - g.gasto, pd, bd, ad };
+  });
+
+  const rama = {};
+  const acumular = s => {
+    const o = propia[s.id];
+    const r = { ten:o.ten, renta:o.renta, rend:o.rend, gasto:o.gasto, res:o.res, n:1 };
+    (hijos[s.id]||[]).forEach(h => { const c = acumular(h);
+      r.ten+=c.ten; r.renta+=c.renta; r.rend+=c.rend; r.gasto+=c.gasto; r.res+=c.res; r.n+=c.n; });
+    rama[s.id] = r; return r;
+  };
+  raices.forEach(acumular);
+
+  // ── activos SIN sociedad (cuelgan directo del cliente)
+  const clis = CLI ? [CLI] : Array.from(new Set([...propAct, ...banAct, ...autAct].map(x => x.titular))).sort();
+  const directo = clis.map(c => {
+    const ps = propAct.filter(p => !p.sociedad_id && p.titular === c);
+    const bs = banAct .filter(b => !b.sociedad_id && b.titular === c);
+    const as = autAct .filter(x => !x.sociedad_id && x.titular === c);
+    let ten = 0, renta = 0, rend = 0;
+    ps.forEach(p => { ten += vProp(p.nro); renta += resProp(p).neto; });
+    bs.forEach(b => { const r = resBan(b); ten += r.saldo; rend += r.rend; });
+    as.forEach(x => { ten += vAuto(x.nro); });
+    return { cli:c, ten, renta, rend, res: renta + rend, nProps:ps.length, nBan:bs.length, nAut:as.length };
+  }).filter(d => d.nProps + d.nBan + d.nAut > 0);
+
+  // ═══════════════ RENDER ═══════════════
+  const money = v => (v >= 0 ? '' : '-') + '$' + fmt(Math.abs(v));
+  const signo = v => `<span style="color:${v>=0?'var(--esp)':'var(--usa)'}">${v>=0?'+':'-'}$${fmt(Math.abs(v))}</span>`;
+
+  const totTen = raices.reduce((a,s)=>a+rama[s.id].ten,0) + directo.reduce((a,d)=>a+d.ten,0);
+  const totRes = raices.reduce((a,s)=>a+rama[s.id].res,0) + directo.reduce((a,d)=>a+d.res,0);
+  const totSocTen = raices.reduce((a,s)=>a+rama[s.id].ten,0);
+  const totSocRes = raices.reduce((a,s)=>a+rama[s.id].res,0);
+
+  const kpi = (lbl, val, sub, col) => `<div class="card" style="padding:14px 16px">
+      <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px">${lbl}</div>
+      <div style="font-size:22px;font-weight:700;margin-top:4px;${col?'color:'+col:''}">${val}</div>
+      <div style="font-size:11px;color:var(--text3);margin-top:2px">${sub}</div></div>`;
+
+  let filas = '';
+  const fila = (s, depth) => {
+    const o = propia[s.id], r = rama[s.id];
+    const tieneHijos = (hijos[s.id]||[]).length > 0;
+    const nAct = o.pd.length + o.bd.length + o.ad.length;
+    const abierto = !!_rsocOpen[s.id];
+    filas += `<tr style="cursor:pointer;background:${depth===0?'var(--bg2,transparent)':'transparent'}" onclick="toggleRSoc('${s.id}')">
+      <td style="padding-left:${8 + depth*22}px">
+        <span style="color:var(--text3);font-size:11px">${nAct||tieneHijos ? (abierto?'▾':'▸') : '·'}</span>
+        <b style="font-weight:${depth===0?700:500}">${s.nombre}</b>
+        <span style="color:var(--text3);font-size:11px"> #${s.nro ?? '—'}</span></td>
+      <td style="font-size:11px;color:var(--text3)">${s.titular||'—'} · ${s.pais||'—'}</td>
+      <td class="num" style="font-size:11px;color:var(--text3)">${o.pd.length||''}${o.pd.length?' pr':''}${o.bd.length?' · '+o.bd.length+' bc':''}${o.ad.length?' · '+o.ad.length+' au':''}</td>
+      <td class="num">${o.ten ? money(o.ten) : '—'}</td>
+      <td class="num">${o.res || o.renta || o.rend || o.gasto ? signo(o.res) : '—'}</td>
+      <td class="num" style="font-weight:600">${tieneHijos ? money(r.ten) : ''}</td>
+      <td class="num" style="font-weight:600">${tieneHijos ? signo(r.res) : ''}</td></tr>`;
+
+    if (abierto && (nAct || o.gasto || o.aportes)) {
+      let det = '';
+      if (o.pd.length) det += `<div style="font-size:11px;color:var(--text3);margin:6px 0 2px;text-transform:uppercase;letter-spacing:.5px">Propiedades</div>
+        <table style="font-size:12px;width:100%"><thead><tr><th>Propiedad</th><th class="num">Valor ${ANIO}</th><th class="num">Renta</th><th class="num">Gastos</th><th class="num">Neto</th></tr></thead><tbody>
+        ${o.pd.map(x=>`<tr><td>${x.p.nombre} <span style="color:var(--text3);font-size:10px">#${x.p.nro}</span></td><td class="num">${money(x.v)}</td><td class="num">${x.r.renta?money(x.r.renta):'—'}</td><td class="num">${x.r.gastos?money(x.r.gastos):'—'}</td><td class="num">${x.r.neto?signo(x.r.neto):'—'}</td></tr>`).join('')}
+        </tbody></table>`;
+      if (o.bd.length) det += `<div style="font-size:11px;color:var(--text3);margin:10px 0 2px;text-transform:uppercase;letter-spacing:.5px">Cuentas</div>
+        <table style="font-size:12px;width:100%"><thead><tr><th>Cuenta</th><th class="num">Saldo ${ANIO}</th><th class="num">Rendimiento</th></tr></thead><tbody>
+        ${o.bd.map(x=>`<tr><td>${x.b.nombre} <span style="color:var(--text3);font-size:10px">#${x.b.nro}${x.b.es_operativa?' · operativa':''}</span></td><td class="num">${money(x.saldo)}</td><td class="num">${x.b.es_operativa?'—':signo(x.rend)}</td></tr>`).join('')}
+        </tbody></table>`;
+      if (o.ad.length) det += `<div style="font-size:11px;color:var(--text3);margin:10px 0 2px;text-transform:uppercase;letter-spacing:.5px">Autos</div>
+        <table style="font-size:12px;width:100%"><tbody>
+        ${o.ad.map(x=>`<tr><td>${x.a.nombre}</td><td class="num">${money(x.v)}</td></tr>`).join('')}</tbody></table>`;
+      if (o.gasto || o.aportes) det += `<div style="font-size:11px;color:var(--text3);margin:10px 0 2px;text-transform:uppercase;letter-spacing:.5px">Movimientos de la sociedad</div>
+        <table style="font-size:12px;width:100%"><tbody>
+          <tr><td>Impuestos + otros gastos</td><td class="num" style="color:var(--usa)">-$${fmt(o.gasto)}</td></tr>
+          ${o.aportes?`<tr><td>Aportes de capital <span style="color:var(--text3);font-size:10px">(no es gasto, no afecta el resultado)</span></td><td class="num">$${fmt(o.aportes)}</td></tr>`:''}
+        </tbody></table>`;
+      det += `<div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--border);display:flex;justify-content:space-between;font-size:12px">
+        <span style="color:var(--text3)">Renta neta ${money(o.renta)} · Rendimiento bancario ${signo(o.rend)} · Gastos propios -$${fmt(o.gasto)}</span>
+        <b>Resultado ${signo(o.res)}</b></div>`;
+      filas += `<tr><td colspan="7" style="background:var(--bg2,rgba(0,0,0,.02));padding:10px 16px 14px ${20+depth*22}px">${det}</td></tr>`;
+    }
+    (hijos[s.id]||[]).forEach(h => fila(h, depth+1));
+  };
+  raices.forEach(s => fila(s, 0));
+
+  cont.innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-bottom:18px">
+      ${kpi('Tenencia en sociedades', '$'+fmt(totSocTen), socs.length+' sociedades', '')}
+      ${kpi('Resultado '+ANIO, (totSocRes>=0?'+':'-')+'$'+fmt(Math.abs(totSocRes)), 'renta + rendimiento - gastos', totSocRes>=0?'var(--esp)':'var(--usa)')}
+      ${kpi('Directo del cliente', '$'+fmt(directo.reduce((a,d)=>a+d.ten,0)), 'activos sin sociedad', '')}
+      ${kpi('Total', '$'+fmt(totTen), 'resultado '+((totRes>=0?'+':'-')+'$'+fmt(Math.abs(totRes))), '')}
+    </div>
+
+    <div class="card">
+      <div class="section-title" style="font-size:14px;margin-bottom:10px">Estructura · ${CLI || 'todos los clientes'} · ${ANIO}</div>
+      <div class="table-wrap"><table style="font-size:13px">
+        <thead><tr>
+          <th>Sociedad</th><th>Cliente · País</th><th class="num">Activos</th>
+          <th class="num">Tenencia propia</th><th class="num">Resultado propio</th>
+          <th class="num">Tenencia rama</th><th class="num">Resultado rama</th>
+        </tr></thead>
+        <tbody>${filas || '<tr><td colspan="7" style="color:var(--text3);text-align:center;padding:24px">Sin sociedades para este cliente</td></tr>'}</tbody>
+      </table></div>
+      <p style="font-size:11px;color:var(--text3);margin:10px 0 0">Clic en una sociedad para ver sus activos. <b>Rama</b> = la sociedad más todas sus sociedades hijas.</p>
+    </div>
+
+    ${directo.length ? `<div class="card" style="margin-top:16px">
+      <div class="section-title" style="font-size:14px;margin-bottom:10px">Activos sin sociedad — a nombre del cliente</div>
+      <div class="table-wrap"><table style="font-size:13px">
+        <thead><tr><th>Cliente</th><th class="num">Propiedades</th><th class="num">Cuentas</th><th class="num">Autos</th><th class="num">Tenencia</th><th class="num">Resultado ${ANIO}</th></tr></thead>
+        <tbody>${directo.map(d=>`<tr><td><b>${d.cli}</b></td><td class="num">${d.nProps||'—'}</td><td class="num">${d.nBan||'—'}</td><td class="num">${d.nAut||'—'}</td><td class="num">${money(d.ten)}</td><td class="num">${signo(d.res)}</td></tr>`).join('')}</tbody>
+      </table></div>
+    </div>` : ''}
+
+    <p style="font-size:11px;color:var(--text3);margin:14px 0 0;line-height:1.6">
+      <b>Cómo se calcula.</b> La <b>tenencia</b> es el valor de cada activo al cierre del año, de la misma fuente que Patrimonio Histórico.
+      El <b>resultado</b> es la renta neta de las propiedades más el rendimiento de las cuentas de inversión
+      (variación del saldo neta de aportes y retiros; las cuentas operativas no rinden) menos los impuestos y gastos propios de la sociedad.
+      Los aportes de capital no son gasto y no afectan el resultado. Private equity se mide aparte y no entra en este reporte.
+    </p>`;
+}
+
 
 // ===== REPORTE MENSUAL (una página: indicadores + resumen en frases) =====
 async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
@@ -12427,7 +12718,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260814-156';
+const APP_VERSION = '20260818-157';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
