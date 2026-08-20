@@ -1134,7 +1134,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
             <div class="section-title" style="margin:0">Catálogo de Propiedades</div>
             <div style="display:flex;gap:8px">
               <button class="btn-secondary admin-only" onclick="abrirVentaPropiedad()">Venta de propiedad</button>
-              <button class="btn-secondary" onclick="openModal('modal-prop-nueva')">+ Nueva Propiedad</button>
+              <button class="btn-secondary" onclick="abrirPropEdit(null,event)">+ Nueva Propiedad</button>
             </div>
           </div>
           <div class="filters">
@@ -3199,7 +3199,10 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
 
         <div id="soc-info" class="tab-content" style="display:block">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-            <div class="section-title" style="margin:0">Sociedades</div>
+            <div style="display:flex;align-items:center;gap:10px">
+              <div class="section-title" style="margin:0">Sociedades</div>
+              <button class="btn-secondary" style="width:auto;padding:5px 12px;font-size:11px" onclick="abrirSocEdit(null,event)">+ Nueva sociedad</button>
+            </div>
             <div class="filters" style="margin:0">
               <button class="filter-btn f-all active" onclick="filtroSoc('all',this)">Todas</button>
               <button class="filter-btn f-arg" onclick="filtroSoc('JC',this)">JC</button>
@@ -3233,7 +3236,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
               <table>
                 <thead>
                   <tr><th>#</th><th>Sociedad</th><th>Titular</th><th>Soc. Madre</th><th>País</th>
-                  <th class="num">Aportes</th><th class="num">Impuestos</th><th class="num">Otros Gastos</th><th class="num">Total</th></tr>
+                  <th class="num">Aportes</th><th class="num">Impuestos</th><th class="num">Otros Gastos</th><th class="num">Total</th><th style="width:34px"></th></tr>
                 </thead>
                 <tbody id="tbody-sociedades"></tbody>
               </table>
@@ -3873,12 +3876,13 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
 <div class="modal-overlay" id="modal-prop-nueva">
   <div class="modal">
     <div class="modal-header">
-      <div class="modal-title">Nueva Propiedad</div>
+      <div class="modal-title" id="np-title">Nueva Propiedad</div>
       <button class="modal-close" onclick="closeModal('modal-prop-nueva')">×</button>
     </div>
     <div class="modal-body">
-      <div class="form-row cols-2">
-        <div><label class="fld">Nombre / Identificación</label><input class="fld" id="np-nombre"></div>
+      <div class="form-row cols-3">
+        <div><label class="fld">N° de orden</label><input class="fld" type="number" id="np-nro"></div>
+        <div style="grid-column:span 2"><label class="fld">Nombre / Identificación</label><input class="fld" id="np-nombre"></div>
         <div><label class="fld">Titular</label>
           <select class="fld" id="np-titular">
             <option value="JC">JC - Juan Cocci</option><option value="FC">FC - Franco Cocci</option>
@@ -3918,6 +3922,10 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
       <div class="form-row cols-2">
         <div><label class="fld">Inquilino Actual</label><input class="fld" id="np-inquilino"></div>
         <div><label class="fld">Precio Alquiler (USD/mes)</label><input class="fld" type="number" id="np-precio-alq" value="0"></div>
+      </div>
+      <div class="form-row cols-2" id="np-estado-row">
+        <div><label class="fld">Activa</label><select class="fld" id="np-activa"><option value="true">Sí</option><option value="false">No</option></select></div>
+        <div><label class="fld">Vendida</label><select class="fld" id="np-vendida"><option value="false">No</option><option value="true">Sí</option></select></div>
       </div>
     </div>
     <div class="modal-footer">
@@ -6438,7 +6446,7 @@ function renderPropiedades(paisFiltro) {
     return `
     <tr class="row-${colPais[p.pais]||'arg'}" style="${rowStyle}">
       <td style="color:var(--text3);${textStyle}">${p.nro||'—'}</td>
-      <td class="bold" style="${textStyle}">${p.nombre}${isVendida?' <span style="font-size:9px;background:var(--usa);color:#fff;border-radius:4px;padding:1px 5px;margin-left:4px;font-weight:400">VENDIDA</span>':''}</td>
+      <td class="bold" style="${textStyle}">${p.nombre}<span onclick="abrirPropEdit('${p.id}',event)" title="Editar la propiedad" style="cursor:pointer;margin-left:6px;opacity:.45;font-size:12px">&#9998;</span>${isVendida?' <span style="font-size:9px;background:var(--usa);color:#fff;border-radius:4px;padding:1px 5px;margin-left:4px;font-weight:400">VENDIDA</span>':''}</td>
       <td style="${textStyle}">${p.titular}</td>
       <td><span class="badge badge-${colPais[p.pais]||'arg'}">${p.pais}</span></td>
       <td><span style="font-size:11px">${p.tipo === 'R' ? '🔵 R' : '⚪ NR'}</span></td>
@@ -6478,30 +6486,91 @@ function filtroProp(val, btn) {
   renderPropiedades(val);
 }
 
+/* ═══════════ ALTA Y EDICION DE PROPIEDADES (v162) ═══════════
+   El mismo modal sirve para las dos cosas: `_npId` null = alta, con id = edicion.
+   El N° de orden es el que ordena la propiedad en TODA la app (tablas, selects,
+   anexos del COMPLETO), asi que en el alta se propone el siguiente libre.
+   Al guardar hay que refrescar los desplegables de toda la app, no solo la
+   tabla de propiedades: si no, la propiedad nueva no aparece para cargarle
+   movimientos hasta recargar la pagina. */
+let _npId = null;
+
+async function abrirPropEdit(id, ev) {
+  if (ev) ev.stopPropagation();
+  _npId = id || null;
+  const p = id ? (propsData || []).find(x => x.id === id) : null;
+  const set = (k, v) => { const el = document.getElementById(k); if (el) el.value = (v ?? ''); };
+  const maxNro = (propsData || []).reduce((a, x) => Math.max(a, Number(x.nro) || 0), 0);
+  document.getElementById('np-title').textContent = p ? 'Editar propiedad' : 'Nueva Propiedad';
+  set('np-nro',           p ? (p.nro ?? '') : maxNro + 1);
+  set('np-nombre',        p ? p.nombre : '');
+  set('np-titular',       p ? (p.titular || 'JC') : 'JC');
+  set('np-pais',          p ? (p.pais || 'ARG') : 'ARG');
+  set('np-tipo',          p ? (p.tipo || 'R') : 'R');
+  set('np-m2',            p ? p.m2 : '');
+  set('np-direccion',     p ? p.direccion : '');
+  set('np-fecha-compra',  p ? p.fecha_compra : '');
+  set('np-valor-compra',  p ? p.valor_compra : '');
+  set('np-fecha-venta',   p ? p.fecha_venta : '');
+  set('np-valor-venta',   p ? p.valor_venta : '');
+  set('np-inversion',     p ? (p.inversion ?? 0) : 0);
+  set('np-val25',         p ? (p.valor_2025 ?? 0) : 0);
+  set('np-val26',         p ? (p.valor_2026 ?? 0) : 0);
+  set('np-inquilino',     p ? p.inquilino_actual : '');
+  set('np-precio-alq',    p ? (p.precio_alquiler ?? 0) : 0);
+  set('np-activa',        p ? String(p.activa !== false) : 'true');
+  set('np-vendida',       p ? String(p.vendida === true) : 'false');
+  const est = document.getElementById('np-estado-row');
+  if (est) est.style.display = p ? '' : 'none';   // en el alta no tiene sentido
+  openModal('modal-prop-nueva');
+}
+
 async function guardarNuevaPropiedad() {
+  const val = k => document.getElementById(k).value;
+  const nombre = val('np-nombre').trim();
+  if (!nombre) return toast('Poné el nombre de la propiedad', 'error');
+  const nro = parseInt(val('np-nro'));
+  if (!(nro > 0)) return toast('Poné un N° de orden válido', 'error');
+  const dup = (propsData || []).find(x => Number(x.nro) === nro && x.id !== _npId);
+  if (dup && !confirm(`El N° ${nro} ya lo usa "${dup.nombre}". ¿Guardar igual? (los números se pueden reordenar después)`)) return;
   const data = {
-    nombre: document.getElementById('np-nombre').value,
-    titular: document.getElementById('np-titular').value,
-    pais: document.getElementById('np-pais').value,
-    tipo: document.getElementById('np-tipo').value,
-    direccion: document.getElementById('np-direccion').value,
-    fecha_compra: document.getElementById('np-fecha-compra').value || null,
-    valor_compra: parseFloat(document.getElementById('np-valor-compra').value)||0,
-    fecha_venta: document.getElementById('np-fecha-venta').value || null,
-    valor_venta: parseFloat(document.getElementById('np-valor-venta').value)||null,
-    inversion: parseFloat(document.getElementById('np-inversion').value)||0,
-    valor_2025: parseFloat(document.getElementById('np-val25').value)||0,
-    valor_2026: parseFloat(document.getElementById('np-val26').value)||0,
-    inquilino_actual: document.getElementById('np-inquilino').value,
-    precio_alquiler: parseFloat(document.getElementById('np-precio-alq').value)||0,
-    m2: parseFloat(document.getElementById('np-m2').value)||null,
-    activa: true, vendida: false,
+    nro,
+    nombre,
+    titular: val('np-titular'),
+    pais: val('np-pais'),
+    tipo: val('np-tipo'),
+    direccion: val('np-direccion'),
+    fecha_compra: val('np-fecha-compra') || null,
+    valor_compra: parseFloat(val('np-valor-compra'))||0,
+    fecha_venta: val('np-fecha-venta') || null,
+    valor_venta: parseFloat(val('np-valor-venta'))||null,
+    inversion: parseFloat(val('np-inversion'))||0,
+    valor_2025: parseFloat(val('np-val25'))||0,
+    valor_2026: parseFloat(val('np-val26'))||0,
+    inquilino_actual: val('np-inquilino'),
+    precio_alquiler: parseFloat(val('np-precio-alq'))||0,
+    m2: parseFloat(val('np-m2'))||null,
+    activa:  _npId ? val('np-activa')  === 'true' : true,
+    vendida: _npId ? val('np-vendida') === 'true' : false,
   };
-  const { error } = await sb.from('propiedades').insert(data);
+  const { error } = _npId
+    ? await sb.from('propiedades').update(data).eq('id', _npId)
+    : await sb.from('propiedades').insert(data);
   if (error) return toast('Error: ' + error.message, 'error');
-  toast('Propiedad guardada ✓', 'success');
+  toast(_npId ? 'Propiedad actualizada ✓' : 'Propiedad creada ✓ — ya figura en carga, alquileres, adjuntos y reportes', 'success');
   closeModal('modal-prop-nueva');
+  _npId = null;
+  await refrescarPropiedadesEnTodaLaApp();
+}
+
+// Un solo lugar que deja toda la app al dia despues de tocar una propiedad.
+async function refrescarPropiedadesEnTodaLaApp() {
   await loadPropiedades();
+  try { await populateAllSelects(); } catch (e) { console.warn('selects:', e.message); }
+  try { await loadAlquileres(); } catch (e) {}
+  _RSOC = null;                                        // el reporte de sociedades relee el catalogo
+  try { if (document.getElementById('rsoc-contenido')?.innerHTML) await renderRepSoc(); } catch (e) {}
+  try { if (document.getElementById('tree-martona')?.innerHTML) await renderOrganigramas(); } catch (e) {}
 }
 
 async function cargarMovProp() {
@@ -8153,9 +8222,7 @@ async function renderRepSoc() {
       <td style="padding-left:${8 + depth*22}px">
         <span style="color:var(--text3);font-size:11px">${nAct||conHijos ? (ab?'▾':'▸') : '·'}</span>
         <b style="font-weight:${depth===0?700:500}">${s.nombre}</b>
-        <span style="color:var(--text3);font-size:11px"> #${s.nro ?? '—'}</span>
-        <span onclick="abrirSocEdit('${s.id}',event)" title="Editar nombre, N°, cliente, país y sociedad madre"
-              style="cursor:pointer;margin-left:6px;opacity:.45;font-size:12px">&#9998;</span></td>
+        <span style="color:var(--text3);font-size:11px"> #${s.nro ?? '—'}</span></td>
       <td style="font-size:11px;color:var(--text3)">${s.titular||'—'} · ${s.pais||'—'}</td>
       <td class="num" style="font-size:11px;color:var(--text3)">${o.pd.length?o.pd.length+' pr':''}${o.bd.length?' · '+o.bd.length+' bc':''}${o.ad.length?' · '+o.ad.length+' au':''}</td>
       <td class="num">${o.ten ? money(o.ten) : nada}</td>
@@ -8216,10 +8283,7 @@ async function renderRepSoc() {
     </div>
 
     <div class="card">
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px">
-        <div class="section-title" style="font-size:14px;margin:0">Estructura · ${CLI || 'todos los clientes'} · ${ANIO}</div>
-        <button class="btn-secondary" style="width:auto;padding:5px 12px;font-size:11px" onclick="abrirSocEdit(null,event)">+ Nueva sociedad</button>
-      </div>
+      <div class="section-title" style="font-size:14px;margin-bottom:10px">Estructura · ${CLI || 'todos los clientes'} · ${ANIO}</div>
       <div class="table-wrap"><table style="font-size:13px">
         <thead><tr>
           <th>Sociedad</th><th>Cliente · País</th><th class="num">Activos</th>
@@ -8228,7 +8292,7 @@ async function renderRepSoc() {
         </tr></thead>
         <tbody>${filas || '<tr><td colspan="7" style="color:var(--text3);text-align:center;padding:24px">Sin sociedades para este cliente</td></tr>'}</tbody>
       </table></div>
-      <p style="font-size:11px;color:var(--text3);margin:10px 0 0">Clic en una sociedad para abrir sus activos. <b>Rama</b> = la sociedad más todas sus hijas. Desde el desplegable de cada activo lo podés mover a otra sociedad o dejarlo sin sociedad, y con el lápiz editás la sociedad.</p>
+      <p style="font-size:11px;color:var(--text3);margin:10px 0 0">Clic en una sociedad para abrir sus activos. <b>Rama</b> = la sociedad más todas sus hijas. Desde el desplegable de cada activo lo podés mover a otra sociedad o dejarlo sin sociedad. Los datos de la sociedad (nombre, N°, cliente, país, madre) se editan en la solapa <b>Sociedades</b>.</p>
     </div>
 
     ${directo.length ? `<div class="card" style="margin-top:16px">
@@ -9727,9 +9791,11 @@ async function renderOrganigramas() {
    la estructura de la base es el dibujo. */
 let _seId = null, _asRef = null;
 
-function abrirSocEdit(id, ev) {
+async function abrirSocEdit(id, ev) {
   if (ev) ev.stopPropagation();
-  if (!_RSOC) return toast('Esperá a que cargue el reporte', 'error');
+  // Se abre tanto desde la solapa Sociedades como desde el organigrama: si el
+  // catalogo todavia no esta en memoria, se trae aca.
+  if (!_RSOC) { try { await _rsocBase(); } catch (e) { return toast('No se pudo leer sociedades: ' + e.message, 'error'); } }
   _seId = id || null;
   const s = id ? _RSOC.socs.find(x => x.id === id) : null;
   const g = (k, v) => { const el = document.getElementById(k); if (el) el.value = v; };
@@ -9809,8 +9875,9 @@ async function guardarActivoSoc() {
 // Invalida el cache de catalogos y repinta lo que este a la vista.
 async function _rsocRefrescar() {
   _RSOC = null;
-  try { if (document.getElementById('rsoc-contenido')) await renderRepSoc(); } catch (e) { console.warn(e.message); }
-  try { if (document.getElementById('tree-martona')) await renderOrganigramas(); } catch (e) { console.warn(e.message); }
+  try { await loadSociedades(); } catch (e) { console.warn(e.message); }
+  try { if (document.getElementById('rsoc-contenido')?.innerHTML) await renderRepSoc(); } catch (e) { console.warn(e.message); }
+  try { if (document.getElementById('tree-martona')?.innerHTML) await renderOrganigramas(); } catch (e) { console.warn(e.message); }
 }
 
 // ============================================
@@ -12203,7 +12270,7 @@ async function loadSociedades() {
   let socs = [], movs = [];
   try {
     const [r1, r2] = await Promise.all([
-      aplicarFiltroTit(sb.from('sociedades').select('*').eq('activa', true).order('nro')),
+      aplicarFiltroTit(sb.from('sociedades').select('*').order('nro')),
       sb.from('movimientos_sociedades').select('*').eq('anio', 2026),
     ]);
     socs = r1.data || [];
@@ -12219,7 +12286,8 @@ async function loadSociedades() {
   // Populate select
   const sel = document.getElementById('carga-soc-sel');
   if (sel) sel.innerHTML = '<option value="">Seleccionar...</option>' +
-    socsData.map(s => `<option value="${s.id}">[${s.titular}] ${s.nombre}</option>`).join('');
+    socsData.filter(s => s.activa !== false)
+      .map(s => `<option value="${s.id}">[${s.titular}] ${s.nombre}</option>`).join('');
 
   // KPIs
   const totImp = socsMovData.reduce((a,b)=>a+(b.impuestos||0),0);
@@ -12249,16 +12317,19 @@ function renderSociedades(filtro) {
   
   tbody.innerHTML = rows.map(s => {
     const t = getMovTotals(s.id);
-    return `<tr class="row-${colPais[s.pais]||'usa'}">
+    const madre = socsData.find(x => x.id === s.sociedad_madre_id);
+    const inact = s.activa === false;
+    return `<tr class="row-${colPais[s.pais]||'usa'}" style="${inact?'opacity:.5':''}">
       <td style="color:var(--text3)">${s.nro||'—'}</td>
-      <td class="bold">${s.nombre}</td>
+      <td class="bold">${s.nombre}${inact?' <span style="font-size:9px;background:var(--text3);color:#fff;border-radius:4px;padding:1px 5px;margin-left:4px;font-weight:400">INACTIVA</span>':''}</td>
       <td>${s.titular}</td>
-      <td style="color:var(--text3);font-size:11px">${s.soc_madre||'—'}</td>
+      <td style="color:var(--text3);font-size:11px">${madre ? madre.nombre : (s.soc_madre||'—')}</td>
       <td><span class="badge badge-${colPais[s.pais]||'usa'}">${s.pais}</span></td>
       <td class="num">${t.aportes>0?'$'+fmt(t.aportes):'—'}</td>
       <td class="num negative">${t.impuestos>0?'$'+fmt(t.impuestos):'—'}</td>
       <td class="num negative">${t.otros>0?'$'+fmt(t.otros):'—'}</td>
       <td class="num bold negative">${(t.aportes+t.impuestos+t.otros)>0?'$'+fmt(t.aportes+t.impuestos+t.otros):'—'}</td>
+      <td style="text-align:center"><span onclick="abrirSocEdit('${s.id}',event)" title="Editar nombre, N°, cliente, país y sociedad madre" style="cursor:pointer;opacity:.5">&#9998;</span></td>
     </tr>`;
   }).join('') || '<tr><td colspan="9" style="color:var(--text3);text-align:center">Sin datos</td></tr>';
   
@@ -13022,7 +13093,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260818-161';
+const APP_VERSION = '20260818-162';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
