@@ -1817,14 +1817,16 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
 
         <div id="banco-linkeo" class="tab-content">
           <div style="display:inline-block;background:var(--gold-soft);border:1px solid var(--gold);color:var(--gold);border-radius:20px;padding:4px 14px;font-size:11px;font-weight:600;letter-spacing:0.5px;margin-bottom:14px">LINKEO DE PAGOS Y COBROS</div>
-          <p style="color:var(--text3);font-size:12px;margin-bottom:16px">Cada movimiento tiene que decir de que cuenta sale o a cual entra. Lo que ya tiene regla se linkea solo al volcar el COMPLETO; lo que no, aparece aca. Cuando asignas una cuenta se guarda como regla y de ahi en adelante se aplica sola.</p>
+          <p style="color:var(--text3);font-size:12px;margin-bottom:16px">Cada movimiento tiene que decir de qué cuenta sale o a cuál entra. Funciona en dos capas: una <b>regla fija</b> por activo y rubro, que la app aplica siempre, y una <b>excepción por mes</b> para cuando ese mes no se pagó así. Rige desde <b>julio 2026</b>: antes de esa fecha el método de pago no estaba normalizado y no se pide.</p>
           <div id="linkeo-kpis" class="grid-3" style="margin-bottom:18px"></div>
           <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
             <label class="fld" style="margin:0">Año</label>
             <select class="fld" id="lk-anio" style="width:auto" onchange="loadLinkeo()"></select>
-            <button class="btn-secondary" style="width:auto;padding:8px 16px" onclick="aplicarReglasTodo()">Aplicar reglas a lo ya cargado</button>
+            <label class="fld" style="margin:0 0 0 8px">Mes</label>
+            <select class="fld" id="lk-mes" style="width:auto" onchange="loadLinkeo()"></select>
+            <span style="font-size:11px;color:var(--text3)">Con “Año completo” cargás las reglas fijas. Eligiendo un mes ves qué cuenta aplica en ese mes y podés poner la excepción.</span>
           </div>
-          <div class="section-title" style="margin-bottom:12px">Pendientes de linkeo</div>
+          <div class="section-title" id="lk-titulo" style="margin-bottom:12px">Pendientes de linkeo</div>
           <div id="linkeo-pendientes"><div class="loader"><div class="spinner"></div></div></div>
           <div class="section-title" style="margin:22px 0 12px">Reglas guardadas</div>
           <div id="linkeo-reglas"></div>
@@ -3491,6 +3493,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
                   <option value="YAC">YAC — Y.A. Cocci</option>
                   <option value="FCC">FCC — F.C. Cocci</option>
                   <option value="G">G — Grupillo</option>
+                  <option value="H">H — Compartido (FC, FCC y YAC)</option>
                 </select>
               </div>
               <div>
@@ -3792,6 +3795,57 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
      MODALES
 ============================================ -->
 
+<!-- Modal: alta / edicion de sociedad (v160) -->
+<div class="modal-overlay" id="modal-soc-edit">
+  <div class="modal" style="max-width:480px">
+    <div class="modal-header">
+      <div class="modal-title" id="se-title">Editar sociedad</div>
+      <button class="modal-close" onclick="closeModal('modal-soc-edit')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:11px;color:var(--text3);margin:0 0 12px;line-height:1.5">La <b>sociedad madre</b> es de quien cuelga. Si la dejás vacía, la sociedad cuelga directo del cliente. Todo lo que cambies acá se ve al instante en el reporte y en el organigrama.</p>
+      <div class="form-row cols-2">
+        <div><label class="fld">N°</label><input class="fld" type="number" id="se-nro"></div>
+        <div><label class="fld">País</label><select class="fld" id="se-pais">
+          <option value="USA">USA</option><option value="ARG">ARG</option>
+          <option value="URU">URU</option><option value="ESP">ESP</option>
+          <option value="PAR">PAR</option></select></div>
+      </div>
+      <div><label class="fld">Nombre</label><input class="fld" id="se-nombre"></div>
+      <div class="form-row cols-2" style="margin-top:10px">
+        <div><label class="fld">Cliente</label><select class="fld" id="se-titular">
+          <option value="JC">JC — Juan Cocci</option><option value="FC">FC — Franco Cocci</option>
+          <option value="M">M — Martona</option><option value="MFL">MFL — M.F. Lorenzo</option>
+          <option value="YAC">YAC — Y.A. Cocci</option><option value="FCC">FCC — F.C. Cocci</option>
+          <option value="G">G — Grupillo</option>
+          <option value="H">H — Compartido (FC, FCC y YAC)</option></select></div>
+        <div><label class="fld">Activa</label><select class="fld" id="se-activa">
+          <option value="true">Sí</option><option value="false">No</option></select></div>
+      </div>
+      <div style="margin-top:10px"><label class="fld">Sociedad madre</label><select class="fld" id="se-madre"></select></div>
+      <div style="display:flex;gap:10px;margin-top:18px">
+        <button class="btn-primary" style="flex:1" onclick="guardarSocEdit()">Guardar</button>
+        <button class="btn-secondary" id="se-del" style="width:auto;padding:9px 14px;color:var(--usa)" onclick="borrarSoc()">Eliminar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: mover un activo de sociedad (v160) -->
+<div class="modal-overlay" id="modal-activo-soc">
+  <div class="modal" style="max-width:420px">
+    <div class="modal-header">
+      <div class="modal-title">Sociedad del activo</div>
+      <button class="modal-close" onclick="closeModal('modal-activo-soc')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:12px;margin:0 0 12px" id="as-nombre"></p>
+      <div><label class="fld">Sociedad</label><select class="fld" id="as-soc"></select></div>
+      <button class="btn-primary" style="margin-top:18px" onclick="guardarActivoSoc()">Guardar</button>
+    </div>
+  </div>
+</div>
+
 <!-- Modal: editar TC de un mes -->
 <div class="modal-overlay" id="modal-tc-edit">
   <div class="modal" style="max-width:420px">
@@ -3831,6 +3885,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
             <option value="M">M - Martona</option><option value="MFL">MFL - Maria Fernanda Lorenzo</option>
             <option value="YAC">YAC - Yanina Alicia Cocci</option><option value="FCC">FCC - Fiorella Carla Cocci</option>
             <option value="G">G - Grupillo</option>
+            <option value="H">H - Compartido (se divide entre FC, FCC y YAC)</option>
           </select>
         </div>
       </div>
@@ -7261,13 +7316,26 @@ async function loadTransferencias() {
 
 
 // ============================================
-// LINKEO DE PAGOS Y COBROS (v154)
-// El linkeo es POR RUBRO: cada gasto, impuesto o renta puede salir/entrar por
-// una cuenta distinta. Un "pendiente" es un rubro con monto en el año que
-// todavia no tiene regla con cuenta. Al asignarla queda como regla y vale
-// para todos los años.
+// LINKEO DE PAGOS Y COBROS (v161)
+// ────────────────────────────────────────────
+// Dos capas y una fecha de arranque:
+//
+//   REGLA FIJA (`reglas_pago`)  → por activo + rubro. Es lo que la app aplica
+//     siempre. No se escribe nada en los movimientos: se lee al vuelo.
+//   EXCEPCION POR MES (`excepciones_pago`) → mismo activo + rubro pero para un
+//     mes concreto. Si existe, le gana a la regla.
+//
+// Vigencia: LK_DESDE (julio 2026). Antes de esa fecha el metodo de pago no
+// estaba normalizado, asi que no se pide linkeo ni se marca pendiente.
+//
+// La solapa tiene dos vistas:
+//   · Año completo  → pendientes (rubros con importe y sin regla) + reglas fijas.
+//   · Un mes        → que cuenta aplica en ese mes rubro por rubro, y el select
+//                     para poner la excepcion de ESE mes sin tocar la regla.
 // ============================================
-let _lkBancos = [], _lkReglas = [], _lkCat = {};
+let _lkBancos = [], _lkReglas = [], _lkExc = [], _lkCat = {};
+const LK_DESDE = { anio: 2026, mes: 7 };
+const LK_MESNOM = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
 
 const LK_TIPOS = [
   { key:'propiedad', tabla:'movimientos_propiedades', fk:'propiedad_id', cat:'propiedades', label:'Propiedades',
@@ -7293,87 +7361,137 @@ const LK_NOM = { renta:'Renta', otro_ingreso:'Otro ingreso', gas:'Gas', luz:'Luz
   patente:'Patente', seguro:'Seguro', service:'Service', arreglos:'Arreglos',
   aportes:'Aportes', impuestos:'Impuestos', utilidad:'Utilidad', aporte_capital:'Aporte de capital' };
 
-function lkAnioSel() { return parseInt(document.getElementById('lk-anio')?.value) || new Date().getFullYear(); }
+function lkAnioSel() { return parseInt(document.getElementById('lk-anio')?.value) || LK_DESDE.anio; }
+function lkMesSel()  { return parseInt(document.getElementById('lk-mes')?.value) || 0; }   // 0 = año completo
+
+// ¿ese mes esta dentro del periodo en que el linkeo rige?
+function lkVigente(anio, mes) {
+  return anio > LK_DESDE.anio || (anio === LK_DESDE.anio && mes >= LK_DESDE.mes);
+}
 function lkRegla(cat, nro, rubro) {
   return _lkReglas.find(r => r.categoria===cat && r.activo_nro===nro && r.rubro===rubro)
       || _lkReglas.find(r => r.categoria===cat && r.activo_nro===nro && r.rubro==='*');
 }
-// Una regla esta resuelta si apunta a una cuenta O si es efectivo: CASH no tiene
-// cuenta_id y aun asi es una respuesta valida a "de donde sale / a donde entra".
+function lkExcepcion(cat, nro, rubro, anio, mes) {
+  return _lkExc.find(e => e.categoria===cat && e.activo_nro===nro && e.rubro===rubro && e.anio===anio && e.mes===mes);
+}
+// Resuelta = apunta a una cuenta O es efectivo. CASH no tiene cuenta_id y aun
+// asi es una respuesta valida a "de donde sale / a donde entra".
 function lkResuelta(r) {
   return !!(r && (r.cuenta_id || r.medio === 'Efectivo' || r.referencia === 'CASH'));
+}
+function lkTxtCuenta(r) {
+  if (!r) return '<span style="color:var(--usa)">sin asignar</span>';
+  if (r.referencia === 'CASH' || r.medio === 'Efectivo') return 'CASH / efectivo';
+  const b = _lkBancos.find(x => x.id === r.cuenta_id);
+  return b ? b.nombre : '<span style="color:var(--usa)">sin asignar</span>';
+}
+function lkOpts(sel) {
+  return '<option value="">— elegir cuenta —</option>' +
+    _lkBancos.map(b => `<option value="${b.id}"${sel && sel.cuenta_id===b.id?' selected':''}>${b.nombre} (${b.titular})</option>`).join('') +
+    `<option value="__CASH__"${sel && (sel.referencia==='CASH'||sel.medio==='Efectivo')?' selected':''}>CASH / efectivo</option>`;
 }
 
 async function loadLinkeo() {
   const selA = document.getElementById('lk-anio');
   if (selA && !selA.options.length) {
     const hoy = new Date().getFullYear();
-    selA.innerHTML = [hoy,hoy-1,hoy-2,hoy-3,hoy-4,hoy-5,hoy-6].map(y => `<option value="${y}">${y}</option>`).join('');
+    const años = []; for (let y = Math.max(hoy, LK_DESDE.anio); y >= LK_DESDE.anio; y--) años.push(y);
+    selA.innerHTML = años.map(y => `<option value="${y}">${y}</option>`).join('');
   }
-  const anio = lkAnioSel();
+  const selM = document.getElementById('lk-mes');
+  if (selM && !selM.options.length)
+    selM.innerHTML = '<option value="0">Año completo</option>' +
+      LK_MESNOM.map((n,i) => `<option value="${i+1}">${n}</option>`).join('');
+
+  const anio = lkAnioSel(), mesSel = lkMesSel();
   const cont = document.getElementById('linkeo-pendientes');
   if (!cont) return;
   cont.innerHTML = '<div class="loader"><div class="spinner"></div></div>';
 
-  const [{ data: bcs }, { data: rgs }] = await Promise.all([
+  const [{ data: bcs }, { data: rgs }, excR] = await Promise.all([
     sb.from('bancos').select('id,nro,nombre,titular,activo').order('nro'),
     sb.from('reglas_pago').select('*').then(r=>r, ()=>({data:null})),
+    sb.from('excepciones_pago').select('*').eq('anio', anio).then(r=>r, ()=>({data:null})),
   ]);
   if (rgs === null) { cont.innerHTML = '<p style="color:var(--usa);font-size:13px">Falta la tabla <code>reglas_pago</code>. Corré el SQL de linkeo.</p>'; return; }
+  if (excR.data === null) { cont.innerHTML = '<p style="color:var(--usa);font-size:13px">Falta la tabla <code>excepciones_pago</code>. Corré <code>linkeo-v161.sql</code>.</p>'; return; }
   _lkBancos = (bcs||[]).filter(b => b.activo !== false);
   _lkReglas = rgs || [];
+  _lkExc    = excR.data || [];
 
-  const bloques = []; let pendRubros = 0, pendMonto = 0;
+  // Meses del año que entran: solo los que estan dentro de la vigencia.
+  const meses = (mesSel ? [mesSel] : [1,2,3,4,5,6,7,8,9,10,11,12]).filter(m => lkVigente(anio, m));
+  if (!meses.length) {
+    document.getElementById('linkeo-kpis').innerHTML = '';
+    const badge = document.getElementById('linkeo-badge');
+    if (badge) badge.style.display = 'none';
+    cont.innerHTML = `<div class="card" style="font-size:13px;color:var(--text3)">
+      El linkeo rige desde <b>${LK_MESNOM[LK_DESDE.mes-1]} ${LK_DESDE.anio}</b>. Antes de esa fecha el método de pago no estaba normalizado, así que no se pide ni se marca pendiente.</div>`;
+    document.getElementById('linkeo-reglas').innerHTML = '';
+    return;
+  }
+
+  // ── juntar los rubros con importe, por activo y por mes
+  const bloques = []; let pendRubros = 0, pendMonto = 0, nExc = 0;
   for (const t of LK_TIPOS) {
-    const [{ data: cat }, { data: movs }] = await Promise.all([
+    const [{ data: cat }, movR] = await Promise.all([
       sb.from(t.cat).select('id,nro,nombre,titular'),
-      sb.from(t.tabla).select('*').eq('anio', anio).then(r=>r, ()=>({data:[]})),
+      sb.from(t.tabla).select('*').eq('anio', anio).in('mes', meses).limit(5000).then(r=>r, ()=>({data:[]})),
     ]);
     const porId = {}; (cat||[]).forEach(c => { porId[c.id]=c; _lkCat[t.key+'|'+c.nro]=c.nombre; });
-    // sumar por activo + rubro
-    const acum = {};
-    (movs||[]).forEach(m => {
-      const a = porId[m[t.fk]]; if (!a) return;
-      t.grupos.forEach(gr => gr.campos.forEach(c => {
-        const v = Number(m[c])||0; if (!v) return;
-        const k = a.id+'|'+c;
-        if (!acum[k]) acum[k] = { act:a, grupo:gr.g, rubro:c, monto:0, meses:0 };
-        acum[k].monto += v; acum[k].meses++;
-      }));
-    });
-    // separar los que no tienen cuenta
-    // Orden: por nro de activo (el mismo del COMPLETO y de la app) y, dentro de
-    // cada uno, en el orden en que los rubros figuran en el anexo.
     const ordenRubro = {}; let k = 0;
     t.grupos.forEach(gr => gr.campos.forEach(c => ordenRubro[c] = k++));
-    const filas = Object.values(acum).filter(x => {
-      const r = lkRegla(t.key, x.act.nro, x.rubro);
-      x.regla = r; return !lkResuelta(r);
+
+    const acum = {};
+    (movR.data||[]).forEach(m => {
+      const a = porId[m[t.fk]]; if (!a) return;
+      if (!lkVigente(Number(m.anio), Number(m.mes))) return;
+      t.grupos.forEach(gr => gr.campos.forEach(c => {
+        const v = Number(m[c])||0; if (!v) return;
+        const key = mesSel ? a.id+'|'+c+'|'+m.mes : a.id+'|'+c;
+        if (!acum[key]) acum[key] = { act:a, grupo:gr.g, rubro:c, monto:0, meses:[], mes: m.mes };
+        acum[key].monto += v;
+        if (!acum[key].meses.includes(m.mes)) acum[key].meses.push(m.mes);
+      }));
+    });
+
+    const filas = Object.values(acum).map(x => {
+      x.regla = lkRegla(t.key, x.act.nro, x.rubro);
+      x.exc   = mesSel ? lkExcepcion(t.key, x.act.nro, x.rubro, anio, mesSel) : null;
+      x.efectiva = x.exc || x.regla;
+      return x;
     }).sort((a,b) => ((a.act.nro ?? 9999) - (b.act.nro ?? 9999))
-                  || ((ordenRubro[a.rubro] ?? 99) - (ordenRubro[b.rubro] ?? 99)));
-    pendRubros += filas.length; pendMonto += filas.reduce((s,x)=>s+x.monto,0);
-    if (filas.length) bloques.push({ t, filas });
+                  || ((ordenRubro[a.rubro] ?? 99) - (ordenRubro[b.rubro] ?? 99))
+                  || (a.mes - b.mes));
+
+    const sinResolver = filas.filter(x => !lkResuelta(x.efectiva));
+    pendRubros += sinResolver.length;
+    pendMonto  += sinResolver.reduce((s,x)=>s+x.monto,0);
+    nExc += filas.filter(x => x.exc).length;
+    const mostrar = mesSel ? filas : sinResolver;
+    if (mostrar.length) bloques.push({ t, filas: mostrar });
   }
 
   const conCuenta = _lkReglas.filter(lkResuelta).length;
   document.getElementById('linkeo-kpis').innerHTML = [
     ['Rubros sin cuenta', pendRubros, pendRubros ? 'var(--usa)' : 'var(--esp)'],
     ['Monto sin linkear', '$'+fmt(pendMonto), pendMonto ? 'var(--gold)' : 'var(--esp)'],
-    ['Reglas con cuenta', conCuenta, 'var(--esp)'],
+    [mesSel ? 'Excepciones del mes' : 'Reglas fijas con cuenta', mesSel ? nExc : conCuenta, 'var(--esp)'],
   ].map(([lbl,val,col]) => `<div style="border:1px solid var(--border);border-radius:8px;padding:14px;text-align:center">
       <div style="font-size:10px;letter-spacing:1px;color:var(--text3);text-transform:uppercase;margin-bottom:6px">${lbl}</div>
       <div style="font-size:22px;font-weight:300;color:${col}">${val}</div></div>`).join('');
   const badge = document.getElementById('linkeo-badge');
   if (badge) { badge.textContent = pendRubros || ''; badge.style.display = pendRubros ? 'inline-block' : 'none'; }
 
-  const opts = '<option value="">— elegir cuenta —</option>' +
-    _lkBancos.map(b => `<option value="${b.id}">${b.nombre} (${b.titular})</option>`).join('') +
-    '<option value="__CASH__">CASH / efectivo</option>';
+  const titulo = document.getElementById('lk-titulo');
+  if (titulo) titulo.textContent = mesSel
+    ? `${LK_MESNOM[mesSel-1]} ${anio} — qué cuenta aplica en cada rubro`
+    : `Pendientes de linkeo · ${anio}`;
 
   cont.innerHTML = !bloques.length
-    ? `<p style="color:var(--esp);font-size:13px">Todo ${anio} está linkeado.</p>`
+    ? `<p style="color:var(--esp);font-size:13px">${mesSel ? 'No hay movimientos con importe en ese mes.' : 'Todo ' + anio + ' está linkeado desde ' + LK_MESNOM[LK_DESDE.mes-1] + '.'}</p>`
     : bloques.map(({t,filas}) => {
-      // agrupar por activo para poder plegar
       const byAct = {};
       filas.forEach(f => { (byAct[f.act.id] = byAct[f.act.id] || { act:f.act, rubros:[] }).rubros.push(f); });
       const acts = Object.values(byAct).sort((a,b) => (a.act.nro ?? 9999) - (b.act.nro ?? 9999));
@@ -7382,159 +7500,147 @@ async function loadLinkeo() {
           <span style="color:var(--text3);font-weight:400;font-size:11px">(${filas.length} rubros en ${acts.length} activos)</span></div>
         ${acts.map(a => {
           const tot = a.rubros.reduce((s,x)=>s+x.monto,0);
+          const pend = a.rubros.filter(x => !lkResuelta(x.efectiva)).length;
           return `<div style="border:1px solid var(--border);border-radius:8px;margin-bottom:8px">
             <div style="display:flex;justify-content:space-between;align-items:center;padding:9px 12px;cursor:pointer" onclick="lkToggle('${a.act.id}')">
               <div style="display:flex;align-items:center;gap:8px">
-                <span id="lk-chev-${a.act.id}" style="color:var(--text3);font-size:11px;width:10px;display:inline-block">&#9662;</span>
-                <span style="color:var(--text3);font-size:11px;min-width:22px;display:inline-block">${a.act.nro ?? ''}</span>
-                <span class="bold">${a.act.nombre}</span>
-                <span style="font-size:11px;color:var(--text3)">${a.act.titular||''} · ${a.rubros.length} ${a.rubros.length===1?'rubro':'rubros'}</span>
+                <span style="color:var(--text3);font-size:11px" id="lkarr-${a.act.id}">▸</span>
+                <b style="font-size:12px">${a.act.nro ?? '—'} · ${a.act.nombre}</b>
+                <span style="color:var(--text3);font-size:11px">${a.act.titular||''}</span>
+                ${pend ? `<span style="background:var(--gold-soft);color:var(--gold);border-radius:10px;padding:1px 8px;font-size:10px">${pend} sin cuenta</span>` : ''}
               </div>
-              <div style="font-size:12px;color:var(--gold);font-weight:600">$${fmt(tot)}</div>
+              <span style="font-size:12px;color:var(--text3)">$${fmt(tot)}</span>
             </div>
-            <div id="lk-body-${a.act.id}" style="padding:0 12px 10px">
-              <div class="table-wrap"><table>
-                <thead><tr><th>Grupo</th><th>Rubro</th><th class="num">Meses</th><th class="num">Monto USD</th><th style="min-width:230px">Cuenta</th><th></th></tr></thead>
-                <tbody>${a.rubros.map(f => `<tr>
-                  <td style="font-size:11px;color:var(--text3)">${f.grupo}</td>
-                  <td class="bold">${LK_NOM[f.rubro]||f.rubro}</td>
-                  <td class="num">${f.meses}</td>
-                  <td class="num">$${fmt(f.monto)}</td>
-                  <td><select class="fld" style="padding:4px;font-size:12px" id="lk-sel-${f.act.id}-${f.rubro}">${opts}</select></td>
-                  <td><button class="btn-secondary" style="padding:3px 10px;font-size:11px"
-                        onclick="linkearRubro('${t.key}',${f.act.nro},'${f.rubro}','${f.act.id}')">Linkear</button></td>
-                </tr>`).join('')}</tbody>
-              </table></div>
-              <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:8px">
-                <select class="fld" style="padding:4px;font-size:12px;width:auto" id="lk-todos-${a.act.id}">${opts}</select>
-                <button class="btn-secondary" style="padding:3px 12px;font-size:11px"
-                  onclick="linkearTodosRubros('${t.key}',${f0(a)},'${a.act.id}')">Aplicar a los ${a.rubros.length}</button>
-              </div>
+            <div id="lkbody-${a.act.id}" style="display:none;border-top:1px solid var(--border);padding:4px 12px 10px">
+              <table style="font-size:12px;width:100%"><thead><tr>
+                <th>Rubro</th>${mesSel?'':'<th class="num">Meses</th>'}<th class="num">Monto</th>
+                <th>${mesSel ? 'Cuenta que aplica' : 'Regla fija'}</th><th>${mesSel ? 'Excepción de ' + LK_MESNOM[mesSel-1] : 'Asignar'}</th>
+              </tr></thead><tbody>
+              ${a.rubros.map(x => {
+                const origen = x.exc ? 'Excepción' : (x.regla ? 'Regla' : '—');
+                return `<tr>
+                  <td>${LK_NOM[x.rubro] || x.rubro} <span style="color:var(--text3);font-size:10px">${x.grupo}</span></td>
+                  ${mesSel?'':`<td class="num" style="color:var(--text3)">${x.meses.length}</td>`}
+                  <td class="num">$${fmt(x.monto)}</td>
+                  <td style="font-size:11px">${lkTxtCuenta(x.efectiva)}
+                      <span style="color:var(--text3);font-size:10px">${origen !== '—' ? '· ' + origen : ''}</span></td>
+                  <td>${mesSel
+                    ? `<select class="fld" style="padding:2px 6px;font-size:11px;width:auto;max-width:200px"
+                         onchange="guardarExcepcion('${t.key}',${x.act.nro},'${x.rubro}',${anio},${mesSel},this.value)">
+                         <option value="">— usa la regla —</option>${lkOpts(x.exc)}</select>
+                       ${x.exc ? `<span onclick="borrarExcepcion('${x.exc.id}')" title="Quitar la excepción y volver a la regla" style="cursor:pointer;color:var(--usa);margin-left:6px">✕</span>` : ''}`
+                    : `<select class="fld" style="padding:2px 6px;font-size:11px;width:auto;max-width:200px"
+                         onchange="guardarReglaRubro('${t.key}',${x.act.nro},'${x.rubro}',this.value)">${lkOpts(x.regla)}</select>`}
+                  </td></tr>`;
+              }).join('')}
+              </tbody></table>
             </div>
           </div>`;
         }).join('')}
       </div>`;
     }).join('');
 
-  renderReglas();
+  renderLinkeoReglas();
 }
-function f0(a) { return a.act.nro; }
 
 function lkToggle(id) {
-  const b = document.getElementById('lk-body-'+id), c = document.getElementById('lk-chev-'+id);
+  const b = document.getElementById('lkbody-'+id), a = document.getElementById('lkarr-'+id);
   if (!b) return;
-  const ab = b.style.display !== 'none';
-  b.style.display = ab ? 'none' : 'block';
-  if (c) c.innerHTML = ab ? '&#9656;' : '&#9662;';
+  const ab = b.style.display === 'none';
+  b.style.display = ab ? 'block' : 'none';
+  if (a) a.textContent = ab ? '▾' : '▸';
 }
 
-async function upsertRegla(cat, nro, rubro, cuenta) {
-  const esCash = cuenta === '__CASH__';
-  return sb.from('reglas_pago').upsert({
+// ── REGLA FIJA: se guarda por activo + rubro y vale de LK_DESDE en adelante
+async function guardarReglaRubro(cat, nro, rubro, val) {
+  const esCash = val === '__CASH__';
+  const { error } = await sb.from('reglas_pago').upsert({
     categoria: cat, activo_nro: nro, rubro,
-    cuenta_id: esCash ? null : cuenta,
-    medio: esCash ? 'Efectivo' : 'Asignado desde la app',
+    cuenta_id : esCash ? null : (val || null),
+    medio     : esCash ? 'Efectivo' : 'Asignado desde la app',
     referencia: esCash ? 'CASH' : null,
+    desde_anio: LK_DESDE.anio, desde_mes: LK_DESDE.mes,
     updated_at: new Date().toISOString(),
   }, { onConflict: 'categoria,activo_nro,rubro' });
-}
-
-async function linkearRubro(cat, nro, rubro, actId) {
-  const cuenta = document.getElementById(`lk-sel-${actId}-${rubro}`)?.value;
-  if (!cuenta) return toast('Elegí una cuenta', 'error');
-  const { error } = await upsertRegla(cat, nro, rubro, cuenta);
   if (error) return toast('Error: ' + error.message, 'error');
-  toast(`${LK_NOM[rubro]||rubro} linkeado ✓`, 'success');
+  toast('Regla guardada ✓ — rige desde ' + LK_MESNOM[LK_DESDE.mes-1] + ' ' + LK_DESDE.anio, 'success');
   await loadLinkeo();
 }
 
-async function linkearTodosRubros(cat, nro, actId) {
-  const cuenta = document.getElementById('lk-todos-'+actId)?.value;
-  if (!cuenta) return toast('Elegí una cuenta', 'error');
-  const sels = document.querySelectorAll(`[id^="lk-sel-${actId}-"]`);
-  let n = 0;
-  for (const sel of sels) {
-    const rubro = sel.id.replace(`lk-sel-${actId}-`, '');
-    const { error } = await upsertRegla(cat, nro, rubro, cuenta);
-    if (!error) n++;
+// ── EXCEPCION: solo para ese mes. Vacio = vuelve a mandar la regla.
+async function guardarExcepcion(cat, nro, rubro, anio, mes, val) {
+  if (!val) {
+    const e = lkExcepcion(cat, nro, rubro, anio, mes);
+    return e ? borrarExcepcion(e.id) : loadLinkeo();
   }
-  toast(`${n} rubros linkeados ✓`, 'success');
+  const esCash = val === '__CASH__';
+  const { error } = await sb.from('excepciones_pago').upsert({
+    categoria: cat, activo_nro: nro, rubro, anio, mes,
+    cuenta_id : esCash ? null : val,
+    medio     : esCash ? 'Efectivo' : 'Excepción del mes',
+    referencia: esCash ? 'CASH' : null,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: 'categoria,activo_nro,rubro,anio,mes' });
+  if (error) return toast('Error: ' + error.message, 'error');
+  toast('Excepción de ' + LK_MESNOM[mes-1] + ' guardada ✓', 'success');
   await loadLinkeo();
 }
 
-function renderReglas() {
+async function borrarExcepcion(id) {
+  const { error } = await sb.from('excepciones_pago').delete().eq('id', id);
+  if (error) return toast('Error: ' + error.message, 'error');
+  toast('Excepción quitada — vuelve a regir la regla ✓', 'success');
+  await loadLinkeo();
+}
+
+// ── listado de reglas fijas y de excepciones del año
+function renderLinkeoReglas() {
   const cont = document.getElementById('linkeo-reglas');
   if (!cont) return;
-  if (!_lkReglas.length) { cont.innerHTML = '<p style="color:var(--text3);font-size:13px">Sin reglas guardadas.</p>'; return; }
-  const opts = (id, esCash) => '<option value="">— sin asignar —</option>' +
-    _lkBancos.map(b => `<option value="${b.id}"${b.id===id?' selected':''}>${b.nombre}</option>`).join('') +
-    `<option value="__CASH__"${esCash?' selected':''}>CASH / efectivo</option>`;
-  const byCat = {};
-  _lkReglas.forEach(r => { (byCat[r.categoria] = byCat[r.categoria] || []).push(r); });
-  const LBL = { propiedad:'Propiedades', auto:'Autos', sociedad:'Sociedades', pe:'Private Equity' };
-  cont.innerHTML = Object.keys(byCat).sort().map(cat => {
-    const rs = byCat[cat].slice().sort((a,b) => (a.activo_nro-b.activo_nro) || a.rubro.localeCompare(b.rubro));
-    return `<div class="card" style="margin-bottom:14px">
-      <div class="section-title" style="margin:0 0 10px;font-size:14px">${LBL[cat]||cat} <span style="color:var(--text3);font-weight:400;font-size:11px">(${rs.length})</span></div>
-      <div class="table-wrap"><table>
-        <thead><tr><th>N°</th><th>Activo</th><th>Rubro</th><th>Medio</th><th style="min-width:210px">Cuenta</th><th>Referencia</th><th>Proveedor</th><th class="num">Día</th></tr></thead>
-        <tbody>${rs.map(r => `<tr>
-          <td style="color:var(--text3)">${r.activo_nro}</td>
-          <td class="bold">${_lkCat[cat+'|'+r.activo_nro] || '—'}</td>
-          <td>${r.rubro === '*' ? '<span style="color:var(--gold)">todos</span>' : (LK_NOM[r.rubro]||r.rubro)}</td>
-          <td style="font-size:11px;color:${r.medio==='Pendiente'?'var(--usa)':'var(--text2)'}">${r.medio||'—'}</td>
-          <td><select class="fld" style="padding:4px;font-size:11px" onchange="guardarRegla('${r.id}', this.value)">${opts(r.cuenta_id, r.medio==='Efectivo'||r.referencia==='CASH')}</select></td>
-          <td style="font-size:11px;color:var(--gold)">${r.referencia||''}</td>
-          <td style="font-size:11px;color:var(--text3)">${r.proveedor||''}</td>
-          <td class="num" style="font-size:11px;color:var(--text3)">${r.dia_pago??''}</td>
-        </tr>`).join('')}</tbody>
-      </table></div>
-    </div>`;
-  }).join('');
-}
-
-async function guardarRegla(id, cuentaId) {
-  const esCash = cuentaId === '__CASH__';
-  const patch = {
-    cuenta_id : esCash ? null : (cuentaId || null),
-    medio     : esCash ? 'Efectivo' : undefined,
-    referencia: esCash ? 'CASH' : undefined,
-    updated_at: new Date().toISOString(),
+  const nombreDe = (cat, nro) => {
+    const k = { propiedades:'propiedad', autos:'auto', sociedades:'sociedad', private_equity:'pe' }[cat] || cat;
+    return _lkCat[k+'|'+nro] || '';
   };
-  Object.keys(patch).forEach(k => patch[k] === undefined && delete patch[k]);
-  const { error } = await sb.from('reglas_pago').update(patch).eq('id', id);
-  if (error) return toast('Error: ' + error.message, 'error');
-  toast('Regla actualizada ✓', 'success');
-  const r = _lkReglas.find(x => x.id === id);
-  if (r) { r.cuenta_id = patch.cuenta_id; if (esCash) { r.medio='Efectivo'; r.referencia='CASH'; } }
-  await loadLinkeo();
-}
+  const catLbl = { propiedades:'Propiedades', autos:'Autos', sociedades:'Sociedades', private_equity:'Private Equity' };
+  const rows = _lkReglas.slice().sort((a,b) =>
+      String(a.categoria).localeCompare(String(b.categoria)) || (a.activo_nro - b.activo_nro)
+      || String(a.rubro).localeCompare(String(b.rubro)));
 
-// Propaga la cuenta de las reglas a la columna cuenta_pago_id de cada movimiento,
-// para que el dato quede tambien en la fila y no solo en la regla.
-async function aplicarReglasTodo() {
-  const anio = lkAnioSel();
-  if (!confirm(`Aplicar las reglas a los movimientos de ${anio}?`)) return;
-  const { data: rgs } = await sb.from('reglas_pago').select('*');
-  const dom = {};
-  (rgs||[]).filter(r => r.cuenta_id).forEach(r => {
-    const k = r.categoria + '|' + r.activo_nro;
-    (dom[k] = dom[k] || {})[r.cuenta_id] = (dom[k][r.cuenta_id] || 0) + (r.rubro === '*' ? 100 : 1);
-  });
-  let tocados = 0;
-  for (const t of LK_TIPOS) {
-    const { data: cat } = await sb.from(t.cat).select('id,nro');
-    for (const a of (cat||[])) {
-      const votos = dom[t.key + '|' + a.nro]; if (!votos) continue;
-      const cuenta = Object.keys(votos).sort((x,y) => votos[y]-votos[x])[0];
-      const { count } = await sb.from(t.tabla)
-        .update({ cuenta_pago_id: cuenta }, { count: 'exact' })
-        .eq(t.fk, a.id).eq('anio', anio).is('cuenta_pago_id', null);
-      tocados += count || 0;
-    }
-  }
-  toast(`${tocados} movimientos actualizados ✓`, 'success');
-  await loadLinkeo();
+  const exc = _lkExc.slice().sort((a,b) => a.mes - b.mes || a.activo_nro - b.activo_nro);
+
+  cont.innerHTML = `
+    <div class="card">
+      <div class="section-title" style="font-size:14px;margin:0 0 4px">Reglas fijas</div>
+      <p style="font-size:11px;color:var(--text3);margin:0 0 10px">Esto es lo que la app aplica siempre, desde ${LK_MESNOM[LK_DESDE.mes-1]} ${LK_DESDE.anio}. Para un mes puntual que no se pagó así, no toques la regla: elegí el mes arriba y cargá la excepción.</p>
+      <div class="table-wrap"><table style="font-size:12px">
+        <thead><tr><th>Tipo</th><th>Activo</th><th>Rubro</th><th>Cuenta</th><th>Desde</th><th></th></tr></thead>
+        <tbody>${rows.length ? rows.map(r => `<tr>
+            <td style="color:var(--text3)">${catLbl[r.categoria]||r.categoria}</td>
+            <td>${r.activo_nro} · ${nombreDe(r.categoria, r.activo_nro)}</td>
+            <td>${LK_NOM[r.rubro] || r.rubro}</td>
+            <td style="font-size:11px">${lkTxtCuenta(r)}</td>
+            <td style="color:var(--text3);font-size:11px">${LK_MESNOM[(r.desde_mes||LK_DESDE.mes)-1]} ${r.desde_anio||LK_DESDE.anio}</td>
+            <td><select class="fld" style="padding:2px 6px;font-size:11px;width:auto;max-width:200px"
+                  onchange="guardarReglaRubro('${{propiedades:'propiedad',autos:'auto',sociedades:'sociedad',private_equity:'pe'}[r.categoria]||r.categoria}',${r.activo_nro},'${r.rubro}',this.value)">${lkOpts(r)}</select></td>
+          </tr>`).join('') : '<tr><td colspan="6" style="color:var(--text3);text-align:center;padding:18px">Todavía no hay reglas.</td></tr>'}
+        </tbody></table></div>
+    </div>
+
+    <div class="card" style="margin-top:14px">
+      <div class="section-title" style="font-size:14px;margin:0 0 4px">Excepciones cargadas · ${lkAnioSel()}</div>
+      <p style="font-size:11px;color:var(--text3);margin:0 0 10px">Meses puntuales que no se pagaron como dice la regla.</p>
+      <div class="table-wrap"><table style="font-size:12px">
+        <thead><tr><th>Mes</th><th>Tipo</th><th>Activo</th><th>Rubro</th><th>Cuenta</th><th></th></tr></thead>
+        <tbody>${exc.length ? exc.map(e => `<tr>
+            <td>${LK_MESNOM[e.mes-1]}</td>
+            <td style="color:var(--text3)">${catLbl[e.categoria]||e.categoria}</td>
+            <td>${e.activo_nro} · ${nombreDe(e.categoria, e.activo_nro)}</td>
+            <td>${LK_NOM[e.rubro] || e.rubro}</td>
+            <td style="font-size:11px">${lkTxtCuenta(e)}</td>
+            <td><span onclick="borrarExcepcion('${e.id}')" style="cursor:pointer;color:var(--usa)" title="Quitar">✕</span></td>
+          </tr>`).join('') : '<tr><td colspan="6" style="color:var(--text3);text-align:center;padding:18px">Ninguna: todo se paga como dice la regla.</td></tr>'}
+        </tbody></table></div>
+    </div>`;
 }
 
 // ============================================
@@ -7919,9 +8025,7 @@ async function asignarSociedad(tabla, id, socId, ev) {
   const { error } = await sb.from(tabla).update({ sociedad_id: socId || null }).eq('id', id);
   if (error) return toast('Error: ' + error.message, 'error');
   toast(socId ? 'Activo asignado a la sociedad ✓' : 'Activo desvinculado ✓', 'success');
-  _RSOC = null;                                   // hay que releer sociedad_id
-  await renderRepSoc();
-  try { await renderOrganigramas(); } catch (e) { console.warn('org:', e.message); }
+  await _rsocRefrescar();                         // relee sociedad_id y repinta
 }
 
 async function renderRepSoc() {
@@ -8049,7 +8153,9 @@ async function renderRepSoc() {
       <td style="padding-left:${8 + depth*22}px">
         <span style="color:var(--text3);font-size:11px">${nAct||conHijos ? (ab?'▾':'▸') : '·'}</span>
         <b style="font-weight:${depth===0?700:500}">${s.nombre}</b>
-        <span style="color:var(--text3);font-size:11px"> #${s.nro ?? '—'}</span></td>
+        <span style="color:var(--text3);font-size:11px"> #${s.nro ?? '—'}</span>
+        <span onclick="abrirSocEdit('${s.id}',event)" title="Editar nombre, N°, cliente, país y sociedad madre"
+              style="cursor:pointer;margin-left:6px;opacity:.45;font-size:12px">&#9998;</span></td>
       <td style="font-size:11px;color:var(--text3)">${s.titular||'—'} · ${s.pais||'—'}</td>
       <td class="num" style="font-size:11px;color:var(--text3)">${o.pd.length?o.pd.length+' pr':''}${o.bd.length?' · '+o.bd.length+' bc':''}${o.ad.length?' · '+o.ad.length+' au':''}</td>
       <td class="num">${o.ten ? money(o.ten) : nada}</td>
@@ -8110,7 +8216,10 @@ async function renderRepSoc() {
     </div>
 
     <div class="card">
-      <div class="section-title" style="font-size:14px;margin-bottom:10px">Estructura · ${CLI || 'todos los clientes'} · ${ANIO}</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px">
+        <div class="section-title" style="font-size:14px;margin:0">Estructura · ${CLI || 'todos los clientes'} · ${ANIO}</div>
+        <button class="btn-secondary" style="width:auto;padding:5px 12px;font-size:11px" onclick="abrirSocEdit(null,event)">+ Nueva sociedad</button>
+      </div>
       <div class="table-wrap"><table style="font-size:13px">
         <thead><tr>
           <th>Sociedad</th><th>Cliente · País</th><th class="num">Activos</th>
@@ -8119,7 +8228,7 @@ async function renderRepSoc() {
         </tr></thead>
         <tbody>${filas || '<tr><td colspan="7" style="color:var(--text3);text-align:center;padding:24px">Sin sociedades para este cliente</td></tr>'}</tbody>
       </table></div>
-      <p style="font-size:11px;color:var(--text3);margin:10px 0 0">Clic en una sociedad para abrir sus activos. <b>Rama</b> = la sociedad más todas sus hijas. Desde el desplegable de cada activo lo podés mover a otra sociedad o dejarlo sin sociedad.</p>
+      <p style="font-size:11px;color:var(--text3);margin:10px 0 0">Clic en una sociedad para abrir sus activos. <b>Rama</b> = la sociedad más todas sus hijas. Desde el desplegable de cada activo lo podés mover a otra sociedad o dejarlo sin sociedad, y con el lápiz editás la sociedad.</p>
     </div>
 
     ${directo.length ? `<div class="card" style="margin-top:16px">
@@ -9527,14 +9636,17 @@ async function guardarDeuda() {
 // ORGANIGRAMAS
 // ============================================
 /* ═══════════════════════════════════════════════════════════════════════
-   ORGANIGRAMAS  (v159) — ahora se dibujan desde la base, no hardcodeados.
-   Fuente: `sociedades` (nombre, titular, sociedad_madre_id) y el
-   `sociedad_id` de propiedades / bancos / autos. Cambiar un linkeo en
-   Reportes → Sociedades se ve acá al instante.
-   Lo que NO aparece es lo que todavia no esta cargado como sociedad en la
-   app: para G quedan afuera Tugal, Limbang, Jeffers y Albsa, que estaban en
-   el organigrama viejo dibujadas a mano. Eso es el pendiente "sociedades de
-   G", y por eso se muestra la nota al pie en esa solapa en vez de borrarlo.
+   ORGANIGRAMAS  (v160) — se dibujan desde la base, no hardcodeados, y se
+   editan desde el propio dibujo.
+   Fuente: `sociedades` (nombre, titular, pais, sociedad_madre_id) y el
+   `sociedad_id` de propiedades / bancos / autos.
+   · Clic en una sociedad → modal de edicion (nombre, N°, cliente, pais, madre).
+   · Clic en un activo → modal para moverlo de sociedad.
+   · "+ sociedad" arriba de cada solapa para crear una nueva.
+   Los activos sin sociedad se agrupan POR PAIS, como en el COMPLETO.
+   Lo que no aparece es lo que todavia no esta cargado como sociedad: para G
+   quedan afuera Tugal, Limbang, Jeffers y Albsa, que estaban dibujadas a mano
+   en el organigrama viejo. Va la nota al pie en esa solapa en vez de borrarlo.
    ═══════════════════════════════════════════════════════════════════════ */
 function node(text, type='') { return `<div class="org-node ${type}">${text}</div>`; }
 function lineV() { return `<div class="org-line-v"></div>`; }
@@ -9548,49 +9660,157 @@ const ORG_TABS = [
   { id:'yac',     cli:'YAC', lbl:'YAC'      },
   { id:'mfl',     cli:'MFL', lbl:'MFL'      },
 ];
+const ORG_PAIS_ORD = ['ARG','URU','USA','ESP','PAR'];
+const ORG_PAIS_LBL = { ARG:'ARGENTINA', URU:'URUGUAY', USA:'ESTADOS UNIDOS', ESP:'ESPAÑA', PAR:'PARAGUAY' };
 
-// Estructura de G que vive en el COMPLETO pero todavia no esta en `sociedades`.
 const ORG_NOTA = {
-  G: 'En el organigrama anterior figuraban además <b>Emprendimiento Tugal SA</b> (Diagonal, Lavalle 631, San Martin 563, Tres Sargentos 401 y 443), <b>Inversora Limbang SA</b> (Coronel Diaz), <b>Jeffers SA → Albsa SA</b> (Martona UF117) y <b>Sanber LLC</b>. Ninguna está cargada todavía como sociedad en la app, así que sus activos aparecen colgando directo del cliente. Es el pendiente “sociedades de G”.'
+  G: 'En el organigrama anterior figuraban además <b>Emprendimiento Tugal SA</b> (Diagonal, Lavalle 631, San Martin 563, Tres Sargentos 401 y 443), <b>Inversora Limbang SA</b> (Coronel Diaz), <b>Jeffers SA → Albsa SA</b> (Martona UF117) y <b>Sanber LLC</b>. Ninguna está cargada todavía como sociedad en la app, así que sus activos aparecen agrupados por país. Es el pendiente “sociedades de G”: crealas con “+ sociedad” y arrastrá los activos con un clic.'
 };
 
 async function renderOrganigramas() {
   const B = await _rsocBase();
   const act = [
-    ...B.props .filter(p => p.activa !== false && p.vendida !== true).map(x => ({ ...x, _t:'prop' })),
-    ...B.bancos.filter(b => b.activo !== false).map(x => ({ ...x, _t:'banco' })),
-    ...B.autos .filter(a => a.activo  !== false).map(x => ({ ...x, _t:'auto'  })),
+    ...B.props .filter(p => p.activa !== false && p.vendida !== true).map(x => ({ ...x, _tb:'propiedades' })),
+    ...B.bancos.filter(b => b.activo  !== false).map(x => ({ ...x, _tb:'bancos'      })),
+    ...B.autos .filter(a => a.activo  !== false).map(x => ({ ...x, _tb:'autos'       })),
   ];
   const byId = {}; B.socs.forEach(s => byId[s.id] = s);
   const hijos = {};
   B.socs.forEach(s => { const m = s.sociedad_madre_id; if (m && byId[m]) (hijos[m] = hijos[m] || []).push(s); });
 
-  const cadena = arr => arr.map(a => node(a.nombre, 'asset')).join(lineV());
+  const nodoAct = a => `<div class="org-node asset" style="cursor:pointer" title="Clic para moverlo de sociedad"
+      onclick="abrirActivoSoc('${a._tb}','${a.id}',event)">${a.nombre}</div>`;
+  const nodoSoc = s => `<div class="org-node entity" style="cursor:pointer" title="Clic para editar la sociedad"
+      onclick="abrirSocEdit('${s.id}',event)">${s.nombre.toUpperCase()} <span style="opacity:.5;font-size:10px">✎</span></div>`;
+  const cadena = arr => arr.map(nodoAct).join(lineV());
+  const fila = cols => `<div class="org-row" style="gap:14px;align-items:flex-start">${cols.join('')}</div>`;
 
   const orgSoc = s => {
     const propios = act.filter(a => a.sociedad_id === s.id);
-    const kids = hijos[s.id] || [];
     const cols = [];
     if (propios.length) cols.push(`<div class="org-col">${cadena(propios)}</div>`);
-    kids.forEach(h => cols.push(orgSoc(h)));
-    return `<div class="org-col">${node(s.nombre.toUpperCase(), 'entity')}` +
-           (cols.length ? lineV() + `<div class="org-row" style="gap:14px;align-items:flex-start">${cols.join('')}</div>` : '') +
-           `</div>`;
+    (hijos[s.id] || []).forEach(h => cols.push(orgSoc(h)));
+    return `<div class="org-col">${nodoSoc(s)}` + (cols.length ? lineV() + fila(cols) : '') + `</div>`;
   };
 
   ORG_TABS.forEach(({ id, cli, lbl }) => {
     const el = document.getElementById('tree-' + id); if (!el) return;
-    const raices = B.socs.filter(s => s.titular === cli && !(s.sociedad_madre_id && byId[s.sociedad_madre_id]));
+    const raices  = B.socs.filter(s => s.titular === cli && !(s.sociedad_madre_id && byId[s.sociedad_madre_id]));
     const sueltos = act.filter(a => !a.sociedad_id && a.titular === cli);
     const cols = raices.map(orgSoc);
-    if (sueltos.length)
-      cols.push(`<div class="org-col">${node('SIN SOCIEDAD', 'entity')}${lineV()}<div class="org-col">${cadena(sueltos)}</div></div>`);
-    el.innerHTML = cols.length
+
+    // Los que no cuelgan de ninguna sociedad se agrupan por pais, como en el COMPLETO.
+    const paises = Array.from(new Set(sueltos.map(a => a.pais || '—')))
+      .sort((a, b) => (ORG_PAIS_ORD.indexOf(a) + 1 || 99) - (ORG_PAIS_ORD.indexOf(b) + 1 || 99));
+    paises.forEach(p => {
+      const arr = sueltos.filter(a => (a.pais || '—') === p);
+      cols.push(`<div class="org-col">${node(ORG_PAIS_LBL[p] || p, 'entity')}${lineV()}<div class="org-col">${cadena(arr)}</div></div>`);
+    });
+
+    const barra = `<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin:0 4px 14px">
+        <span style="font-size:11px;color:var(--text3)">Clic en una sociedad para editarla · clic en un activo para moverlo</span>
+        <button class="btn-secondary" style="width:auto;padding:5px 12px;font-size:11px" onclick="abrirSocEdit(null,event)">+ Sociedad</button>
+      </div>`;
+
+    el.innerHTML = barra + (cols.length
       ? `<div class="org-col">${node(lbl.toUpperCase(), 'root')}${lineV()}
            <div class="org-row" style="gap:24px;align-items:flex-start">${cols.join('')}</div></div>`
-         + (ORG_NOTA[cli] ? `<p style="font-size:11px;color:var(--text3);margin:20px 12px 0;line-height:1.6;max-width:900px">${ORG_NOTA[cli]}</p>` : '')
-      : `<p style="color:var(--text3);text-align:center;padding:28px">Sin sociedades ni activos cargados para ${lbl}.</p>`;
+      : `<p style="color:var(--text3);text-align:center;padding:28px">Sin sociedades ni activos cargados para ${lbl}.</p>`)
+      + (ORG_NOTA[cli] ? `<p style="font-size:11px;color:var(--text3);margin:20px 12px 0;line-height:1.6;max-width:900px">${ORG_NOTA[cli]}</p>` : '');
   });
+}
+
+/* ═══════════ EDICION DE SOCIEDADES Y DE LINKEO DE ACTIVOS (v160) ═══════════
+   Un solo par de modales sirve al reporte de Sociedades y al organigrama: el
+   organigrama se dibuja desde `sociedades` + el `sociedad_id` de cada activo,
+   asi que editar acá ES editar el organigrama. No hay layout guardado aparte;
+   la estructura de la base es el dibujo. */
+let _seId = null, _asRef = null;
+
+function abrirSocEdit(id, ev) {
+  if (ev) ev.stopPropagation();
+  if (!_RSOC) return toast('Esperá a que cargue el reporte', 'error');
+  _seId = id || null;
+  const s = id ? _RSOC.socs.find(x => x.id === id) : null;
+  const g = (k, v) => { const el = document.getElementById(k); if (el) el.value = v; };
+  document.getElementById('se-title').textContent = s ? 'Editar sociedad' : 'Nueva sociedad';
+  const maxNro = _RSOC.socs.reduce((a, x) => Math.max(a, Number(x.nro) || 0), 0);
+  // La madre no puede ser ella misma ni una descendiente suya: quedaria un ciclo.
+  const prohib = new Set();
+  if (s) { const marcar = id2 => { prohib.add(id2); _RSOC.socs.filter(x => x.sociedad_madre_id === id2).forEach(x => marcar(x.id)); }; marcar(s.id); }
+  document.getElementById('se-madre').innerHTML = '<option value="">— ninguna (cuelga del cliente) —</option>' +
+    _RSOC.socs.filter(x => !prohib.has(x.id))
+      .map(x => `<option value="${x.id}"${s && s.sociedad_madre_id === x.id ? ' selected' : ''}>${x.nro ?? '–'} · ${x.nombre}</option>`).join('');
+  g('se-nro', s ? (s.nro ?? '') : maxNro + 1);
+  g('se-nombre', s ? (s.nombre || '') : '');
+  g('se-titular', s ? (s.titular || 'M') : 'M');
+  g('se-pais', s ? (s.pais || 'USA') : 'USA');
+  g('se-activa', s ? String(s.activa !== false) : 'true');
+  document.getElementById('se-del').style.display = s ? '' : 'none';
+  openModal('modal-soc-edit');
+}
+
+async function guardarSocEdit() {
+  const val = k => document.getElementById(k).value;
+  const nombre = val('se-nombre').trim();
+  if (!nombre) return toast('Poné el nombre de la sociedad', 'error');
+  const nro = parseInt(val('se-nro'));
+  if (!(nro > 0)) return toast('Poné un N° válido', 'error');
+  const dup = _RSOC.socs.find(x => Number(x.nro) === nro && x.id !== _seId);
+  if (dup && !confirm(`El N° ${nro} ya lo usa "${dup.nombre}". ¿Guardar igual?`)) return;
+  const row = { nro, nombre, titular: val('se-titular'), pais: val('se-pais'),
+                activa: val('se-activa') === 'true',
+                sociedad_madre_id: val('se-madre') || null };
+  const q = _seId ? sb.from('sociedades').update(row).eq('id', _seId) : sb.from('sociedades').insert(row);
+  const { error } = await q;
+  if (error) return toast('Error: ' + error.message, 'error');
+  toast(_seId ? 'Sociedad actualizada ✓' : 'Sociedad creada ✓', 'success');
+  closeModal('modal-soc-edit');
+  await _rsocRefrescar();
+}
+
+async function borrarSoc() {
+  if (!_seId) return;
+  const s = _RSOC.socs.find(x => x.id === _seId);
+  const colgados = [..._RSOC.props, ..._RSOC.bancos, ..._RSOC.autos].filter(x => x.sociedad_id === _seId).length
+                 + _RSOC.socs.filter(x => x.sociedad_madre_id === _seId).length;
+  if (colgados) return toast(`No se puede: hay ${colgados} activo(s)/sociedad(es) colgando de "${s?.nombre}". Movelos primero.`, 'error');
+  if (!confirm(`¿Eliminar "${s?.nombre}"? Si tiene movimientos cargados va a fallar y conviene marcarla como inactiva.`)) return;
+  const { error } = await sb.from('sociedades').delete().eq('id', _seId);
+  if (error) return toast('No se pudo eliminar (' + error.message + '). Marcala como inactiva.', 'error');
+  toast('Sociedad eliminada ✓', 'success');
+  closeModal('modal-soc-edit');
+  await _rsocRefrescar();
+}
+
+// ── mover un activo de sociedad desde el organigrama
+function abrirActivoSoc(tabla, id, ev) {
+  if (ev) ev.stopPropagation();
+  if (!_RSOC) return;
+  const lista = tabla === 'propiedades' ? _RSOC.props : tabla === 'bancos' ? _RSOC.bancos : _RSOC.autos;
+  const a = lista.find(x => x.id === id); if (!a) return;
+  _asRef = { tabla, id };
+  document.getElementById('as-nombre').innerHTML = `<b>${a.nombre}</b> <span style="color:var(--text3)">· ${a.titular || '—'} · ${a.pais || '—'}</span>`;
+  document.getElementById('as-soc').innerHTML = '<option value="">— sin sociedad (directo del cliente) —</option>' +
+    _RSOC.socs.map(s => `<option value="${s.id}"${s.id === a.sociedad_id ? ' selected' : ''}>${s.nro ?? '–'} · ${s.nombre}${s.titular !== a.titular ? ' (' + s.titular + ')' : ''}</option>`).join('');
+  openModal('modal-activo-soc');
+}
+
+async function guardarActivoSoc() {
+  if (!_asRef) return;
+  const socId = document.getElementById('as-soc').value || null;
+  const { error } = await sb.from(_asRef.tabla).update({ sociedad_id: socId }).eq('id', _asRef.id);
+  if (error) return toast('Error: ' + error.message, 'error');
+  toast(socId ? 'Activo movido ✓' : 'Activo desvinculado ✓', 'success');
+  closeModal('modal-activo-soc');
+  await _rsocRefrescar();
+}
+
+// Invalida el cache de catalogos y repinta lo que este a la vista.
+async function _rsocRefrescar() {
+  _RSOC = null;
+  try { if (document.getElementById('rsoc-contenido')) await renderRepSoc(); } catch (e) { console.warn(e.message); }
+  try { if (document.getElementById('tree-martona')) await renderOrganigramas(); } catch (e) { console.warn(e.message); }
 }
 
 // ============================================
@@ -12802,7 +13022,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260818-159';
+const APP_VERSION = '20260818-161';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
