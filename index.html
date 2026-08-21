@@ -1844,6 +1844,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
             <div class="section-title" style="margin:0">Inversiones de Private Equity</div>
             <button class="btn-secondary" onclick="openModal('modal-pe-nuevo')">+ Nueva Inversión</button>
           </div>
+          <div id="pe-kpis" class="grid-3" style="margin-bottom:16px"></div>
           <div class="card">
             <div class="table-wrap">
               <table>
@@ -1858,11 +1859,12 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
                     <th class="num">Utilidad hist.</th>
                     <th class="num">Utilidad 2026</th>
                     <th class="num">Share</th>
+                    <th class="num">Tenencia 2026</th>
                     <th class="num">Variación</th><th></th>
                   </tr>
                 </thead>
                 <tbody id="tbody-pe">
-                  <tr><td colspan="10"><div class="loader"><div class="spinner"></div></div></td></tr>
+                  <tr><td colspan="12"><div class="loader"><div class="spinner"></div></div></td></tr>
                 </tbody>
               </table>
             </div>
@@ -3798,6 +3800,33 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
 <!-- ============================================
      MODALES
 ============================================ -->
+
+<!-- Modal: valuacion anual de una participacion (v166) -->
+<div class="modal-overlay" id="modal-pe-val">
+  <div class="modal" style="max-width:460px">
+    <div class="modal-header">
+      <div class="modal-title">Valuación de la participación</div>
+      <button class="modal-close" onclick="closeModal('modal-pe-val')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:12px;margin:0 0 4px" id="pv-nombre"></p>
+      <p style="font-size:11px;color:var(--text3);margin:0 0 14px;line-height:1.5">Sin valuación cargada la posición vale <b>a costo</b>. Al cargar una, esa manda para ese año y la diferencia contra el año anterior se informa como <b>resultado no realizado</b>, separado del realizado.<br>
+      Si abajo hay un inmueble: tasación &times; tu %. Si abajo hay un negocio: EBITDA anual &times; múltiplo del rubro &times; tu %.</p>
+      <div class="form-row cols-2">
+        <div><label class="fld">Año</label><select class="fld" id="pv-anio" onchange="pvCargarAnio()"></select></div>
+        <div><label class="fld">Valor de tu parte (USD)</label><input class="fld" type="number" id="pv-valor"></div>
+      </div>
+      <div style="margin-top:10px"><label class="fld">De dónde sale el número</label>
+        <input class="fld" id="pv-fuente" placeholder="Tasación Zonaprop 03/2026 · EBITDA 200k x 5 x 45% · última ronda"></div>
+      <div style="margin-top:10px"><label class="fld">Notas</label><input class="fld" id="pv-notas"></div>
+      <button class="btn-primary" style="margin-top:18px" onclick="guardarPEVal()">Guardar</button>
+      <div style="margin-top:18px;border-top:1px solid var(--border);padding-top:12px">
+        <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Valuaciones cargadas</div>
+        <div id="pv-lista"></div>
+      </div>
+    </div>
+  </div>
+</div>
 
 <!-- Modal: alta / edicion de sociedad (v160) -->
 <div class="modal-overlay" id="modal-soc-edit">
@@ -8048,9 +8077,10 @@ async function _rsocBase() {
     sb.from('propiedades').select('id,nro,nombre,titular,pais,activa,vendida,sociedad_id').order('nro'),
     sb.from('bancos').select('id,nro,nombre,titular,pais,activo,es_operativa,sociedad_id').order('nro'),
     sb.from('autos').select('id,nro,nombre,titular,pais,activo,sociedad_id').order('nro'),
-    sb.from('private_equity').select('id,nro,nombre,titular,pais,activo').order('nro'),
+    sb.from('private_equity').select('*').order('nro'),
   ]);
   if (s.error) throw new Error('sociedades: ' + s.error.message);
+  await peValCargar();                       // valuaciones manuales de las participaciones
   _RSOC = { socs:s.data||[], props:p.data||[], bancos:b.data||[], autos:a.data||[], pe:pe.data||[], ph:{}, ah:{}, bh:{}, peh:{} };
   (typeof PROP_HIST_DATA   !== 'undefined' ? PROP_HIST_DATA   : []).forEach(x => _RSOC.ph[x.nro]  = x);
   (typeof AUTOS_HIST_DATA  !== 'undefined' ? AUTOS_HIST_DATA  : []).forEach(x => _RSOC.ah[x.nro]  = x);
@@ -8200,16 +8230,17 @@ async function renderRepSoc() {
 
   // ── private equity, por cliente (aparte de las sociedades)
   const peAct = B.pe.filter(x => x.activo !== false).filter(x => !CLI || x.titular === CLI);
+  // Cada posición se lee según su tipo (préstamo / inversión / participación):
+  // misma función `peCalc` que usa la solapa de PE, así cambiar el tipo con un
+  // clic cambia este cuadro al instante.
   const peDet = peAct.map(x => {
-    const h = B.peh[x.nro]?.byY?.[Ys] || null;
+    const c = peCalc(x, ANIO);
     const m = Y.pe[x.id] || null;
-    const cap = h ? (Number(h.ia)||0) + (Number(h.ap)||0) : 0;
-    return { x, cap,
-             ap: m ? m.ap : (h ? Number(h.ap)||0 : 0),
-             ut: m ? m.ut : (h ? Number(h.ut)||0 : 0),
-             gas: m ? m.gas : 0,
-             src: m ? 'mov' : (h ? 'hist' : null) };
-  }).filter(d => d.cap || d.ap || d.ut);
+    return { x, c, cap: c.aportado,
+             ap: m ? m.ap : c.apAnio,
+             ut: m ? m.ut : c.distAnio,
+             gas: m ? m.gas : 0 };
+  }).filter(d => d.cap || d.ap || d.ut || d.c.tenencia);
 
   // ═══════════ RENDER ═══════════
   const money = v => (v >= 0 ? '' : '-') + '$' + fmt(Math.abs(v));
@@ -8219,8 +8250,9 @@ async function renderRepSoc() {
   const totSocTen = raices.reduce((a,s)=>a+rama[s.id].ten,0);
   const totSocRes = raices.reduce((a,s)=>a+rama[s.id].res,0);
   const totDirTen = directo.reduce((a,d)=>a+d.ten,0);
-  const totPeCap  = peDet.reduce((a,d)=>a+d.cap,0);
-  const totPeUt   = peDet.reduce((a,d)=>a+d.ut,0);
+  const _peT      = peCalcTot(peDet.map(d=>d.x), ANIO);
+  const totPeCap  = _peT.tenencia;
+  const totPeUt   = _peT.resReal;
 
   const kpi = (lbl, val, sub, col) => `<div class="card" style="padding:14px 16px">
       <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px">${lbl}</div>
@@ -8294,7 +8326,7 @@ async function renderRepSoc() {
       ${kpi('Tenencia en sociedades', '$'+fmt(totSocTen), socs.length+' sociedades', '')}
       ${kpi('Resultado '+ANIO, (totSocRes>=0?'+':'-')+'$'+fmt(Math.abs(totSocRes)), 'renta + rendimiento − gastos', totSocRes>=0?'var(--esp)':'var(--usa)')}
       ${kpi('Sin sociedad', '$'+fmt(totDirTen), 'a nombre del cliente', '')}
-      ${kpi('Private equity', '$'+fmt(totPeCap), 'utilidad '+ANIO+' '+((totPeUt>=0?'+':'-')+'$'+fmt(Math.abs(totPeUt))), '')}
+      ${kpi('Private equity', '$'+fmt(totPeCap), 'resultado '+ANIO+' '+((totPeUt>=0?'+':'-')+'$'+fmt(Math.abs(totPeUt)))+(_peT.resNoReal?' · '+((_peT.resNoReal>=0?'+':'-')+'$'+fmt(Math.abs(_peT.resNoReal)))+' no realizado':''), '')}
     </div>
 
     <div class="card">
@@ -8334,21 +8366,30 @@ async function renderRepSoc() {
 
     ${peDet.length ? `<div class="card" style="margin-top:16px">
       <div class="section-title" style="font-size:14px;margin-bottom:4px">Private equity</div>
-      <p style="font-size:11px;color:var(--text3);margin:0 0 10px">Se mide aparte de las sociedades. <b>Capital</b> es el aporte acumulado al cierre del año; <b>utilidad</b> es la del año.</p>
+      <p style="font-size:11px;color:var(--text3);margin:0 0 10px">Se mide aparte de las sociedades y cada posición se lee según su tipo. <b>Préstamo</b>: capital pendiente más interés devengado. <b>Inversión</b>: a costo, resultado sólo al cerrar. <b>Participación</b>: a costo salvo valuación cargada; lo distribuido es realizado y la variación de valuación va aparte.</p>
       <div class="table-wrap"><table style="font-size:13px">
-        <thead><tr><th>Inversión</th><th>Cliente</th><th class="num">Capital</th><th class="num">Aporte ${ANIO}</th><th class="num">Utilidad ${ANIO}</th><th class="num">Gastos</th></tr></thead>
-        <tbody>${peDet.map(d=>`<tr>
-            <td>${d.x.nombre} <span style="color:var(--text3);font-size:10px">#${d.x.nro ?? '—'}</span></td>
+        <thead><tr><th>Inversión</th><th>Tipo</th><th>Cliente</th><th class="num">Capital puesto</th><th class="num">Tenencia ${ANIO}</th><th class="num">Realizado</th><th class="num">No realizado</th></tr></thead>
+        <tbody>${['prestamo','inversion','participacion'].map(tp => {
+          const g = peDet.filter(d => d.c.tipo === tp); if (!g.length) return '';
+          const st = peCalcTot(g.map(d=>d.x), ANIO);
+          return g.map(d=>`<tr>
+            <td>${d.x.nombre} <span style="color:var(--text3);font-size:10px">#${d.x.nro ?? '—'}</span>
+                <div style="font-size:10px;color:var(--text3)">${d.c.nota}</div></td>
+            <td style="font-size:10px;color:var(--text3)">${PE_TIPOS[tp].lbl}</td>
             <td style="color:var(--text3);font-size:11px">${d.x.titular||'—'}</td>
             <td class="num">${d.cap?money(d.cap):nada}</td>
-            <td class="num">${d.ap?money(d.ap):nada}</td>
-            <td class="num">${d.ut?signo(d.ut):nada}</td>
-            <td class="num">${d.gas?'-$'+fmt(d.gas):nada}</td></tr>`).join('')}
+            <td class="num">${d.c.tenencia?money(d.c.tenencia):nada}</td>
+            <td class="num">${d.c.resReal?signo(d.c.resReal):nada}</td>
+            <td class="num">${d.c.resNoReal?signo(d.c.resNoReal):nada}</td></tr>`).join('')
+            + `<tr style="font-size:11px;color:var(--text3)"><td colspan="3" style="padding-left:14px">Subtotal ${PE_TIPOS[tp].lbl.toLowerCase()}</td>
+               <td class="num">${money(st.aportado)}</td><td class="num">${money(st.tenencia)}</td>
+               <td class="num">${st.resReal?signo(st.resReal):nada}</td><td class="num">${st.resNoReal?signo(st.resNoReal):nada}</td></tr>`;
+        }).join('')}
           <tr style="font-weight:700;border-top:2px solid var(--border)">
-            <td>Total</td><td></td><td class="num">${money(totPeCap)}</td>
-            <td class="num">${money(peDet.reduce((a,d)=>a+d.ap,0))}</td>
-            <td class="num">${signo(totPeUt)}</td>
-            <td class="num">${(()=>{const g=peDet.reduce((a,d)=>a+d.gas,0);return g?'-$'+fmt(g):nada})()}</td></tr>
+            <td>Total</td><td></td><td></td><td class="num">${money(_peT.aportado)}</td>
+            <td class="num">${money(_peT.tenencia)}</td>
+            <td class="num">${signo(_peT.resReal)}</td>
+            <td class="num">${_peT.resNoReal?signo(_peT.resNoReal):nada}</td></tr>
         </tbody></table></div>
     </div>` : ''}
 
@@ -8527,6 +8568,7 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
   // MFL se ve pero NO contabiliza: en el consolidado sus activos se excluyen.
   // Excepcion: Nordelta (propiedad nro 3) era de JC hasta 2024, asi que hasta ese año si suma.
   // Se sigue trayendo MFL en la query justamente para no perder Nordelta.
+  await peValCargar();     // valuaciones manuales de las participaciones
   const cuentaFO = r => !esFO || r.titular !== 'MFL' || (r.nro === 3 && ANIO <= 2024);
   const props = (propsR.data||[]).filter(p => p.activa !== false && p.vendida !== true).filter(cuentaFO);
   const pe = (peR.data||[]).filter(cuentaFO), autos = (autosR.data||[]).filter(cuentaFO),
@@ -8636,9 +8678,10 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
   const _avA = {}; AUTOS_HIST_DATA.forEach(o => _avA[o.nro] = o.valores || {});
   const vProp = (p, y) => Number((_pvA[p.nro] || {})[String(y)]) || 0;
   const vAuto = (a, y) => Number((_avA[a.nro] || {})[String(y)]) || 0;
-  // PE: el capital al cierre del año es ia + ap (acumulado al inicio + aporte del año).
-  const vPE = (x, y) => { const d = ((_peHistDe(x.nombre) || {}).byY || {})[String(y)];
-                          return d ? (Number(d.ia)||0) + (Number(d.ap)||0) : 0; };
+  // PE: la tenencia sale de peCalc, que la lee segun el tipo de posicion
+  // (prestamo: capital pendiente + interes devengado · inversion: a costo hasta
+  // el cierre · participacion: valuacion del año o a costo).
+  const vPE = (x, y) => peCalc(x, y).tenencia;
   const sumA = (arr, y, f) => arr.reduce((a,r) => a + f(r, y)*share(r), 0);
 
   const propsActual = sumA(props, ANIO, vProp), propsInvertido = sum(props,'valor_compra');
@@ -9004,9 +9047,26 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
       </div>` : ''}
 
     ${pe.length ? `<div class="rep-h2 pgbreak">Private Equity</div><div class="card" style="margin-top:20px">
-      <div class="section-title" style="font-size:14px;margin-bottom:12px">Private Equity · desglose</div>
+      <div class="section-title" style="font-size:14px;margin-bottom:6px">Private Equity · por tipo de posición</div>
+      <p style="font-size:11px;color:var(--text3);margin:0 0 10px;line-height:1.5">Cada tipo se lee distinto. <b>Préstamo</b>: capital pendiente más el interés ya devengado y no cobrado. <b>Inversión</b>: a costo, con resultado cero hasta que cierra. <b>Participación</b>: a costo salvo que haya una valuación cargada; lo distribuido es resultado realizado y la variación de valuación va en su propia columna.</p>
+      <div class="table-wrap"><table><thead><tr><th>Tipo</th><th class="num">Posiciones</th><th class="num">Capital puesto</th><th class="num">Tenencia ${ANIO}</th><th class="num">Realizado ${ANIO}</th><th class="num">No realizado ${ANIO}</th></tr></thead><tbody>
+      ${['prestamo','inversion','participacion'].map(tp => {
+        const g = pe.filter(x => peTipoDe(x) === tp); if (!g.length) return '';
+        const t = peCalcTot(g, ANIO, share);
+        return `<tr><td>${PE_TIPOS[tp].lbl}</td><td class="num">${g.length}</td>
+          <td class="num">$${fmt(t.aportado)}</td><td class="num">$${fmt(t.tenencia)}</td>
+          <td class="num" style="color:${t.resReal>=0?'var(--esp)':'var(--usa)'}">${t.resReal?(t.resReal>=0?'+':'-')+'$'+fmt(Math.abs(t.resReal)):'—'}</td>
+          <td class="num" style="color:${t.resNoReal>=0?'var(--esp)':'var(--usa)'}">${t.resNoReal?(t.resNoReal>=0?'+':'-')+'$'+fmt(Math.abs(t.resNoReal)):'—'}</td></tr>`;
+      }).join('')}
+      ${(()=>{const t=peCalcTot(pe,ANIO,share);return `<tr style="font-weight:700;border-top:2px solid var(--border)"><td>Total</td><td class="num">${pe.length}</td>
+        <td class="num">$${fmt(t.aportado)}</td><td class="num">$${fmt(t.tenencia)}</td>
+        <td class="num">${t.resReal?(t.resReal>=0?'+':'-')+'$'+fmt(Math.abs(t.resReal)):'—'}</td>
+        <td class="num">${t.resNoReal?(t.resNoReal>=0?'+':'-')+'$'+fmt(Math.abs(t.resNoReal)):'—'}</td></tr>`})()}
+      </tbody></table></div>
+
+      <div class="section-title" style="font-size:14px;margin:20px 0 12px">Private Equity · desglose</div>
       <div class="table-wrap"><table><thead><tr><th>Sociedad</th><th class="num">Inversión</th><th class="num">Utilidad acum.</th><th class="num">Utilidad ${ANIO}</th><th class="num">Posición neta</th><th class="num">% recupero</th></tr></thead><tbody>
-      ${pe.map(p=>{const sh=share(p); const d=peDet[p.id]||{util:0,gastos:0,imp:0,byYear:{}}; const inv=vPE(p,ANIO)*sh; const util=d.util*sh; const u26=(d.byYear[ANIO]||0)*sh; const gi=(d.gastos+d.imp)*sh; const pos=util-gi-inv; const rec=inv>0?((util-inv)/inv*100):0; return `<tr><td>${p.nombre}</td><td class="num">$${fmt(inv)}</td><td class="num" style="color:var(--esp)">+$${fmt(util)}</td><td class="num" style="color:var(--esp)">+$${fmt(u26)}</td><td class="num" style="color:${pos>=0?'var(--esp)':'var(--usa)'}">${pos>=0?'+':''}$${fmt(pos)}</td><td class="num" style="color:${rec>=0?'var(--esp)':'var(--usa)'}">${rec>=0?'+':''}${rec.toFixed(2)}%</td></tr>`}).join('')}
+      ${pe.map(p=>{const sh=share(p); const d=peDet[p.id]||{util:0,gastos:0,imp:0,byYear:{}}; const inv=vPE(p,ANIO)*sh; const util=d.util*sh; const u26=(d.byYear[ANIO]||0)*sh; const gi=(d.gastos+d.imp)*sh; const pos=util-gi-inv; const rec=inv>0?((util-inv)/inv*100):0; return `<tr><td>${p.nombre}<div style="font-size:10px;color:var(--text3)">${PE_TIPOS[peTipoDe(p)].lbl.toLowerCase()} · ${peCalc(p,ANIO).nota}</div></td><td class="num">$${fmt(inv)}</td><td class="num" style="color:var(--esp)">+$${fmt(util)}</td><td class="num" style="color:var(--esp)">+$${fmt(u26)}</td><td class="num" style="color:${pos>=0?'var(--esp)':'var(--usa)'}">${pos>=0?'+':''}$${fmt(pos)}</td><td class="num" style="color:${rec>=0?'var(--esp)':'var(--usa)'}">${rec>=0?'+':''}${rec.toFixed(2)}%</td></tr>`}).join('')}
       </tbody></table></div>
       ${pe.map(p=>{const sh=share(p); const d=peDet[p.id]||{util:0,byYear:{}}; const inv=vPE(p,ANIO)*sh; const util=d.util*sh; const rec=inv>0?Math.min(100,util/inv*100):0; const years=Object.keys(d.byYear).sort();
         return `<div style="margin-top:14px;padding:12px 14px;background:var(--bg2);border-radius:8px;page-break-inside:avoid;max-width:520px">
@@ -9142,6 +9202,7 @@ async function loadPE() {
   const sel = document.getElementById('pe-sel');
   sel.innerHTML = '<option value="">Seleccionar...</option>' +
     (window._peData).map(r => `<option value="${r.id}">${r.nombre} (${r.titular})</option>`).join('');
+  await peValCargar(true);
   renderPE();
 }
 
@@ -9196,6 +9257,200 @@ function peAcum(p) {
   return { aporteHist: ap, utilHist: ut };
 }
 
+
+/* ═══════════════════════════════════════════════════════════════════════
+   CÓMO SE LEE CADA TIPO DE POSICIÓN DE PE  (v166)
+   ───────────────────────────────────────────────────────────────────────
+   Un solo lugar decide tenencia y resultado de una posición. La solapa de PE,
+   el reporte de Sociedades y el informe patrimonial llaman todos a `peCalc`,
+   así que cambiar el tipo de una posición con un clic cambia el reporte al
+   instante: no hay lógica duplicada en ningún lado.
+
+   PRÉSTAMO — vuelve el capital más una tasa, así que el interés SE DEVENGA.
+     Se recorre año por año: entra el aporte, se devenga el interés sobre el
+     capital pendiente, y lo cobrado se imputa PRIMERO a interés y después a
+     capital. Tenencia = capital pendiente + interés ganado y no cobrado.
+     Sin tasa cargada el interés es 0 y queda `aportado − cobrado`, que es
+     exactamente el criterio viejo: degrada bien, no miente.
+
+   INVERSIÓN — la plata vuelve al cerrar, sin tasa cierta.
+     Tenencia a costo hasta el cierre y resultado CERO hasta entonces. En el
+     año del cierre va la utilidad entera (cobrado − aportado).
+
+   PARTICIPACIÓN — se es socio; puede no repartir nada y aun así valer más.
+     Tenencia = la valuación del año si está cargada, si no A COSTO. Ojo: a
+     costo NO resta lo distribuido — ese es justamente el error que se venía
+     arrastrando, que dejaba en cero una participación que repartió todo
+     mientras el activo sigue existiendo.
+     Lo distribuido es resultado REALIZADO; la variación de valuación es
+     resultado NO REALIZADO y va en su propia línea, nunca sumada con la otra.
+     Es lo que mantiene el informe cuadrado:
+        patrimonio final = inicial + caja + realizado + no realizado
+   ═══════════════════════════════════════════════════════════════════════ */
+let _peVal = null;   // valuaciones manuales: { pe_id: { anio: fila } }
+
+async function peValCargar(force) {
+  if (_peVal && !force) return _peVal;
+  const { data, error } = await sb.from('valuaciones_pe').select('*').then(r => r, () => ({ data: null, error: 1 }));
+  _peVal = {};
+  if (!error) (data || []).forEach(v => { (_peVal[v.pe_id] = _peVal[v.pe_id] || {})[v.anio] = v; });
+  return _peVal;
+}
+
+function peCalc(p, anio, hist) {
+  const h    = hist || _peHistDe(p.nombre) || { byY: {} };
+  const byY  = h.byY || {};
+  const tipo = peTipoDe(p);
+  const años = Object.keys(byY).map(Number).filter(y => y <= anio).sort((a, b) => a - b);
+  const val     = ((_peVal || {})[p.id] || {})[anio];
+  const valPrev = ((_peVal || {})[p.id] || {})[anio - 1];
+
+  // Capital acumulado al cierre de cada año e incremento del año.
+  // `ia` es lo acumulado al INICIO y `ap` el aporte DEL año, así que el
+  // acumulado al cierre es ia+ap. El incremento se saca por diferencia y no
+  // sumando `ap`: hay años con salto de `ia` sin `ap` (sumar perdía 700.000).
+  const inc = {};
+  let acumPrev = 0, aportado = 0, distribuido = 0, distAnio = 0, apAnio = 0;
+  años.forEach(y => {
+    const d = byY[y] || {};
+    const ac = (d.ia || 0) + (d.ap || 0);
+    inc[y] = Math.max(0, ac - acumPrev);
+    acumPrev = Math.max(acumPrev, ac);
+    aportado = Math.max(aportado, ac);
+    distribuido += (d.ut || 0);
+    if (y === anio) { distAnio = d.ut || 0; apAnio = d.ap || 0; }
+  });
+
+  const R = { tipo, aportado, distribuido, distAnio, apAnio,
+              tenencia: 0, resReal: 0, resNoReal: 0, capRiesgo: 0,
+              aCosto: false, nota: '', metLbl: '', metVal: null };
+
+  if (tipo === 'prestamo') {
+    const tasa = (Number(p.tasa) || 0) / 100;
+    const mora = p.en_mora === true;
+    let cap = 0, intPend = 0, intDevAnio = 0, extraAnio = 0;
+    años.forEach(y => {
+      cap += inc[y];
+      const i = (tasa && !mora) ? cap * tasa : 0;
+      intPend += i;
+      if (y === anio) intDevAnio = i;
+      let cobro = (byY[y] || {}).ut || 0;
+      const aInt = Math.min(cobro, intPend); intPend -= aInt; cobro -= aInt;
+      const aCap = Math.min(cobro, cap);     cap     -= aCap; cobro -= aCap;
+      if (y === anio) extraAnio = cobro;     // cobró más que capital + interés
+    });
+    R.tenencia  = cap + intPend;
+    R.capRiesgo = cap;
+    R.resReal   = intDevAnio + extraAnio;
+    R.nota = mora ? 'en mora · no devenga'
+           : (tasa ? (Number(p.tasa) + '% anual' + (intPend > 0.5 ? ' · $' + fmt(intPend) + ' de interés sin cobrar' : ''))
+                   : 'sin tasa cargada · no devenga interés');
+    R.metLbl = 'capital devuelto';
+    R.metVal = aportado > 0 ? Math.min(100, (aportado - cap) / aportado * 100) : null;
+
+  } else if (tipo === 'inversion') {
+    const aCierre = p.fecha_cierre ? Number(String(p.fecha_cierre).slice(0, 4)) : null;
+    const yaCerro = p.cerrada === true && (aCierre === null || aCierre <= anio);
+    R.tenencia  = yaCerro ? 0 : Math.max(0, aportado - distribuido);
+    R.capRiesgo = R.tenencia;
+    R.resReal   = (yaCerro && (aCierre === null || aCierre === anio)) ? (distribuido - aportado) : 0;
+    R.nota = yaCerro ? ('cerrada' + (aCierre ? ' en ' + aCierre : ''))
+                     : 'en curso · el resultado se reconoce al cierre';
+    R.metLbl = 'multiplicador';
+    R.metVal = (yaCerro && aportado > 0) ? (distribuido / aportado) : null;
+
+  } else {  // participacion
+    const vAct = val     ? (Number(val.valor)     || 0) : null;
+    const vAnt = valPrev ? (Number(valPrev.valor) || 0) : null;
+    R.tenencia  = vAct !== null ? vAct : aportado;      // a costo si no hay valuación
+    R.aCosto    = vAct === null;
+    R.capRiesgo = Math.max(0, aportado - distribuido);
+    R.resReal   = distAnio;
+    R.resNoReal = vAct !== null ? (vAct - (vAnt !== null ? vAnt : aportado)) : 0;
+    R.nota = vAct !== null ? ('valuada' + (val.fuente ? ' · ' + val.fuente : ''))
+                           : 'a costo, sin revaluar';
+    R.metLbl = 'rendimiento del año';
+    R.metVal = aportado > 0 ? (distAnio / aportado * 100) : null;
+  }
+  return R;
+}
+
+// Suma peCalc sobre un conjunto, respetando el share de H y la exclusión de MFL.
+function peCalcTot(arr, anio, shareFn) {
+  const sh = shareFn || (() => 1);
+  return soloSumables(arr).reduce((a, p) => {
+    const c = peCalc(p, anio);
+    a.tenencia  += c.tenencia  * sh(p);
+    a.resReal   += c.resReal   * sh(p);
+    a.resNoReal += c.resNoReal * sh(p);
+    a.capRiesgo += c.capRiesgo * sh(p);
+    a.aportado  += c.aportado  * sh(p);
+    return a;
+  }, { tenencia:0, resReal:0, resNoReal:0, capRiesgo:0, aportado:0 });
+}
+
+/* ── Valuación anual de una participación ──
+   No se toca la posición: se guarda una fila por año en `valuaciones_pe`, con
+   la fuente escrita al lado. Sin fila, la posición vale a costo. */
+let _pvId = null;
+async function abrirPEVal(id, ev) {
+  if (ev) ev.stopPropagation();
+  const p = (window._peData || []).find(x => x.id === id); if (!p) return;
+  await peValCargar(true);
+  _pvId = id;
+  document.getElementById('pv-nombre').innerHTML =
+    `<b>${p.nombre}</b> <span style="color:var(--text3)">· ${p.titular || '—'}${p.share > 0 ? ' · ' + (p.share*100).toFixed(2) + '% de participación' : ''}</span>`;
+  const sel = document.getElementById('pv-anio');
+  let o = ''; for (let y = 2026; y >= 2018; y--) o += `<option value="${y}">${y}</option>`;
+  sel.innerHTML = o;
+  pvCargarAnio();
+  const hist = (_peVal[id] || {});
+  const años = Object.keys(hist).map(Number).sort((a,b)=>b-a);
+  document.getElementById('pv-lista').innerHTML = años.length
+    ? `<table style="font-size:12px;width:100%"><thead><tr><th>Año</th><th class="num">Valor</th><th>Fuente</th><th></th></tr></thead><tbody>
+       ${años.map(y => `<tr><td>${y}</td><td class="num">$${fmt(hist[y].valor)}</td>
+         <td style="color:var(--text3);font-size:11px">${hist[y].fuente || '—'}</td>
+         <td><span onclick="borrarPEVal('${hist[y].id}')" style="cursor:pointer;color:var(--usa)" title="Quitar — vuelve a costo">✕</span></td></tr>`).join('')}
+       </tbody></table>`
+    : '<p style="font-size:11px;color:var(--text3);margin:0">Sin valuaciones: la posición vale a costo.</p>';
+  openModal('modal-pe-val');
+}
+
+function pvCargarAnio() {
+  const y = parseInt(document.getElementById('pv-anio').value);
+  const v = ((_peVal || {})[_pvId] || {})[y];
+  document.getElementById('pv-valor').value  = v ? v.valor  : '';
+  document.getElementById('pv-fuente').value = v ? (v.fuente || '') : '';
+  document.getElementById('pv-notas').value  = v ? (v.notas  || '') : '';
+}
+
+async function guardarPEVal() {
+  const anio  = parseInt(document.getElementById('pv-anio').value);
+  const valor = parseFloat(document.getElementById('pv-valor').value);
+  if (!(valor >= 0)) return toast('Poné un valor', 'error');
+  const fuente = document.getElementById('pv-fuente').value.trim();
+  if (!fuente) return toast('Escribí de dónde sale el número: tasación, múltiplo, última ronda…', 'error');
+  const { error } = await sb.from('valuaciones_pe').upsert({
+    pe_id: _pvId, anio, valor, fuente,
+    notas: document.getElementById('pv-notas').value || null,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: 'pe_id,anio' });
+  if (error) return toast('Error: ' + error.message + ' — ¿corriste pe-tipos.sql?', 'error');
+  toast('Valuación ' + anio + ' guardada ✓', 'success');
+  await peValCargar(true);
+  closeModal('modal-pe-val');
+  await loadPE();
+}
+
+async function borrarPEVal(id) {
+  const { error } = await sb.from('valuaciones_pe').delete().eq('id', id);
+  if (error) return toast('Error: ' + error.message, 'error');
+  toast('Valuación quitada — vuelve a costo ✓', 'success');
+  await peValCargar(true);
+  closeModal('modal-pe-val');
+  await loadPE();
+}
+
 function renderPE() {
   const tbody = document.getElementById('tbody-pe');
   if (!tbody) return;
@@ -9216,9 +9471,11 @@ function renderPE() {
     const term = h.terminado === true;
     const ts = term ? 'text-decoration:line-through;color:var(--text3)' : '';
     const ns = term ? 'text-decoration:line-through;' : ''; // tacha TODA la fila si está terminado
+    const c = peCalc(r, 2026, _h0);   // tenencia y resultado según el tipo de posición
     return `<tr class="row-${colPais[r.pais]||'arg'}" style="${term?'opacity:0.55':''}">
       <td style="color:var(--text3);${ns}">${r.nro||'—'}</td>
-      <td class="bold" style="${ts}">${r.nombre}${peBadgeTipo(r)}${term?' <span style="font-size:9px;background:var(--text3);color:#fff;border-radius:4px;padding:1px 5px;margin-left:4px;font-weight:400">TERMINADO</span>':''}</td>
+      <td class="bold" style="${ts}">${r.nombre}${peBadgeTipo(r)}${term?' <span style="font-size:9px;background:var(--text3);color:#fff;border-radius:4px;padding:1px 5px;margin-left:4px;font-weight:400">TERMINADO</span>':''}
+        <div style="font-weight:400;font-size:10px;color:var(--text3);margin-top:1px">${c.nota}</div></td>
       <td style="${ns}">${r.titular}</td>
       <td><span class="badge badge-${colPais[r.pais]||'arg'}" style="${ns}">${r.pais||'—'}</span></td>
       <td class="num" style="${ns}">$${fmt(h.aporteHist)}</td>
@@ -9226,8 +9483,11 @@ function renderPE() {
       <td class="num" style="color:${term?'var(--text3)':(h.utilHist>0?'var(--esp)':'')};${ns}">${h.utilHist>0?'+$'+fmt(h.utilHist):'—'}</td>
       <td class="num" style="color:${term?'var(--text3)':(y26.ut>0?'var(--esp)':'')};${ns}">${y26.ut>0?'+$'+fmt(y26.ut):'—'}</td>
       <td class="num" style="${ns}">${r.share > 0 ? (r.share*100).toFixed(2)+'%' : '—'}</td>
-      <td class="num ${rec>=0?'positive':'negative'}" style="${ns}">${h.aporteHist>0?(rec>=0?'+':'')+rec.toFixed(1)+'%':'—'}</td>
-      <td><button class="btn-secondary" style="padding:3px 8px;font-size:11px" onclick="editPE('${r.id}')">Editar</button></td>
+      <td class="num bold" style="${ns}" title="${c.aCosto?'A costo: no hay valuación cargada para este año':''}">${c.tenencia?'$'+fmt(c.tenencia):'—'}${c.aCosto&&c.tenencia?'<span style="font-weight:400;color:var(--text3);font-size:9px"> costo</span>':''}</td>
+      <td class="num ${(c.metVal??0)>=0?'positive':'negative'}" style="${ns}" title="${c.metLbl}">${c.metVal===null||c.metVal===undefined?'—':(c.tipo==='inversion'?c.metVal.toFixed(2)+'x':(c.metVal>=0?'+':'')+c.metVal.toFixed(1)+'%')}</td>
+      <td style="white-space:nowrap">
+        ${c.tipo==='participacion'?`<button class="btn-secondary" style="padding:3px 8px;font-size:11px;margin-right:4px" onclick="abrirPEVal('${r.id}',event)" title="Cargar la valuación de un año">Valuar</button>`:''}
+        <button class="btn-secondary" style="padding:3px 8px;font-size:11px" onclick="editPE('${r.id}')">Editar</button></td>
     </tr>`;
   }).join('');
   const gh = b => { const x = _peHistDe(b.nombre) || {}; return Object.assign({}, x, peAcum(x)); };   // v142: vía alias
@@ -9236,6 +9496,7 @@ function renderPE() {
   const totUt = _sum.reduce((a,b)=>a+(gh(b).utilHist||0),0);
   const totAp26 = _sum.reduce((a,b)=>a+(((gh(b).byY||{})['2026']||{}).ap||0),0);
   const totUt26 = _sum.reduce((a,b)=>a+(((gh(b).byY||{})['2026']||{}).ut||0),0);
+  const _T = peCalcTot(rows, 2026);   // tenencia / resultado leidos segun el tipo de cada posicion
   tbody.innerHTML += `<tr style="background:var(--bg3);border-top:2px solid var(--border2)">
     <td colspan="4" class="bold" style="color:var(--gold)">TOTAL${notaSinMFL(rows)}</td>
     <td class="num bold" style="color:var(--gold)">$${fmt(totAp)}</td>
@@ -9243,6 +9504,7 @@ function renderPE() {
     <td class="num bold" style="color:var(--gold)">+$${fmt(totUt)}</td>
     <td class="num bold" style="color:var(--gold)">${totUt26?'+$'+fmt(totUt26):'—'}</td>
     <td></td>
+    <td class="num bold" style="color:var(--gold)">$${fmt(_T.tenencia)}</td>
     <td class="num" style="color:var(--text3)">${totAp>0?((totUt-totAp)/totAp*100).toFixed(1)+'%':'—'}</td>
     <td></td>
   </tr>`;
@@ -9257,14 +9519,30 @@ function renderPE() {
     const ut = g.reduce((a,b)=>a+(gh(b).utilHist||0),0);
     const ap26 = g.reduce((a,b)=>a+(((gh(b).byY||{})['2026']||{}).ap||0),0);
     const ut26 = g.reduce((a,b)=>a+(((gh(b).byY||{})['2026']||{}).ut||0),0);
+    const st = peCalcTot(g, 2026);
     tbody.innerHTML += `<tr style="font-size:11px;color:var(--text3)">
-      <td colspan="4" style="padding-left:14px">${d.lbl} · ${g.length} ${g.length===1?'posición':'posiciones'}</td>
+      <td colspan="4" style="padding-left:14px">${d.lbl} · ${g.length} ${g.length===1?'posición':'posiciones'}
+        ${st.resNoReal ? `<span style="color:var(--gold)">· ${st.resNoReal>=0?'+':'-'}$${fmt(Math.abs(st.resNoReal))} no realizado</span>` : ''}</td>
       <td class="num">$${fmt(ap)}</td>
       <td class="num">${ap26?'+$'+fmt(ap26):'—'}</td>
       <td class="num">${ut?'+$'+fmt(ut):'—'}</td>
       <td class="num">${ut26?'+$'+fmt(ut26):'—'}</td>
-      <td></td><td class="num">${ap>0?((ut-ap)/ap*100).toFixed(1)+'%':'—'}</td><td></td></tr>`;
+      <td></td>
+      <td class="num">$${fmt(st.tenencia)}</td>
+      <td class="num">${ap>0?((ut-ap)/ap*100).toFixed(1)+'%':'—'}</td><td></td></tr>`;
   });
+
+  const kp = document.getElementById('pe-kpis');
+  if (kp) kp.innerHTML = [
+    ['Tenencia PE 2026', '$'+fmt(_T.tenencia), 'valuadas + a costo', ''],
+    ['Capital en riesgo', '$'+fmt(_T.capRiesgo), 'puesto y todavía no devuelto', ''],
+    ['Resultado 2026', (_T.resReal>=0?'+':'-')+'$'+fmt(Math.abs(_T.resReal)),
+      _T.resNoReal ? ((_T.resNoReal>=0?'+':'-')+'$'+fmt(Math.abs(_T.resNoReal))+' no realizado, aparte') : 'realizado',
+      _T.resReal>=0?'var(--esp)':'var(--usa)'],
+  ].map(([lbl,val,sub,col]) => `<div style="border:1px solid var(--border);border-radius:8px;padding:14px;text-align:center">
+      <div style="font-size:10px;letter-spacing:1px;color:var(--text3);text-transform:uppercase;margin-bottom:6px">${lbl}</div>
+      <div style="font-size:22px;font-weight:300;${col?'color:'+col:''}">${val}</div>
+      <div style="font-size:10px;color:var(--text3);margin-top:3px">${sub}</div></div>`).join('');
   const leyenda = document.getElementById('pe-leyenda');
   if (leyenda) leyenda.innerHTML =
     '<b>Los tres tipos.</b> ' + ['prestamo','inversion','participacion'].map(t =>
@@ -13196,7 +13474,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260818-165';
+const APP_VERSION = '20260818-166';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
