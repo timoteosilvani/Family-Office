@@ -4203,6 +4203,18 @@ const sb = createClient(
 let currentUser = null;
 let miPerfil = null;          // {rol, titular}
 let verComo = null;           // titular que el admin elige ver (null = ver todo)
+
+/* ═══════════ MFL: SE VE, NO SUMA (v163) ═══════════
+   MFL tiene que quedar registrado y visible en todas las listas, pero fuera de
+   TODOS los totales, KPIs y estadisticas de la app. Un solo lugar decide quien
+   suma, para que no vuelva a colarse en un cuadro nuevo.
+   Unica excepcion: cuando se esta viendo "como MFL", el total ES su patrimonio
+   propio y ahi si suma. */
+const sumaTit     = r => verComo === 'MFL' || !r || r.titular !== 'MFL';
+const soloSumables= arr => (arr || []).filter(sumaTit);
+const hayMFL      = arr => (arr || []).length !== soloSumables(arr).length;
+const notaSinMFL  = arr => hayMFL(arr)
+  ? '<span style="font-weight:400;color:var(--text3);font-size:11px"> · sin MFL</span>' : '';
 function aplicarFiltroTit(q){
   if (!verComo) return q;
   if (!H_SHARE.includes(verComo)) return q.eq('titular', verComo);
@@ -5483,7 +5495,7 @@ function renderHistorialProps(filtro) {
   }).join('');
 
   // Totals row
-  const totals = YEARS.map(y => data.reduce((sum, p) => {
+  const totals = YEARS.map(y => soloSumables(data).reduce((sum, p) => {
     const sy = (p.vendida===true) ? Math.max(...Object.keys(p.valores).map(Number)) : null;
     if (sy !== null && y === sy) return sum; // vendida: no cuenta en el año de venta
     return sum + (p.valores[String(y)]||0);
@@ -5560,7 +5572,7 @@ function renderAutosHist() {
       <td class="num ${varPct>0?'positive':(varPct<0?'negative':'')}" style="font-size:11px;font-weight:600;${numStrike}">${varPct!==null?(varPct>0?'+':'')+varPct+'%':'—'}</td>
     </tr>`;
   }).join('');
-  const totals = YEARS.map(y => data.reduce((s, a) => s + (a.valores[String(y)] || 0), 0));
+  const totals = YEARS.map(y => soloSumables(data).reduce((s, a) => s + (a.valores[String(y)] || 0), 0));
   body += `<tr style="background:var(--bg3);border-top:2px solid var(--border2)">
     <td colspan="3" class="bold" style="color:var(--gold)">TOTAL</td>
     ${totals.map(v => `<td class="num bold" style="color:var(--gold);font-size:11px">${v>0?'$'+fmt(v):'—'}</td>`).join('')}
@@ -5666,7 +5678,7 @@ function renderBancosHist() {
       <td class="num" style="font-size:11px;color:${d.r?'var(--usa)':''}">${d.r?'-$'+fmt(d.r):'—'}</td>
       <td class="num bold" style="font-size:11px;color:${d.n<0?'var(--usa)':''}">${money(d.n)}</td>
     </tr>`; }).join('');
-  const T = data.reduce((a,b) => { const d=b.byY[y]; a.i+=d.i; a.c+=d.c; a.r+=d.r; a.n+=d.n; return a; }, {i:0,c:0,r:0,n:0});
+  const T = soloSumables(data).reduce((a,b) => { const d=b.byY[y]; a.i+=d.i; a.c+=d.c; a.r+=d.r; a.n+=d.n; return a; }, {i:0,c:0,r:0,n:0});
   body += `<tr style="background:var(--bg3);border-top:2px solid var(--border2)">
     <td colspan="3" class="bold" style="color:var(--gold)">TOTAL</td>
     <td class="num bold" style="color:var(--gold);font-size:11px">${money(T.i)}</td>
@@ -5783,7 +5795,7 @@ function renderPEHist() {
       <td class="num" style="font-size:11px;border-left:2px solid var(--border2);color:${d.ap?'var(--esp)':''};${ns}">${d.ap?'+$'+fmt(d.ap):'—'}</td>
       <td class="num" style="font-size:11px;color:${d.ut?'var(--esp)':''};${ns}">${d.ut?'+$'+fmt(d.ut):'—'}</td>
     </tr>`; }).join('');
-  const T = data.reduce((a,p) => { const d=p.byY[y]; a.ia+=_invAc(d); a.ap+=(d.ap||0); a.ut+=(d.ut||0); a.ua+=_utAc(p); return a; }, {ia:0,ap:0,ut:0,ua:0});
+  const T = soloSumables(data).reduce((a,p) => { const d=p.byY[y]; a.ia+=_invAc(d); a.ap+=(d.ap||0); a.ut+=(d.ut||0); a.ua+=_utAc(p); return a; }, {ia:0,ap:0,ut:0,ua:0});
   body += `<tr style="background:var(--bg3);border-top:2px solid var(--border2)">
     <td colspan="3" class="bold" style="color:var(--gold)">TOTAL</td>
     <td class="num bold" style="color:var(--gold);font-size:11px">$${fmt(T.ia)}</td>
@@ -6464,10 +6476,10 @@ function renderPropiedades(paisFiltro) {
     </tr>`;
   }).join('');
   // Fila TOTAL (suma de las propiedades NO vendidas visibles)
-  const act = rows.filter(p => p.vendida !== true);
+  const act = soloSumables(rows).filter(p => p.vendida !== true);   // MFL se ve arriba, no suma
   const sc = f => act.reduce((a,p)=>a+(Number(p[f])||0),0);
   const totRow = act.length ? `<tr style="background:var(--bg3);border-top:2px solid var(--border2)">
-    <td colspan="5" class="bold" style="color:var(--gold)">TOTAL</td>
+    <td colspan="5" class="bold" style="color:var(--gold)">TOTAL${notaSinMFL(rows)}</td>
     <td class="num bold" style="color:var(--gold);font-size:11px">${sc('valor_compra')?'$'+fmt(sc('valor_compra')):'—'}</td>
     <td class="num bold" style="color:var(--gold);font-size:11px">${sc('inversion')?'$'+fmt(sc('inversion')):'—'}</td>
     <td class="num bold" style="color:var(--gold)">$${fmt(sc('valor_2026'))}</td>
@@ -7159,7 +7171,7 @@ function renderBancos(paisFiltro) {
   // Totals (Neto = Inv + Cash - Credito de ESTE cuadro, recalculado por fila)
   // MFL se ve pero NO contabiliza: sus cuentas quedan listadas arriba pero fuera
   // del TOTAL, para que este numero coincida con el dashboard y el patrimonio.
-  const _sumables = rows.filter(b => verComo === 'MFL' || b.titular !== 'MFL');
+  const _sumables = soloSumables(rows);   // v163: mismo criterio que el resto de la app
   const _hayMFL = rows.length !== _sumables.length;
   const tInv  = _sumables.reduce((a,b) => a+(usdMap[b.id]?.inv||0), 0);
   const tCash = _sumables.reduce((a,b) => a+(usdMap[b.id]?.cash||0), 0);
@@ -9161,12 +9173,13 @@ function renderPE() {
     </tr>`;
   }).join('');
   const gh = b => { const x = _peHistDe(b.nombre) || {}; return Object.assign({}, x, peAcum(x)); };   // v142: vía alias
-  const totAp = rows.reduce((a,b)=>a+(gh(b).aporteHist||0),0);
-  const totUt = rows.reduce((a,b)=>a+(gh(b).utilHist||0),0);
-  const totAp26 = rows.reduce((a,b)=>a+(((gh(b).byY||{})['2026']||{}).ap||0),0);
-  const totUt26 = rows.reduce((a,b)=>a+(((gh(b).byY||{})['2026']||{}).ut||0),0);
+  const _sum = soloSumables(rows);                                   // MFL no suma
+  const totAp = _sum.reduce((a,b)=>a+(gh(b).aporteHist||0),0);
+  const totUt = _sum.reduce((a,b)=>a+(gh(b).utilHist||0),0);
+  const totAp26 = _sum.reduce((a,b)=>a+(((gh(b).byY||{})['2026']||{}).ap||0),0);
+  const totUt26 = _sum.reduce((a,b)=>a+(((gh(b).byY||{})['2026']||{}).ut||0),0);
   tbody.innerHTML += `<tr style="background:var(--bg3);border-top:2px solid var(--border2)">
-    <td colspan="4" class="bold" style="color:var(--gold)">TOTAL</td>
+    <td colspan="4" class="bold" style="color:var(--gold)">TOTAL${notaSinMFL(rows)}</td>
     <td class="num bold" style="color:var(--gold)">$${fmt(totAp)}</td>
     <td class="num bold" style="color:var(--gold)">${totAp26?'+$'+fmt(totAp26):'—'}</td>
     <td class="num bold" style="color:var(--gold)">+$${fmt(totUt)}</td>
@@ -11182,11 +11195,11 @@ function renderComparativoAnual() {
       <td style="color:var(--text3);font-size:10px">${p.nro}</td>
       <td style="font-weight:500">${p.nombre}</td>
       <td style="color:var(--text3);font-size:10px">${p.titular}</td>
-      ${anios.map(a=>{const v=p.vals[a]; if(v!==undefined)totByYear[a]+=v; const cls=esNeto?(v>=0?'positive':'negative'):''; return `<td class="num ${cls}" style="font-size:10px">${v!==undefined&&v!==0?'$'+fmt(v):'—'}</td>`;}).join('')}
+      ${anios.map(a=>{const v=p.vals[a]; if(v!==undefined && sumaTit(p))totByYear[a]+=v; const cls=esNeto?(v>=0?'positive':'negative'):''; return `<td class="num ${cls}" style="font-size:10px">${v!==undefined&&v!==0?'$'+fmt(v):'—'}</td>`;}).join('')}
     </tr>`;
   });
   html += `<tr style="background:var(--bg3);border-top:2px solid var(--border2)">
-    <td colspan="3" class="bold" style="color:var(--gold)">TOTAL ${label}</td>
+    <td colspan="3" class="bold" style="color:var(--gold)">TOTAL ${label}${notaSinMFL(props)}</td>
     ${anios.map(a=>`<td class="num bold" style="color:var(--gold)">$${fmt(totByYear[a])}</td>`).join('')}
   </tr>`;
   html += `</tbody></table></div></div>`;
@@ -12218,14 +12231,14 @@ async function loadAutosEvolucion() {
       <thead><tr><th>Concepto</th><th class="num" style="color:var(--gold)">Total</th>${MM.map(m=>`<th class="num">${meses[m]}</th>`).join('')}</tr></thead>
       <tbody>
         ${CONCEPTOS.map(([label,field])=>{
-          const vals = MM.map(m=>active.reduce((a,x)=>a+_rubUSD(gasMap[x.id]?.[m], field, m),0));
+          const vals = MM.map(m=>soloSumables(active).reduce((a,x)=>a+_rubUSD(gasMap[x.id]?.[m], field, m),0));
           const tot = vals.reduce((a,b)=>a+b,0);
           return `<tr><td>${label}</td><td class="num bold" style="color:${tot?'var(--text2)':'var(--border2)'}">${tot>0?'$'+fmt(tot):'—'}</td>${vals.map(v=>`<td class="num">${v>0?'$'+fmt(v):'—'}</td>`).join('')}</tr>`;
         }).join('')}
         <tr style="border-top:2px solid var(--border2)">
           <td class="bold" style="color:var(--gold)">TOTAL USD</td>
-          <td class="num bold negative">${(()=>{const g=active.reduce((a,x)=>a+MM.reduce((b,m)=>b+(gasMap[x.id]?.[m]?.total_usd||0),0),0);return g>0?'$'+fmt(g):'—';})()}</td>
-          ${MM.map(m=>{const v=active.reduce((a,x)=>a+(gasMap[x.id]?.[m]?.total_usd||0),0);return`<td class="num bold negative">${v>0?'$'+fmt(v):'—'}</td>`;}).join('')}
+          <td class="num bold negative">${(()=>{const g=soloSumables(active).reduce((a,x)=>a+MM.reduce((b,m)=>b+(gasMap[x.id]?.[m]?.total_usd||0),0),0);return g>0?'$'+fmt(g):'—';})()}</td>
+          ${MM.map(m=>{const v=soloSumables(active).reduce((a,x)=>a+(gasMap[x.id]?.[m]?.total_usd||0),0);return`<td class="num bold negative">${v>0?'$'+fmt(v):'—'}</td>`;}).join('')}
         </tr>
       </tbody>
     </table></div>
@@ -12290,8 +12303,11 @@ async function loadSociedades() {
       .map(s => `<option value="${s.id}">[${s.titular}] ${s.nombre}</option>`).join('');
 
   // KPIs
-  const totImp = socsMovData.reduce((a,b)=>a+(b.impuestos||0),0);
-  const totOtros = socsMovData.reduce((a,b)=>a+(b.otros_gastos||0),0);
+  // MFL no suma: se filtran los movimientos de sus sociedades antes del KPI.
+  const _idsNoMFL = new Set(soloSumables(socsData).map(s => s.id));
+  const _movsKPI = socsMovData.filter(m => _idsNoMFL.has(m.sociedad_id));
+  const totImp = _movsKPI.reduce((a,b)=>a+(b.impuestos||0),0);
+  const totOtros = _movsKPI.reduce((a,b)=>a+(b.otros_gastos||0),0);
   const totGen = totImp + totOtros;
   document.getElementById('soc-total-imp').textContent = '$' + fmt(totImp);
   document.getElementById('soc-total-otros').textContent = '$' + fmt(totOtros);
@@ -12334,9 +12350,10 @@ function renderSociedades(filtro) {
   }).join('') || '<tr><td colspan="9" style="color:var(--text3);text-align:center">Sin datos</td></tr>';
   
   // Totals row
-  const totAp = rows.reduce((a,s)=>a+getMovTotals(s.id).aportes,0);
-  const totIm = rows.reduce((a,s)=>a+getMovTotals(s.id).impuestos,0);
-  const totOt = rows.reduce((a,s)=>a+getMovTotals(s.id).otros,0);
+  const _sumS = soloSumables(rows);                                  // MFL no suma
+  const totAp = _sumS.reduce((a,s)=>a+getMovTotals(s.id).aportes,0);
+  const totIm = _sumS.reduce((a,s)=>a+getMovTotals(s.id).impuestos,0);
+  const totOt = _sumS.reduce((a,s)=>a+getMovTotals(s.id).otros,0);
   tbody.innerHTML += `<tr style="background:var(--bg3);border-top:2px solid var(--border2)">
     <td colspan="5" class="bold" style="color:var(--gold)">TOTAL</td>
     <td class="num bold" style="color:var(--gold)">$${fmt(totAp)}</td>
@@ -12394,14 +12411,14 @@ async function loadSocEvolucion() {
       <thead><tr><th>Concepto</th><th class="num" style="color:var(--gold)">Total</th>${MESES.map(m=>`<th class="num">${meses[m]}</th>`).join('')}</tr></thead>
       <tbody>
         ${CONCEPTOS.map(([label,field,color,cls])=>{
-          const vals = MESES.map(m=>active.reduce((a,s)=>a+_socUSD(movMap[s.id]?.[m], field, m),0));
+          const vals = MESES.map(m=>soloSumables(active).reduce((a,s)=>a+_socUSD(movMap[s.id]?.[m], field, m),0));
           const tot = vals.reduce((a,b)=>a+b,0);
           return `<tr><td style="color:${color}">${label}</td><td class="num ${cls} bold" style="color:${tot?color:'var(--border2)'}">${tot>0?'$'+fmt(tot):'—'}</td>${vals.map(v=>`<td class="num ${cls}">${v>0?'$'+fmt(v):'—'}</td>`).join('')}</tr>`;
         }).join('')}
         <tr style="border-top:2px solid var(--border2)">
           <td class="bold" style="color:var(--gold)">TOTAL</td>
-          <td class="num bold negative">${(()=>{const g=active.reduce((a,s)=>a+MESES.reduce((b,m)=>b+_socUSD(movMap[s.id]?.[m],'total',m),0),0);return g>0?'$'+fmt(g):'—';})()}</td>
-          ${MESES.map(m=>{const v=active.reduce((a,s)=>a+_socUSD(movMap[s.id]?.[m],'total',m),0);return`<td class="num bold negative">${v>0?'$'+fmt(v):'—'}</td>`;}).join('')}
+          <td class="num bold negative">${(()=>{const g=soloSumables(active).reduce((a,s)=>a+MESES.reduce((b,m)=>b+_socUSD(movMap[s.id]?.[m],'total',m),0),0);return g>0?'$'+fmt(g):'—';})()}</td>
+          ${MESES.map(m=>{const v=soloSumables(active).reduce((a,s)=>a+_socUSD(movMap[s.id]?.[m],'total',m),0);return`<td class="num bold negative">${v>0?'$'+fmt(v):'—'}</td>`;}).join('')}
         </tr>
       </tbody>
     </table></div>
@@ -12792,8 +12809,9 @@ function renderAutos() {
     </tr>`;
   }).join('');
   // Update totals row
-  const tot26 = rows.reduce((a,r)=>a+(r.valor_2026||0),0);
-  const totG = rows.reduce((a,r)=>a+((window._autosGasMap||{})[r.id]?.tot||0),0);
+  const _sumA = soloSumables(rows);                                  // MFL no suma
+  const tot26 = _sumA.reduce((a,r)=>a+(r.valor_2026||0),0);
+  const totG = _sumA.reduce((a,r)=>a+((window._autosGasMap||{})[r.id]?.tot||0),0);
   document.getElementById('tbody-autos').innerHTML += `<tr style="background:var(--bg3);border-top:2px solid var(--border2)">
     <td colspan="5" class="bold" style="color:var(--gold)">TOTAL</td>
     <td class="num bold" style="color:var(--gold)">$${fmt(tot26)}</td>
@@ -12938,13 +12956,15 @@ function cliTable(box, titulo, cols, acc) {
   const filas = CLI_ORD.filter(c => cols.some(col => !col.pct && Math.abs(acc[c][col.key] || 0) > 0.005))
     .map(c => {
       const d = acc[c];
-      cols.forEach(col => { if (!col.pct) totals[col.key] += (d[col.key] || 0); });
-      return `<tr><td class="bold">${CLI_NOM[c]} <span style="color:var(--text3);font-size:10px">${c}</span></td>` +
+      const suma = sumaTit({ titular: c });          // MFL: se muestra, no suma
+      if (suma) cols.forEach(col => { if (!col.pct) totals[col.key] += (d[col.key] || 0); });
+      return `<tr${suma ? '' : ' style="opacity:.6"'}><td class="bold">${CLI_NOM[c]} <span style="color:var(--text3);font-size:10px">${c}${suma ? '' : ' · no suma'}</span></td>` +
         cols.map(col => col.pct
           ? `<td class="num ${col.cls || ''}">${_pctCell(d, col)}</td>`
           : `<td class="num ${col.cls || ''}">${_cc(d[col.key] || 0)}</td>`).join('') + `</tr>`;
     }).join('');
-  const totRow = `<tr style="background:var(--bg3);border-top:2px solid var(--border2)"><td class="bold" style="color:var(--gold)">TOTAL</td>` +
+  const _hayM = CLI_ORD.some(c => !sumaTit({ titular: c }) && cols.some(col => !col.pct && Math.abs(acc[c][col.key] || 0) > 0.005));
+  const totRow = `<tr style="background:var(--bg3);border-top:2px solid var(--border2)"><td class="bold" style="color:var(--gold)">TOTAL${_hayM ? '<span style="font-weight:400;color:var(--text3);font-size:11px"> · sin MFL</span>' : ''}</td>` +
     cols.map(col => col.pct
       ? `<td class="num bold" style="color:var(--gold)">${_pctCell(totals, col)}</td>`
       : `<td class="num bold" style="color:var(--gold)">${_cc(totals[col.key])}</td>`).join('') + `</tr>`;
@@ -13093,7 +13113,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260818-162';
+const APP_VERSION = '20260818-163';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
