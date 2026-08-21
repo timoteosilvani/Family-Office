@@ -1866,6 +1866,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
                 </tbody>
               </table>
             </div>
+            <p id="pe-leyenda" style="font-size:11px;color:var(--text3);margin:12px 0 0;line-height:1.6"></p>
           </div>
         </div>
         <div id="pe-historial" class="tab-content">
@@ -7977,11 +7978,13 @@ function loadReportes() {
 function repPeriodoOpts(){
   const per=document.getElementById('rep-periodo'); if(!per) return;
   const tipo=document.getElementById('rep-tipo')?.value||'mensual';
-  const years=[2026,2025,2024];
+  // v164 — el informe ya toma el valor del año que se pide, asi que se abren
+  // todos los años cargados y no solo 2026.
+  const years=[2026,2025,2024,2023,2022,2021,2020];
   const mn=['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
   let o='';
-  if(tipo==='anual'){ o+='<option value="A-2026">2026 · Ejercicio completo</option>'; }
-  else if(tipo==='semestral'){ o+='<option value="S-2026-1">2026 · Semestre 1 (ene-jun)</option><option value="S-2026-2">2026 · Semestre 2 (jul-dic)</option>'; }
+  if(tipo==='anual'){ years.forEach(y=>{ o+=`<option value="A-${y}">${y} · Ejercicio completo</option>`; }); }
+  else if(tipo==='semestral'){ years.forEach(y=>{ o+=`<option value="S-${y}-1">${y} · Semestre 1 (ene-jun)</option><option value="S-${y}-2">${y} · Semestre 2 (jul-dic)</option>`; }); }
   else { years.forEach(y=>{ for(let m=1;m<=12;m++) o+=`<option value="M-${y}-${m}">${y} · ${mn[m-1]}</option>`; }); }
   per.innerHTML=o;
 }
@@ -8621,10 +8624,27 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
   }
 
   const sum = (arr,f) => arr.reduce((a,r)=>a + (Number(r[f])||0)*share(r), 0);
-  const propsActual = sum(props,'valor_2026'), propsInvertido = sum(props,'valor_compra');
-  const peActual = sum(pe,'valor_2026'), peInvertido = sum(pe,'valor_2026');
-  const autosActual = sum(autos,'valor_2026');
-  const propsCierre = sum(props,'valor_2025'), peCierre = sum(pe,'valor_2025'), autosCierre = sum(autos,'valor_2025');
+
+  /* v164 — VALOR DEL AÑO, no de 2026.
+     El informe leia las columnas fijas `valor_2026` / `valor_2025`, asi que un
+     informe de 2023 mostraba valores de 2026: por eso el selector solo ofrecia
+     ejercicio y semestre de 2026. Ahora el valor sale de la misma fuente que
+     Patrimonio Historico (PROP_HIST_DATA / AUTOS_HIST_DATA / PE_HIST_DATA, por
+     año), que es la que ya usaban los bloques de rentabilidad mas abajo. Con eso
+     se pueden emitir informes de cualquier año cerrado. */
+  const _pvA = {}; PROP_HIST_DATA.forEach(o => _pvA[o.nro] = o.valores || {});
+  const _avA = {}; AUTOS_HIST_DATA.forEach(o => _avA[o.nro] = o.valores || {});
+  const vProp = (p, y) => Number((_pvA[p.nro] || {})[String(y)]) || 0;
+  const vAuto = (a, y) => Number((_avA[a.nro] || {})[String(y)]) || 0;
+  // PE: el capital al cierre del año es ia + ap (acumulado al inicio + aporte del año).
+  const vPE = (x, y) => { const d = ((_peHistDe(x.nombre) || {}).byY || {})[String(y)];
+                          return d ? (Number(d.ia)||0) + (Number(d.ap)||0) : 0; };
+  const sumA = (arr, y, f) => arr.reduce((a,r) => a + f(r, y)*share(r), 0);
+
+  const propsActual = sumA(props, ANIO, vProp), propsInvertido = sum(props,'valor_compra');
+  const peActual = sumA(pe, ANIO, vPE), peInvertido = sumA(pe, ANIO, vPE);
+  const autosActual = sumA(autos, ANIO, vAuto);
+  const propsCierre = sumA(props, ANIO-1, vProp), peCierre = sumA(pe, ANIO-1, vPE), autosCierre = sumA(autos, ANIO-1, vAuto);
   const autosInvertido = sum(autos,'valor_compra');
   // Autos: gastos por año (movimientos_autos, todos los años) + valor por año (AUTOS_HIST_DATA)
   const AUTO_YEARS = [2017,2018,2019,2020,2021,2022,2023,2024,2025,2026];
@@ -8677,7 +8697,9 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
   histAnios.push({anio:ANIO, prop:propsActual, banco:bancosActual, pe:peActual, autos:autosActual, total:patrimonioActual});
 
   const pais = {ARG:0,USA:0,URU:0,ESP:0};
-  [...props,...pe,...autos].forEach(r => { pais[r.pais] = (pais[r.pais]||0) + (Number(r.valor_2026)||0)*share(r); });
+  props.forEach(r => { pais[r.pais] = (pais[r.pais]||0) + vProp(r,ANIO)*share(r); });
+  pe   .forEach(r => { pais[r.pais] = (pais[r.pais]||0) + vPE(r,ANIO)*share(r); });
+  autos.forEach(r => { pais[r.pais] = (pais[r.pais]||0) + vAuto(r,ANIO)*share(r); });
   Object.keys(bancosPais).forEach(k => pais[k] = (pais[k]||0) + bancosPais[k]);
   const clases = [
     {n:'Propiedades', inv:propsInvertido, cie:propsCierre, act:propsActual},
@@ -8707,12 +8729,12 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
   const cartera = props.slice().sort((a,b)=>{ const ha=a.fecha_compra?0:1, hb=b.fecha_compra?0:1; return ha!==hb?ha-hb:(a.nro||0)-(b.nro||0); });
   const totVC = props.reduce((s,p)=>s+(Number(p.valor_compra)||0)*share(p),0);
   const totVV = props.reduce((s,p)=>s+(Number(p.valor_venta)||0)*share(p),0);
-  const totVA = props.reduce((s,p)=>s+(Number(p.valor_2026)||0)*share(p),0);
+  const totVA = props.reduce((s,p)=>s+vProp(p,ANIO)*share(p),0);
   const totRN = props.reduce((s,p)=>s+((propDet[p.id]||{netoAcum:0}).netoAcum),0);
   const totNE = (totVA-totVC)+totRN;
   const rrow = (l,v,c) => `<div style="display:flex;justify-content:space-between;font-size:12px;padding:4px 0;border-bottom:1px solid #f0f0ee"><span style="color:var(--text3)">${l}</span><span style="font-weight:600;${c?'color:'+c:''}">${v}</span></div>`;
   const peUtilTotal = pe.reduce((a,p)=>a+((peDet[p.id]||{util:0}).util)*share(p),0);
-  const peInvTotal = pe.reduce((a,p)=>a+(Number(p.valor_2026)||0)*share(p),0);
+  const peInvTotal = pe.reduce((a,p)=>a+vPE(p,ANIO)*share(p),0);
   const peRecupero = peInvTotal>0?((peUtilTotal-peInvTotal)/peInvTotal*100):0;
   const paises = [...new Set(props.map(p=>p.pais).filter(Boolean))];
 
@@ -8903,8 +8925,8 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
       <div class="table-wrap"><table>
         <thead><tr><th>Propiedad</th><th class="num">V. compra</th><th class="num">V. actual</th><th class="num">Renta</th><th class="num">Gastos</th><th class="num">Renta neta</th><th class="num">Rent. sem.</th></tr></thead>
         <tbody>
-        ${propsRenta.map(p=>{ const d=propDet[p.id]; const sh=share(p); const vi=(Number(p.valor_2025)||Number(p.valor_2026)||0)*sh; const rs=vi>0?(d.netoSem/vi*100):0;
-          return `<tr><td>${p.nombre}</td><td class="num">$${fmt((Number(p.valor_compra)||0)*sh)}</td><td class="num">$${fmt((Number(p.valor_2026)||0)*sh)}</td><td class="num">$${fmt(d.rentaSem)}</td><td class="num negative">$${fmt(d.gastosSem)}</td><td class="num" style="color:${d.netoSem>=0?'var(--esp)':'var(--usa)'}">${d.netoSem>=0?'+':''}$${fmt(d.netoSem)}</td><td class="num">${rs.toFixed(2)}%</td></tr>`;
+        ${propsRenta.map(p=>{ const d=propDet[p.id]; const sh=share(p); const vi=(vProp(p,ANIO-1)||vProp(p,ANIO))*sh; const rs=vi>0?(d.netoSem/vi*100):0;
+          return `<tr><td>${p.nombre}</td><td class="num">$${fmt((Number(p.valor_compra)||0)*sh)}</td><td class="num">$${fmt(vProp(p,ANIO)*sh)}</td><td class="num">$${fmt(d.rentaSem)}</td><td class="num negative">$${fmt(d.gastosSem)}</td><td class="num" style="color:${d.netoSem>=0?'var(--esp)':'var(--usa)'}">${d.netoSem>=0?'+':''}$${fmt(d.netoSem)}</td><td class="num">${rs.toFixed(2)}%</td></tr>`;
         }).join('') || '<tr><td colspan="7" style="color:var(--text3)">Sin movimientos de alquiler en el período</td></tr>'}
         <tr style="font-weight:600;border-top:2px solid var(--border)"><td>Total</td><td></td><td></td><td class="num">$${fmt(totRentaSem)}</td><td class="num negative">$${fmt(totGastosSem)}</td><td class="num" style="color:${totNetoSem>=0?'var(--esp)':'var(--usa)'}">${totNetoSem>=0?'+':''}$${fmt(totNetoSem)}</td><td></td></tr>
         </tbody></table></div>
@@ -8916,7 +8938,7 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
       <div class="table-wrap"><table>
         <thead><tr><th>País / Propiedad</th><th class="num">F. compra</th><th class="num">V. compra</th><th class="num">V. venta</th><th class="num">V. actual</th><th class="num">Renta neta acum.</th><th class="num">Valoriz.</th><th class="num">Neto econ.</th></tr></thead>
         <tbody>
-        ${cartera.map(p=>{ const sh=share(p); const vc=(Number(p.valor_compra)||0)*sh; const vv=(Number(p.valor_venta)||0)*sh; const va=(Number(p.valor_2026)||0)*sh; const d=propDet[p.id]||{netoAcum:0}; const valoriz=va-vc; const netoEcon=valoriz+d.netoAcum; const valPct=vc>0?((va/vc-1)*100):0;
+        ${cartera.map(p=>{ const sh=share(p); const vc=(Number(p.valor_compra)||0)*sh; const vv=(Number(p.valor_venta)||0)*sh; const va=vProp(p,ANIO)*sh; const d=propDet[p.id]||{netoAcum:0}; const valoriz=va-vc; const netoEcon=valoriz+d.netoAcum; const valPct=vc>0?((va/vc-1)*100):0;
           return `<tr><td>${paisB(p.pais)} ${p.nombre}</td><td class="num" style="font-size:11px">${p.fecha_compra||'—'}</td><td class="num">$${fmt(vc)}</td><td class="num">${vv>0?'$'+fmt(vv):'—'}</td><td class="num">$${fmt(va)}</td><td class="num" style="color:${d.netoAcum>=0?'var(--esp)':'var(--usa)'}">${d.netoAcum!==0?(d.netoAcum>=0?'+':'')+'$'+fmt(d.netoAcum):'—'}</td><td class="num" style="color:${valoriz>=0?'var(--esp)':'var(--usa)'}">${vc>0?(valPct>=0?'+':'')+valPct.toFixed(1)+'%':'—'}</td><td class="num" style="color:${netoEcon>=0?'var(--esp)':'var(--usa)'}">${(vc>0||d.netoAcum!==0)?(netoEcon>=0?'+':'')+'$'+fmt(netoEcon):'—'}</td></tr>`;
         }).join('')}
         <tr style="font-weight:700;border-top:2px solid var(--navy)"><td>Total</td><td></td><td class="num">$${fmt(totVC)}</td><td class="num">${totVV>0?'$'+fmt(totVV):'—'}</td><td class="num">$${fmt(totVA)}</td><td class="num" style="color:${totRN>=0?'var(--esp)':'var(--usa)'}">${totRN>=0?'+':''}$${fmt(totRN)}</td><td></td><td class="num" style="color:${totNE>=0?'var(--esp)':'var(--usa)'}">${totNE>=0?'+':''}$${fmt(totNE)}</td></tr>
@@ -8984,9 +9006,9 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
     ${pe.length ? `<div class="rep-h2 pgbreak">Private Equity</div><div class="card" style="margin-top:20px">
       <div class="section-title" style="font-size:14px;margin-bottom:12px">Private Equity · desglose</div>
       <div class="table-wrap"><table><thead><tr><th>Sociedad</th><th class="num">Inversión</th><th class="num">Utilidad acum.</th><th class="num">Utilidad ${ANIO}</th><th class="num">Posición neta</th><th class="num">% recupero</th></tr></thead><tbody>
-      ${pe.map(p=>{const sh=share(p); const d=peDet[p.id]||{util:0,gastos:0,imp:0,byYear:{}}; const inv=(Number(p.valor_2026)||0)*sh; const util=d.util*sh; const u26=(d.byYear[ANIO]||0)*sh; const gi=(d.gastos+d.imp)*sh; const pos=util-gi-inv; const rec=inv>0?((util-inv)/inv*100):0; return `<tr><td>${p.nombre}</td><td class="num">$${fmt(inv)}</td><td class="num" style="color:var(--esp)">+$${fmt(util)}</td><td class="num" style="color:var(--esp)">+$${fmt(u26)}</td><td class="num" style="color:${pos>=0?'var(--esp)':'var(--usa)'}">${pos>=0?'+':''}$${fmt(pos)}</td><td class="num" style="color:${rec>=0?'var(--esp)':'var(--usa)'}">${rec>=0?'+':''}${rec.toFixed(2)}%</td></tr>`}).join('')}
+      ${pe.map(p=>{const sh=share(p); const d=peDet[p.id]||{util:0,gastos:0,imp:0,byYear:{}}; const inv=vPE(p,ANIO)*sh; const util=d.util*sh; const u26=(d.byYear[ANIO]||0)*sh; const gi=(d.gastos+d.imp)*sh; const pos=util-gi-inv; const rec=inv>0?((util-inv)/inv*100):0; return `<tr><td>${p.nombre}</td><td class="num">$${fmt(inv)}</td><td class="num" style="color:var(--esp)">+$${fmt(util)}</td><td class="num" style="color:var(--esp)">+$${fmt(u26)}</td><td class="num" style="color:${pos>=0?'var(--esp)':'var(--usa)'}">${pos>=0?'+':''}$${fmt(pos)}</td><td class="num" style="color:${rec>=0?'var(--esp)':'var(--usa)'}">${rec>=0?'+':''}${rec.toFixed(2)}%</td></tr>`}).join('')}
       </tbody></table></div>
-      ${pe.map(p=>{const sh=share(p); const d=peDet[p.id]||{util:0,byYear:{}}; const inv=(Number(p.valor_2026)||0)*sh; const util=d.util*sh; const rec=inv>0?Math.min(100,util/inv*100):0; const years=Object.keys(d.byYear).sort();
+      ${pe.map(p=>{const sh=share(p); const d=peDet[p.id]||{util:0,byYear:{}}; const inv=vPE(p,ANIO)*sh; const util=d.util*sh; const rec=inv>0?Math.min(100,util/inv*100):0; const years=Object.keys(d.byYear).sort();
         return `<div style="margin-top:14px;padding:12px 14px;background:var(--bg2);border-radius:8px;page-break-inside:avoid;max-width:520px">
           <div style="font-weight:600;color:var(--navy);margin-bottom:10px;font-size:12px">${p.nombre} · evolución de la inversión</div>
           <div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0"><span>Inversión inicial</span><span style="color:var(--usa)">− $${fmt(inv)}</span></div>
@@ -9131,6 +9153,42 @@ async function loadPE() {
 // Antes esto eran dos campos fijos (aporteHist / utilHist) que NO se movían al editar el historial ni al
 // cargar movimientos: la solapa Información mostraba un número congelado, desconectado de los datos.
 // Verificado: la fórmula reproduce exactamente los 19 valores que estaban hardcodeados.
+/* ═══════════ LOS TRES TIPOS DE POSICION DE PE (v165) ═══════════
+   Lo que separa a los tres no es la figura legal sino de donde sale el retorno
+   y cuando se puede reconocer:
+     · PRESTAMO      vuelve el capital + una tasa  → el interes se DEVENGA
+     · INVERSION     la plata vuelve al cerrar     → resultado 0 hasta el cierre
+     · PARTICIPACION se es socio, puede no repartir → a COSTO salvo valuacion cargada
+   La clasificacion se cambia con un clic en la etiqueta, igual que
+   Operativa/Inversion en bancos. */
+const PE_TIPOS = {
+  participacion: { lbl:'PARTICIPACIÓN', sig:'prestamo',
+    css:'background:var(--bg2);color:var(--text3);border:1px solid var(--border)',
+    ayuda:'Se es socio del negocio. Puede no repartir nada y aun asi valer mas. Se valua A COSTO salvo que cargues una valuacion del año.' },
+  prestamo: { lbl:'PRÉSTAMO', sig:'inversion',
+    css:'background:var(--gold-soft);color:var(--gold);border:1px solid var(--gold)',
+    ayuda:'Se presto plata y vuelve el capital mas una tasa. El interes se devenga; la devolucion de capital no es utilidad.' },
+  inversion: { lbl:'INVERSIÓN', sig:'participacion',
+    css:'background:var(--bg2);color:var(--esp);border:1px solid var(--esp)',
+    ayuda:'Se entra a un negocio y la plata vuelve al terminarlo, sin tasa cierta. Resultado 0 hasta el cierre.' },
+};
+const peTipoDe = r => PE_TIPOS[r && r.tipo] ? r.tipo : 'participacion';
+
+async function togglePETipo(id, actual, ev) {
+  if (ev) ev.stopPropagation();
+  const sig = PE_TIPOS[actual] ? PE_TIPOS[actual].sig : 'prestamo';
+  const { error } = await sb.from('private_equity').update({ tipo: sig }).eq('id', id);
+  if (error) return toast('Error: ' + error.message + ' — ¿corriste pe-tipos.sql?', 'error');
+  toast('Ahora es ' + PE_TIPOS[sig].lbl.toLowerCase(), 'success');
+  await loadPE();
+}
+
+function peBadgeTipo(r) {
+  const t = peTipoDe(r), d = PE_TIPOS[t];
+  return `<span onclick="togglePETipo('${r.id}','${t}',event)" title="${d.ayuda} — clic para cambiar"
+    style="cursor:pointer;font-size:9px;font-weight:600;border-radius:4px;padding:1px 5px;margin-left:4px;${d.css}">${d.lbl}</span>`;
+}
+
 function peAcum(p) {
   let ap = 0, ut = 0;
   const yy = (p && p.byY) || {};
@@ -9160,7 +9218,7 @@ function renderPE() {
     const ns = term ? 'text-decoration:line-through;' : ''; // tacha TODA la fila si está terminado
     return `<tr class="row-${colPais[r.pais]||'arg'}" style="${term?'opacity:0.55':''}">
       <td style="color:var(--text3);${ns}">${r.nro||'—'}</td>
-      <td class="bold" style="${ts}">${r.nombre}${term?' <span style="font-size:9px;background:var(--text3);color:#fff;border-radius:4px;padding:1px 5px;margin-left:4px;font-weight:400">TERMINADO</span>':''}</td>
+      <td class="bold" style="${ts}">${r.nombre}${peBadgeTipo(r)}${term?' <span style="font-size:9px;background:var(--text3);color:#fff;border-radius:4px;padding:1px 5px;margin-left:4px;font-weight:400">TERMINADO</span>':''}</td>
       <td style="${ns}">${r.titular}</td>
       <td><span class="badge badge-${colPais[r.pais]||'arg'}" style="${ns}">${r.pais||'—'}</span></td>
       <td class="num" style="${ns}">$${fmt(h.aporteHist)}</td>
@@ -9188,6 +9246,31 @@ function renderPE() {
     <td class="num" style="color:var(--text3)">${totAp>0?((totUt-totAp)/totAp*100).toFixed(1)+'%':'—'}</td>
     <td></td>
   </tr>`;
+
+  // ── Subtotal por tipo de posición. Van separados a propósito: no tiene sentido
+  //    un único total que mezcle capital a costo con valor de mercado.
+  ['prestamo','inversion','participacion'].forEach(t => {
+    const g = _sum.filter(x => peTipoDe(x) === t);
+    if (!g.length) return;
+    const d = PE_TIPOS[t];
+    const ap = g.reduce((a,b)=>a+(gh(b).aporteHist||0),0);
+    const ut = g.reduce((a,b)=>a+(gh(b).utilHist||0),0);
+    const ap26 = g.reduce((a,b)=>a+(((gh(b).byY||{})['2026']||{}).ap||0),0);
+    const ut26 = g.reduce((a,b)=>a+(((gh(b).byY||{})['2026']||{}).ut||0),0);
+    tbody.innerHTML += `<tr style="font-size:11px;color:var(--text3)">
+      <td colspan="4" style="padding-left:14px">${d.lbl} · ${g.length} ${g.length===1?'posición':'posiciones'}</td>
+      <td class="num">$${fmt(ap)}</td>
+      <td class="num">${ap26?'+$'+fmt(ap26):'—'}</td>
+      <td class="num">${ut?'+$'+fmt(ut):'—'}</td>
+      <td class="num">${ut26?'+$'+fmt(ut26):'—'}</td>
+      <td></td><td class="num">${ap>0?((ut-ap)/ap*100).toFixed(1)+'%':'—'}</td><td></td></tr>`;
+  });
+  const leyenda = document.getElementById('pe-leyenda');
+  if (leyenda) leyenda.innerHTML =
+    '<b>Los tres tipos.</b> ' + ['prestamo','inversion','participacion'].map(t =>
+      `<b>${PE_TIPOS[t].lbl}:</b> ${PE_TIPOS[t].ayuda}`).join(' · ') +
+    ' Clic en la etiqueta de cada posición para cambiarle el tipo.';
+
   renderPEClientes(rows, histMap, norm);
 }
 
@@ -13113,7 +13196,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260818-163';
+const APP_VERSION = '20260818-165';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
