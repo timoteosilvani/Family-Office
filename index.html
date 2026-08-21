@@ -61,6 +61,16 @@
   --gold: #c9a84c;
   --gold-soft: rgba(201,168,76,0.1);
 
+  /* Clase de activo — eje de color propio, separado del de país.
+     A propósito NO se usan ni verde ni rojo: en esta app ya significan
+     ganancia y pérdida, y un nodo rojo se leería como "va mal" en vez de
+     "es tal cosa". Los cuatro hues elegidos tampoco pisan a los de país
+     (rojo USA, azul ARG, dorado URU, verde ESP, naranja PAR). */
+  --act-prop:  #b06a3b;   --act-prop-soft:  rgba(176,106,59,0.14);
+  --act-banco: #2f8f8a;   --act-banco-soft: rgba(47,143,138,0.14);
+  --act-auto:  #78808c;   --act-auto-soft:  rgba(120,128,140,0.14);
+  --act-pe:    #7d5ba6;   --act-pe-soft:    rgba(125,91,166,0.14);
+
   --sidebar-w: 220px;
   --radius: 8px;
   --radius-lg: 12px;
@@ -4213,6 +4223,37 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
 .org-row { display: flex; gap: 12px; align-items: flex-start; justify-content: center; }
 .org-col { display: flex; flex-direction: column; align-items: center; gap: 0; }
 .org-line-v { width: 1px; height: 20px; background: var(--border2); }
+
+/* Conectores reales del organigrama (v167).
+   Las sociedades hermanas cuelgan de una horizontal con su bajada a cada una;
+   los activos de una sociedad van en una lista con espina vertical y un tick
+   por activo, que es lo honesto: son hermanos, no una cadena A→B→C. */
+.org-kids { display: flex; align-items: flex-start; justify-content: center; }
+.org-kid  { position: relative; padding: 20px 7px 0; display: flex; flex-direction: column; align-items: center; }
+.org-kid::before, .org-kid::after {
+  content: ''; position: absolute; top: 0; right: 50%;
+  width: 50%; height: 20px; border-top: 1px solid var(--border2);
+}
+.org-kid::after { right: auto; left: 50%; border-left: 1px solid var(--border2); }
+.org-kid:first-child::before { border: 0 none; }
+.org-kid:last-child::after   { border: 0 none; }
+.org-kid:last-child::before  { border-right: 1px solid var(--border2); }
+.org-kid:only-child::before  { border: 0 none; }
+.org-kid:only-child::after   { border-top: 0 none; }
+
+.org-lista { display: flex; flex-direction: column; align-items: flex-start; gap: 5px;
+             position: relative; padding-left: 16px; margin-top: 2px; }
+.org-lista::before { content: ''; position: absolute; left: 0; top: -8px; bottom: 11px;
+                     width: 1px; background: var(--border2); }
+.org-lista > .org-node { position: relative; }
+.org-lista > .org-node::before { content: ''; position: absolute; left: -16px; top: 50%;
+                                 width: 16px; height: 1px; background: var(--border2); }
+
+.org-node.a-prop  { border-left: 3px solid var(--act-prop);  background: var(--act-prop-soft);  color: var(--act-prop); }
+.org-node.a-banco { border-left: 3px solid var(--act-banco); background: var(--act-banco-soft); color: var(--act-banco); }
+.org-node.a-auto  { border-left: 3px solid var(--act-auto);  background: var(--act-auto-soft);  color: var(--act-auto); }
+.org-node.a-pe    { border-left: 3px solid var(--act-pe);    background: var(--act-pe-soft);    color: var(--act-pe); }
+.org-node.entity .org-cli { display: block; font-size: 9px; font-weight: 400; color: var(--text3); margin-top: 1px; letter-spacing: .4px; }
 .org-line-h { height: 1px; background: var(--border2); }
 .org-branch { display: flex; flex-direction: column; align-items: center; }
 </style>
@@ -10074,17 +10115,20 @@ async function guardarDeuda() {
 // ORGANIGRAMAS
 // ============================================
 /* ═══════════════════════════════════════════════════════════════════════
-   ORGANIGRAMAS  (v160) — se dibujan desde la base, no hardcodeados, y se
-   editan desde el propio dibujo.
+   ORGANIGRAMAS  (v167) — se dibujan desde la base y se editan desde el dibujo.
    Fuente: `sociedades` (nombre, titular, pais, sociedad_madre_id) y el
-   `sociedad_id` de propiedades / bancos / autos.
-   · Clic en una sociedad → modal de edicion (nombre, N°, cliente, pais, madre).
-   · Clic en un activo → modal para moverlo de sociedad.
-   · "+ sociedad" arriba de cada solapa para crear una nueva.
-   Los activos sin sociedad se agrupan POR PAIS, como en el COMPLETO.
-   Lo que no aparece es lo que todavia no esta cargado como sociedad: para G
-   quedan afuera Tugal, Limbang, Jeffers y Albsa, que estaban dibujadas a mano
-   en el organigrama viejo. Va la nota al pie en esa solapa en vez de borrarlo.
+   `sociedad_id` de propiedades / bancos / autos / private equity.
+
+   · Cada clase de activo tiene su color (ver las variables --act-* en el CSS).
+     El eje de color es la CLASE, no el país: el país ya se lee en los grupos
+     de abajo. Y a proposito no hay ni verde ni rojo, que en esta app ya
+     significan ganancia y perdida.
+   · Las sociedades hermanas cuelgan de una horizontal con bajada a cada una.
+     Los activos de una sociedad van en lista con espina y un tick por activo:
+     son hermanos entre si, no una cadena.
+   · Cada sociedad muestra abajo el cliente al que pertenece.
+   · Clic en una sociedad → editarla. Clic en un activo → moverlo de sociedad.
+     Arriba de cada solapa se listan los que todavia no estan ubicados.
    ═══════════════════════════════════════════════════════════════════════ */
 function node(text, type='') { return `<div class="org-node ${type}">${text}</div>`; }
 function lineV() { return `<div class="org-line-v"></div>`; }
@@ -10100,59 +10144,80 @@ const ORG_TABS = [
 ];
 const ORG_PAIS_ORD = ['ARG','URU','USA','ESP','PAR'];
 const ORG_PAIS_LBL = { ARG:'ARGENTINA', URU:'URUGUAY', USA:'ESTADOS UNIDOS', ESP:'ESPAÑA', PAR:'PARAGUAY' };
+const ORG_CLASES = {
+  propiedades:    { cls:'a-prop',  lbl:'Propiedades',    v:'--act-prop'  },
+  bancos:         { cls:'a-banco', lbl:'Cuentas',        v:'--act-banco' },
+  autos:          { cls:'a-auto',  lbl:'Autos',          v:'--act-auto'  },
+  private_equity: { cls:'a-pe',    lbl:'Private equity', v:'--act-pe'    },
+};
 
 const ORG_NOTA = {
-  G: 'En el organigrama anterior figuraban además <b>Emprendimiento Tugal SA</b> (Diagonal, Lavalle 631, San Martin 563, Tres Sargentos 401 y 443), <b>Inversora Limbang SA</b> (Coronel Diaz), <b>Jeffers SA → Albsa SA</b> (Martona UF117) y <b>Sanber LLC</b>. Ninguna está cargada todavía como sociedad en la app, así que sus activos aparecen agrupados por país. Es el pendiente “sociedades de G”: crealas con “+ sociedad” y arrastrá los activos con un clic.'
+  G: 'En el organigrama anterior figuraban además <b>Emprendimiento Tugal SA</b> (Diagonal, Lavalle 631, San Martin 563, Tres Sargentos 401 y 443), <b>Inversora Limbang SA</b> (Coronel Diaz), <b>Jeffers SA → Albsa SA</b> (Martona UF117) y <b>Sanber LLC</b>. Ninguna está cargada todavía como sociedad en la app. Es el pendiente “sociedades de G”: crealas con “+ Sociedad” y ubicá los activos con un clic.'
 };
 
 async function renderOrganigramas() {
   const B = await _rsocBase();
   const act = [
-    ...B.props .filter(p => p.activa !== false && p.vendida !== true).map(x => ({ ...x, _tb:'propiedades' })),
-    ...B.bancos.filter(b => b.activo  !== false).map(x => ({ ...x, _tb:'bancos'      })),
-    ...B.autos .filter(a => a.activo  !== false).map(x => ({ ...x, _tb:'autos'       })),
+    ...B.props .filter(p => p.activa !== false && p.vendida !== true).map(x => ({ ...x, _tb:'propiedades'    })),
+    ...B.bancos.filter(b => b.activo  !== false).map(x => ({ ...x, _tb:'bancos'         })),
+    ...B.autos .filter(a => a.activo  !== false).map(x => ({ ...x, _tb:'autos'          })),
+    ...B.pe    .filter(e => e.activo  !== false).map(x => ({ ...x, _tb:'private_equity' })),
   ];
   const byId = {}; B.socs.forEach(s => byId[s.id] = s);
   const hijos = {};
   B.socs.forEach(s => { const m = s.sociedad_madre_id; if (m && byId[m]) (hijos[m] = hijos[m] || []).push(s); });
 
-  const nodoAct = a => `<div class="org-node asset" style="cursor:pointer" title="Clic para moverlo de sociedad"
+  const nodoAct = a => `<div class="org-node ${ORG_CLASES[a._tb].cls}" style="cursor:pointer"
+      title="${ORG_CLASES[a._tb].lbl} · clic para ubicarlo en una sociedad"
       onclick="abrirActivoSoc('${a._tb}','${a.id}',event)">${a.nombre}</div>`;
   const nodoSoc = s => `<div class="org-node entity" style="cursor:pointer" title="Clic para editar la sociedad"
-      onclick="abrirSocEdit('${s.id}',event)">${s.nombre.toUpperCase()} <span style="opacity:.5;font-size:10px">✎</span></div>`;
-  const cadena = arr => arr.map(nodoAct).join(lineV());
-  const fila = cols => `<div class="org-row" style="gap:14px;align-items:flex-start">${cols.join('')}</div>`;
+      onclick="abrirSocEdit('${s.id}',event)">${s.nombre.toUpperCase()} <span style="opacity:.5;font-size:10px">✎</span>
+      <span class="org-cli">${s.titular || '—'}${s.pais ? ' · ' + s.pais : ''}</span></div>`;
+  const lista = arr => `<div class="org-lista">${arr.map(nodoAct).join('')}</div>`;
 
   const orgSoc = s => {
     const propios = act.filter(a => a.sociedad_id === s.id);
-    const cols = [];
-    if (propios.length) cols.push(`<div class="org-col">${cadena(propios)}</div>`);
-    (hijos[s.id] || []).forEach(h => cols.push(orgSoc(h)));
-    return `<div class="org-col">${nodoSoc(s)}` + (cols.length ? lineV() + fila(cols) : '') + `</div>`;
+    const kids = hijos[s.id] || [];
+    let html = `<div class="org-col">${nodoSoc(s)}`;
+    if (propios.length) html += lista(propios);
+    if (kids.length) html += lineV() + `<div class="org-kids">${kids.map(h => `<div class="org-kid">${orgSoc(h)}</div>`).join('')}</div>`;
+    return html + `</div>`;
   };
 
   ORG_TABS.forEach(({ id, cli, lbl }) => {
     const el = document.getElementById('tree-' + id); if (!el) return;
     const raices  = B.socs.filter(s => s.titular === cli && !(s.sociedad_madre_id && byId[s.sociedad_madre_id]));
     const sueltos = act.filter(a => !a.sociedad_id && a.titular === cli);
-    const cols = raices.map(orgSoc);
+    const cols = raices.map(s => `<div class="org-kid">${orgSoc(s)}</div>`);
 
-    // Los que no cuelgan de ninguna sociedad se agrupan por pais, como en el COMPLETO.
+    // Sin sociedad: se agrupan por país, como en el COMPLETO.
     const paises = Array.from(new Set(sueltos.map(a => a.pais || '—')))
       .sort((a, b) => (ORG_PAIS_ORD.indexOf(a) + 1 || 99) - (ORG_PAIS_ORD.indexOf(b) + 1 || 99));
     paises.forEach(p => {
       const arr = sueltos.filter(a => (a.pais || '—') === p);
-      cols.push(`<div class="org-col">${node(ORG_PAIS_LBL[p] || p, 'entity')}${lineV()}<div class="org-col">${cadena(arr)}</div></div>`);
+      cols.push(`<div class="org-kid"><div class="org-col">
+        ${node(ORG_PAIS_LBL[p] || p, 'entity')}${lista(arr)}</div></div>`);
     });
 
-    const barra = `<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin:0 4px 14px">
-        <span style="font-size:11px;color:var(--text3)">Clic en una sociedad para editarla · clic en un activo para moverlo</span>
-        <button class="btn-secondary" style="width:auto;padding:5px 12px;font-size:11px" onclick="abrirSocEdit(null,event)">+ Sociedad</button>
-      </div>`;
+    const leyenda = Object.values(ORG_CLASES).map(c =>
+      `<span style="display:inline-flex;align-items:center;gap:5px;margin-right:12px">
+         <span style="width:10px;height:10px;border-radius:2px;background:var(${c.v})"></span>${c.lbl}</span>`).join('');
 
-    el.innerHTML = barra + (cols.length
-      ? `<div class="org-col">${node(lbl.toUpperCase(), 'root')}${lineV()}
-           <div class="org-row" style="gap:24px;align-items:flex-start">${cols.join('')}</div></div>`
+    const cabecera = `
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin:0 4px 10px">
+        <div style="font-size:11px;color:var(--text3)">${leyenda}</div>
+        <button class="btn-secondary" style="width:auto;padding:5px 12px;font-size:11px" onclick="abrirSocEdit(null,event)">+ Sociedad</button>
+      </div>
+      ${sueltos.length ? `<div class="card" style="padding:10px 14px;margin:0 4px 16px;border-color:var(--gold)">
+        <div style="font-size:12px;font-weight:600;color:var(--gold);margin-bottom:4px">${sueltos.length} activo${sueltos.length===1?'':'s'} sin ubicar en la estructura</div>
+        <div style="font-size:11px;color:var(--text3);line-height:1.6">
+          ${Object.entries(ORG_CLASES).map(([k,c]) => { const n = sueltos.filter(a=>a._tb===k).length;
+            return n ? `<span style="color:var(${c.v})">${n} ${c.lbl.toLowerCase()}</span>` : ''; }).filter(Boolean).join(' · ')}
+          — cuelgan directo del cliente, agrupados por país abajo. <b>Clic en cualquiera para meterlo en una sociedad.</b></div>
+      </div>` : `<div style="font-size:11px;color:var(--esp);margin:0 4px 16px">Todos los activos de ${lbl} están ubicados en la estructura.</div>`}`;
+
+    el.innerHTML = cabecera + (cols.length
+      ? `<div class="org-col">${node(lbl.toUpperCase(), 'root')}${lineV()}<div class="org-kids">${cols.join('')}</div></div>`
       : `<p style="color:var(--text3);text-align:center;padding:28px">Sin sociedades ni activos cargados para ${lbl}.</p>`)
       + (ORG_NOTA[cli] ? `<p style="font-size:11px;color:var(--text3);margin:20px 12px 0;line-height:1.6;max-width:900px">${ORG_NOTA[cli]}</p>` : '');
   });
@@ -10227,7 +10292,7 @@ async function borrarSoc() {
 function abrirActivoSoc(tabla, id, ev) {
   if (ev) ev.stopPropagation();
   if (!_RSOC) return;
-  const lista = tabla === 'propiedades' ? _RSOC.props : tabla === 'bancos' ? _RSOC.bancos : _RSOC.autos;
+  const lista = { propiedades:_RSOC.props, bancos:_RSOC.bancos, autos:_RSOC.autos, private_equity:_RSOC.pe }[tabla] || [];
   const a = lista.find(x => x.id === id); if (!a) return;
   _asRef = { tabla, id };
   document.getElementById('as-nombre').innerHTML = `<b>${a.nombre}</b> <span style="color:var(--text3)">· ${a.titular || '—'} · ${a.pais || '—'}</span>`;
@@ -13474,7 +13539,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260818-166';
+const APP_VERSION = '20260818-167';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
