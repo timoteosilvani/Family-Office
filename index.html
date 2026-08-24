@@ -929,6 +929,10 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="5" r="3"/><line x1="12" y1="8" x2="12" y2="12"/><rect x="2" y="15" width="6" height="6" rx="1"/><rect x="9" y="15" width="6" height="6" rx="1"/><rect x="16" y="15" width="6" height="6" rx="1"/><line x1="5" y1="15" x2="5" y2="12"/><line x1="12" y1="15" x2="12" y2="12"/><line x1="19" y1="15" x2="19" y2="12"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         Organigramas
       </div>
+      <div class="nav-item" onclick="navTo('chequeo')" data-page="chequeo">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+        Chequeo <span id="chq-nav-badge" style="display:none;background:var(--usa);color:#fff;border-radius:10px;padding:1px 6px;font-size:9px;margin-left:auto"></span>
+      </div>
       <div class="nav-item" onclick="navTo('alertas')" data-page="alertas">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/><circle cx="19" cy="4" r="3" fill="var(--usa)" stroke="none"/></svg>
         Alertas <span id="alert-nav-badge" style="display:none;background:var(--usa);color:#fff;border-radius:10px;padding:1px 6px;font-size:9px;margin-left:4px"></span>
@@ -3783,6 +3787,18 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
         </div>
       </div>
 
+      <!-- ======== CHEQUEO ======== -->
+      <div id="page-chequeo" class="page">
+        <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:16px;margin-bottom:18px">
+          <div>
+            <div class="section-title" style="margin-bottom:4px">Chequeo de consistencia</div>
+            <p style="color:var(--text3);font-size:13px;margin:0;max-width:640px">Cada control calcula el mismo total por dos caminos que no comparten código. Si los dos dan igual, ese número es confiable. Si no, la diferencia aparece acá y no dentro de tres semanas.</p>
+          </div>
+          <div><label class="fld">Año</label><select class="fld" id="chq-anio" style="width:auto" onchange="chqAnioSet(this.value)"></select></div>
+        </div>
+        <div id="chq-contenido"><div class="loader"><div class="spinner"></div></div></div>
+      </div>
+
       <!-- ======== TIPO DE CAMBIO ======== -->
       <div id="page-tipo_cambio" class="page">
         <!-- v144 — El TC vuelve a ser MENSUAL. Se retiró la tabla de cierres semanales y su
@@ -4494,6 +4510,7 @@ const pagesMeta = {
   autos: { title: 'Vehículos', subtitle: 'Valuación del parque automotor' },
   deudas: { title: 'Deudas y Créditos', subtitle: 'Registro de préstamos y compensaciones' },
   organigramas: { title: 'Organigramas', subtitle: 'Estructura societaria' },
+  chequeo: { title: 'Chequeo', subtitle: 'El mismo número por dos caminos: si no coinciden, salta acá' },
   tipo_cambio: { title: 'Tipo de Cambio', subtitle: 'Paridad mensual USD/ARS · USD/UYU · USD/EUR' },
   gastos: { title: 'Gastos por Propiedad', subtitle: 'Vista mensual y anual de rentas, gastos e impuestos' },
   alertas: { title: 'Alertas', subtitle: 'Vencimientos, renovaciones y avisos importantes' },
@@ -4749,6 +4766,7 @@ async function loadPage(page, skipInit) {
       renderOrganigramas().catch(e => console.warn('org error:', e.message));
       it('organigramas');
       break;
+    case 'chequeo': await loadChequeo(); break;
     case 'tipo_cambio': await loadTC_tabla(); break;
     case 'gastos': 
       await loadGastos();
@@ -8211,6 +8229,189 @@ async function asignarSociedad(tabla, id, socId, ev) {
   if (error) return toast('Error: ' + error.message, 'error');
   toast(socId ? 'Activo asignado a la sociedad ✓' : 'Activo desvinculado ✓', 'success');
   await _rsocRefrescar();                         // relee sociedad_id y repinta
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   CHEQUEO  (v170) — el mismo número por dos caminos que no comparten código
+   ───────────────────────────────────────────────────────────────────────
+   La idea: cada control calcula un total de dos formas distintas. Si dan lo
+   mismo, verde. Si no, la diferencia salta acá y no tres semanas después,
+   cuando alguien nota un número raro. Así apareció la diferencia de 5,8M de
+   bancos, y así habría aparecido sola.
+
+   Hay dos clases de fila:
+     · CUADRE   — camino A contra camino B. Tiene que dar 0.
+     · COBERTURA— no es un cuadre, es salud del dato: cuántas cosas quedaron
+                  sin cargar o sin clasificar. No siempre tiene que dar 0,
+                  pero conviene mirarlo.
+   ═══════════════════════════════════════════════════════════════════════ */
+let _chqAnio = 2026;
+
+function chqAnioSet(v) { _chqAnio = parseInt(v) || 2026; loadChequeo(); }
+
+async function loadChequeo() {
+  const cont = document.getElementById('chq-contenido'); if (!cont) return;
+  const selA = document.getElementById('chq-anio');
+  if (selA && !selA.options.length) {
+    let o = ''; for (let y = 2026; y >= 2018; y--) o += `<option value="${y}">${y}</option>`;
+    selA.innerHTML = o; selA.value = String(_chqAnio);
+  }
+  cont.innerHTML = '<div class="loader"><div class="spinner"></div></div>';
+  const Y = _chqAnio, Ys = String(Y);
+
+  let B, D;
+  try { [B, D] = await Promise.all([_rsocBase(), _rsocAnio(Y)]); }
+  catch (e) { cont.innerHTML = `<div class="card" style="color:var(--usa)">No se pudieron leer los datos: ${e.message}</div>`; return; }
+
+  const [mpR, msR, tcR] = await Promise.all([
+    sb.from('movimientos_propiedades').select('total_renta_usd,total_gastos_usd,total_impuestos_usd,neto_usd,propiedad_id').eq('anio', Y).limit(5000),
+    sb.from('movimientos_sociedades').select('aportes,impuestos,otros_gastos,total').eq('anio', Y).limit(5000),
+    sb.from('tipo_de_cambio').select('mes').eq('anio', Y),
+  ]);
+
+  const props = soloSumables(B.props ).filter(p => p.activa !== false && p.vendida !== true);
+  const autos = soloSumables(B.autos ).filter(a => a.activo !== false);
+  const bancos= soloSumables(B.bancos).filter(b => b.activo !== false);
+  const pes   = soloSumables(B.pe    ).filter(x => x.activo !== false);
+
+  const vProp = n => Number(B.ph[n]?.valores?.[Ys]) || 0;
+  const vAuto = n => Number(B.ah[n]?.valores?.[Ys]) || 0;
+  const vBanc = b => { const m = (D.ban || {})[b.id];
+    if (m) return Number(bancoMovUSD(m).neto) || 0;
+    const h = B.bh[b.nro]?.byY?.[Ys]; return h ? (Number(h.n) || 0) : 0; };
+
+  // ── el universo, agrupado de tres formas distintas
+  // `_paisNorm` vive adentro de otra funcion, asi que no es global: se replica.
+  // PAR/PY se cuentan como USA, igual que en el dashboard.
+  const _pais = p => (p === 'PAR' || p === 'PY') ? 'USA' : (p || '—');
+  const porPais = {}, porTit = {}, porClase = { propiedades:0, autos:0, bancos:0 };
+  const add = (o, k, v) => { o[k] = (o[k] || 0) + v; };
+  props .forEach(p => { const v = vProp(p.nro); add(porPais, _pais(p.pais)||'—', v); add(porTit, p.titular||'—', v); porClase.propiedades += v; });
+  autos .forEach(a => { const v = vAuto(a.nro); add(porPais, _pais(a.pais)||'—', v); add(porTit, a.titular||'—', v); porClase.autos       += v; });
+  bancos.forEach(b => { const v = vBanc(b);     add(porPais, _pais(b.pais)||'—', v); add(porTit, b.titular||'—', v); porClase.bancos      += v; });
+  const sPais  = Object.values(porPais ).reduce((a,b)=>a+b,0);
+  const sTit   = Object.values(porTit  ).reduce((a,b)=>a+b,0);
+  const sClase = Object.values(porClase).reduce((a,b)=>a+b,0);
+
+  // ── bancos: neto contra componentes
+  let banNeto = 0, banComp = 0;
+  bancos.forEach(b => {
+    const m = (D.ban || {})[b.id]; if (!m) return;
+    const x = bancoMovUSD(m);
+    banNeto += Number(x.neto) || 0;
+    banComp += (Number(x.inv)||0) + (Number(x.cash)||0) - (Number(x.cred)||0);
+  });
+
+  // ── reporte de sociedades: en sociedades + sin sociedad = activo por activo
+  let enSoc = 0, sinSoc = 0;
+  const enUnaSoc = x => !!x.sociedad_id;
+  props .forEach(p => { const v = vProp(p.nro); enUnaSoc(p) ? enSoc += v : sinSoc += v; });
+  autos .forEach(a => { const v = vAuto(a.nro); enUnaSoc(a) ? enSoc += v : sinSoc += v; });
+  bancos.forEach(b => { const v = vBanc(b);     enUnaSoc(b) ? enSoc += v : sinSoc += v; });
+
+  // ── coherencia fila por fila
+  const mp = mpR.data || [], ms = msR.data || [];
+  const propMal = mp.filter(m => Math.abs(((Number(m.total_renta_usd)||0) - (Number(m.total_gastos_usd)||0)
+      - (Number(m.total_impuestos_usd)||0)) - (Number(m.neto_usd)||0)) > 0.02).length;
+  const socMal = ms.filter(m => Math.abs(((Number(m.aportes)||0) + (Number(m.impuestos)||0)
+      + (Number(m.otros_gastos)||0)) - (Number(m.total)||0)) > 0.02).length;
+
+  // ── movimientos vs histórico anual de renta
+  const mpPorProp = {}; mp.forEach(m => mpPorProp[m.propiedad_id] = (mpPorProp[m.propiedad_id]||0) + (Number(m.neto_usd)||0));
+  let cruceMov = 0, cruceAnual = 0, cruceN = 0;
+  props.forEach(p => { const a = D.propNro[p.nro];
+    if (a && mpPorProp[p.id] !== undefined) { cruceMov += mpPorProp[p.id]; cruceAnual += a.neto; cruceN++; } });
+
+  // ── cobertura
+  const sinValor  = props.filter(p => !vProp(p.nro)).length;
+  const sinMovBan = bancos.filter(b => !(D.ban || {})[b.id]).length;
+  const sinSocN   = [...props, ...autos, ...bancos, ...pes].filter(x => !x.sociedad_id).length;
+  const socSinCli = B.socs.filter(s => !['M','JC','FC','G','FCC','YAC','MFL','H'].includes(s.titular)).length;
+  const tcMeses   = new Set((tcR.data || []).map(x => x.mes)).size;
+  const peSinTipo = pes.filter(x => !x.tipo).length;
+
+  // ═══════════ RENDER ═══════════
+  const F = v => '$' + fmt(Math.abs(v));
+  const fila = (grupo, titulo, a, lblA, b, lblA2, tol, nota) => {
+    const dif = a - b, ok = Math.abs(dif) <= (tol ?? 1);
+    return { grupo, titulo, a, lblA, b, lblA2, dif, ok, nota, tipo:'cuadre' };
+  };
+  const cob = (grupo, titulo, n, nota, malSiHay) => ({
+    grupo, titulo, n, nota, tipo:'cobertura', ok: malSiHay ? n === 0 : true });
+
+  const filas = [
+    fila('Patrimonio', 'Agrupado por país = agrupado por titular', sPais, 'por país', sTit, 'por titular', 1,
+         'Las mismas propiedades, autos y cuentas sumadas de dos formas. Es el control que usa el propio COMPLETO.'),
+    fila('Patrimonio', 'Agrupado por titular = agrupado por clase de activo', sTit, 'por titular', sClase, 'por clase', 1,
+         'Tercer camino sobre el mismo universo. Si este falla y el anterior no, el problema está en la clase.'),
+    fila('Bancos', 'Neto de cada cuenta = componentes (inversión + cash − crédito)', banNeto, 'neto', banComp, 'componentes', 1,
+         'Si no cierra, hay una cuenta con el neto guardado a mano en vez de calculado.'),
+    fila('Sociedades', 'En sociedades + sin sociedad = activo por activo', enSoc + sinSoc, 'reporte', sPais, 'activo por activo', 1,
+         'Es el cuadre del reporte de Sociedades. Si falla, hay un activo contado dos veces o perdido.'),
+    fila('Renta', 'Movimientos del año = histórico anual (' + cruceN + ' propiedades con las dos fuentes)',
+         cruceMov, 'movimientos', cruceAnual, 'renta_anual_prop', 1,
+         'Las propiedades que tienen carga mensual y además histórico anual tienen que dar el mismo neto.'),
+    cob('Coherencia', 'Movimientos de propiedades donde renta − gastos − impuestos ≠ neto', propMal,
+        'Cada fila tiene que cerrar contra su propio neto guardado.', true),
+    cob('Coherencia', 'Movimientos de sociedades donde aportes + impuestos + otros ≠ total', socMal,
+        'Ídem para sociedades.', true),
+    cob('Cobertura', 'Meses de tipo de cambio cargados en ' + Y, tcMeses,
+        'Tienen que ser 12. Con un mes faltante, todo lo que se convierta en ese mes queda mal.', false),
+    cob('Cobertura', 'Propiedades activas sin valor en ' + Y, sinValor,
+        'No suman al patrimonio. Cargales el valor del año desde el lápiz de Propiedades.', false),
+    cob('Cobertura', 'Cuentas activas sin ningún mes cargado en ' + Y, sinMovBan,
+        'Caen al cierre histórico. Si el año es el actual, conviene cargarles el mes.', false),
+    cob('Cobertura', 'Activos sin sociedad asignada', sinSocN,
+        'Cuelgan directo del cliente. No es un error, pero el organigrama queda incompleto.', false),
+    cob('Cobertura', 'Sociedades cuyo cliente no tiene organigrama', socSinCli,
+        'No se dibujan en ninguna solapa.', true),
+    cob('Cobertura', 'Posiciones de PE sin tipo asignado', peSinTipo,
+        'Sin tipo se leen como participación. Clasificalas con un clic en la solapa de PE.', false),
+  ];
+
+  const malos = filas.filter(f => !f.ok).length;
+  const bdg = document.getElementById('chq-nav-badge');
+  if (bdg) { bdg.textContent = malos || ''; bdg.style.display = malos ? 'inline-block' : 'none'; }
+  const grupos = [...new Set(filas.map(f => f.grupo))];
+
+  cont.innerHTML = `
+    <div class="card" style="padding:14px 18px;margin-bottom:16px;border-color:${malos?'var(--usa)':'var(--esp)'}">
+      <div style="font-size:15px;font-weight:600;color:${malos?'var(--usa)':'var(--esp)'}">
+        ${malos ? malos + ' control' + (malos===1?'':'es') + ' con diferencia' : 'Todos los controles dan bien'}</div>
+      <div style="font-size:11px;color:var(--text3);margin-top:3px">
+        Cada control calcula el mismo número por dos caminos que no comparten código. Año ${Y}.</div>
+    </div>
+
+    ${grupos.map(g => `
+      <div class="card" style="margin-bottom:14px">
+        <div class="section-title" style="font-size:13px;margin:0 0 10px">${g}</div>
+        <div class="table-wrap"><table style="font-size:12px">
+          <thead><tr><th style="width:26px"></th><th>Control</th><th class="num">Camino A</th><th class="num">Camino B</th><th class="num">Diferencia</th></tr></thead>
+          <tbody>${filas.filter(f => f.grupo === g).map(f => f.tipo === 'cuadre' ? `
+            <tr>
+              <td style="text-align:center;font-size:14px">${f.ok?'<span style="color:var(--esp)">●</span>':'<span style="color:var(--usa)">●</span>'}</td>
+              <td>${f.titulo}<div style="font-size:10px;color:var(--text3);margin-top:1px">${f.nota}</div></td>
+              <td class="num">${F(f.a)}<div style="font-size:9px;color:var(--text3)">${f.lblA}</div></td>
+              <td class="num">${F(f.b)}<div style="font-size:9px;color:var(--text3)">${f.lblA2}</div></td>
+              <td class="num" style="font-weight:600;color:${f.ok?'var(--esp)':'var(--usa)'}">${f.ok?'0':(f.dif>0?'+':'-')+F(f.dif)}</td>
+            </tr>` : `
+            <tr>
+              <td style="text-align:center;font-size:14px">${f.ok?'<span style="color:var(--esp)">●</span>':'<span style="color:var(--gold)">●</span>'}</td>
+              <td>${f.titulo}<div style="font-size:10px;color:var(--text3);margin-top:1px">${f.nota}</div></td>
+              <td class="num" colspan="2" style="font-size:16px;font-weight:600">${f.n}</td>
+              <td class="num" style="color:var(--text3);font-size:10px">cobertura</td>
+            </tr>`).join('')}
+          </tbody></table></div>
+      </div>`).join('')}
+
+    <p style="font-size:11px;color:var(--text3);line-height:1.6;margin:14px 0 0">
+      <b>Cómo leerlo.</b> Un control en <span style="color:var(--esp)">verde</span> significa que dos cálculos independientes
+      llegaron al mismo número, así que ese total es confiable. En <span style="color:var(--usa)">rojo</span> hay una diferencia
+      real que hay que buscar. En <span style="color:var(--gold)">dorado</span> no hay error de cálculo: es dato que falta cargar.
+      <br><b>2017, 2018 y 2019 no tienen COMPLETO</b>, así que no tienen detalle mensual y varios controles van a quedar en cero
+      para esos años: es lo esperado, no una falla.
+    </p>`;
 }
 
 async function renderRepSoc() {
@@ -13737,7 +13938,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260818-169';
+const APP_VERSION = '20260818-170';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
