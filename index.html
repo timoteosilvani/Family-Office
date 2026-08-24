@@ -4606,6 +4606,7 @@ function toggleSidebar() {
 async function initApp() {
   await loadTC();
   await loadHistOverrides();
+  await hidratarActivosHist();  // v169: propiedades y autos salen de la base, no del hardcode
   await hidratarBancosHist();   // v141: años live → el Historial sale de movimientos_bancos
   try {
     await populateAllSelects();
@@ -6657,6 +6658,7 @@ async function guardarNuevaPropiedad() {
 
 // Un solo lugar que deja toda la app al dia despues de tocar una propiedad.
 async function refrescarPropiedadesEnTodaLaApp() {
+  await hidratarActivosHist();   // el histórico y el patrimonio tienen que ver el cambio ya
   await loadPropiedades();
   try { await populateAllSelects(); } catch (e) { console.warn('selects:', e.message); }
   try { await loadAlquileres(); } catch (e) {}
@@ -8160,7 +8162,7 @@ async function _rsocAnio(y) {
     sb.from('movimientos_bancos').select('*').eq('anio', y - 1).limit(LIM),
   ]);
   const D = { prop:{}, soc:{}, pe:{}, auto:{}, ap:{}, propNro:{}, autoNro:{},
-              ban:{}, banPrev:{}, truncado:[] };
+              ban:{}, banPrev:{}, banIni:{}, truncado:[] };
   const chk = (r, n) => { if ((r.data||[]).length >= LIM) D.truncado.push(n); return r.data || []; };
 
   chk(mp,'movimientos_propiedades').forEach(m => {
@@ -8188,12 +8190,16 @@ async function _rsocAnio(y) {
   chk(ab,'aportes_bancos').forEach(x => {
     D.ap[x.banco_id] = (D.ap[x.banco_id]||0) + (x.tipo==='retiro' ? -1 : 1) * Math.abs(Number(x.monto)||0);
   });
-  // último mes cargado de cada cuenta, en el año y en el anterior
-  const ult = (arr, dest) => arr.forEach(m => {
+  // Último mes cargado de cada cuenta en el año y en el anterior, y además el
+  // PRIMER mes con dato del año: si la cuenta se abrió en julio no tiene cierre
+  // del año anterior, y su saldo inicial es el de julio, no cero.
+  const ult = (arr, dest, primero) => arr.forEach(m => {
     const p = dest[m.banco_id];
     if (!p || Number(m.mes) > Number(p.mes)) dest[m.banco_id] = m;
+    if (primero) { const q = primero[m.banco_id];
+      if (!q || Number(m.mes) < Number(q.mes)) primero[m.banco_id] = m; }
   });
-  ult(chk(mb, 'movimientos_bancos'), D.ban);
+  ult(chk(mb, 'movimientos_bancos'), D.ban, D.banIni);
   ult(mbp.data || [], D.banPrev);
   _RSOCY[y] = D; return D;
 }
@@ -8228,17 +8234,24 @@ async function renderRepSoc() {
   // Saldo de una cuenta: si el año tiene meses cargados en `movimientos_bancos`
   // manda el último mes cargado (dato vivo); si no, el cierre del hardcode.
   // Antes salía siempre del hardcode y 2026 no se movía aunque cargaras meses.
-  const _liveBan = (b, prev) => {
-    const m = (prev ? Y.banPrev : Y.ban)[b.id];
-    return m ? (Number(bancoMovUSD(m).neto) || 0) : null;
-  };
+  const _mov = (b, cual) => (Y[cual] || {})[b.id] || null;
+  const _neto = m => m ? (Number(bancoMovUSD(m).neto) || 0) : null;
   const resBan = b => {
-    const fin = _liveBan(b, false) ?? vBan(b.nro, Ys);
-    const ini = _liveBan(b, true)  ?? vBan(b.nro, Y0);
-    if (fin === null) return { saldo:0, rend:0, vivo:false };
-    const vivo = _liveBan(b, false) !== null;
-    if (b.es_operativa || ini === null) return { saldo:fin, rend:0, vivo };
-    return { saldo:fin, rend: fin - ini - (Y.ap[b.id]||0), vivo };
+    const mFin = _mov(b, 'ban');
+    const fin  = _neto(mFin) ?? vBan(b.nro, Ys);
+    if (fin === null) return { saldo:0, rend:0, cred:0, vivo:false, desde:null };
+    const vivo = mFin !== null;
+    const cred = mFin ? (Number(bancoMovUSD(mFin).cred) || 0) : 0;
+
+    // Saldo inicial: el cierre del año anterior. Si la cuenta no existía todavía
+    // (se abrió en julio, por ejemplo) no hay cierre previo y el inicial es el
+    // PRIMER mes con dato de este año: la cuenta arranca ahí y ese saldo es
+    // capital que entra, no rendimiento.
+    let ini = _neto(_mov(b, 'banPrev')) ?? vBan(b.nro, Y0), desde = null;
+    if (ini === null) { const m0 = _mov(b, 'banIni');
+      if (m0) { ini = _neto(m0); desde = Number(m0.mes); } }
+    if (b.es_operativa || ini === null) return { saldo:fin, rend:0, cred, vivo, desde };
+    return { saldo:fin, rend: fin - ini - (Y.ap[b.id]||0), cred, vivo, desde };
   };
 
   // MFL se ve en las listas pero no suma en ningún total (mismo criterio que
@@ -8277,7 +8290,7 @@ async function renderRepSoc() {
     const bs = banAct .filter(b => b.sociedad_id === s.id);
     const as = autAct .filter(x => x.sociedad_id === s.id);
     const vend = propVend.filter(p => p.sociedad_id === s.id);
-    let ten = 0, renta = 0, gastos = 0, imp = 0, rend = 0, gAuto = 0;
+    let ten = 0, renta = 0, gastos = 0, imp = 0, rend = 0, gAuto = 0, cred = 0;
     const pd = ps.map(p => { const sh = share(p), v = vProp(p.nro)*sh, r = resProp(p);
       ten += v; renta += r.neto*sh; gastos += r.gastos*sh; imp += (r.imp||0)*sh;
       return { p, v, r: { renta:r.renta*sh, gastos:r.gastos*sh, imp:r.imp==null?null:r.imp*sh, neto:r.neto*sh } }; });
@@ -8286,11 +8299,12 @@ async function renderRepSoc() {
       renta += r.neto*sh; gastos += r.gastos*sh; imp += (r.imp||0)*sh;
       pd.push({ p, v:0, vendida:true, r:{ renta:r.renta*sh, gastos:r.gastos*sh, imp:r.imp==null?null:r.imp*sh, neto:r.neto*sh } }); });
     const bd = bs.map(b => { const sh = share(b), r = resBan(b);
-      ten += r.saldo*sh; rend += r.rend*sh; return { b, ...r, saldo:r.saldo*sh, rend:r.rend*sh }; });
+      ten += r.saldo*sh; rend += r.rend*sh; cred += (r.cred||0)*sh;
+      return { b, ...r, saldo:r.saldo*sh, rend:r.rend*sh, cred:(r.cred||0)*sh }; });
     const ad = as.map(x => { const sh = share(x), v = vAuto(x.nro)*sh, g = gasAuto(x)*sh;
       ten += v; gAuto += g; return { a:x, v, g }; });
     const g = Y.soc[s.id] || { imp:0, og:0, ap:0 };
-    propia[s.id] = { ten, renta, gastos, imp, rend, gAuto, gasto:g.imp + g.og, socImp:g.imp, socOg:g.og,
+    propia[s.id] = { ten, renta, gastos, imp, rend, gAuto, cred, gasto:g.imp + g.og, socImp:g.imp, socOg:g.og,
                      aportes:g.ap, res: renta - gAuto + rend - (g.imp + g.og), pd, bd, ad };
   });
 
@@ -8350,6 +8364,26 @@ async function renderRepSoc() {
   const totPeCap  = _peT.tenencia;
   const totPeUt   = _peT.resReal;
 
+  /* ═══ CUADRE ═══
+     El patrimonio del año se puede armar por dos caminos que no comparten
+     código: sumando lo que este reporte muestra (sociedades + sin sociedad +
+     PE) y sumando activo por activo desde el histórico, que es lo que hace
+     Patrimonio. Si los dos no dan lo mismo, hay algo mal en alguno de los dos
+     y conviene enterarse acá y no de casualidad tres semanas después. */
+  const _patri = (() => {
+    let t = 0;
+    soloSumables(B.props).filter(p => p.activa !== false && p.vendida !== true)
+      .filter(p => !CLI || p.titular === CLI || (esH && p.titular === 'H'))
+      .forEach(p => t += vProp(p.nro) * share(p));
+    soloSumables(B.autos).filter(a => a.activo !== false)
+      .filter(a => !CLI || a.titular === CLI || (esH && a.titular === 'H'))
+      .forEach(a => t += vAuto(a.nro) * share(a));
+    soloSumables(B.bancos).filter(b => b.activo !== false)
+      .filter(b => !CLI || b.titular === CLI || (esH && b.titular === 'H'))
+      .forEach(b => t += resBan(b).saldo * share(b));
+    return t;
+  })();
+
   const kpi = (lbl, val, sub, col) => `<div class="card" style="padding:14px 16px">
       <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px">${lbl}</div>
       <div style="font-size:22px;font-weight:700;margin-top:4px;${col?'color:'+col:''}">${val}</div>
@@ -8387,8 +8421,13 @@ async function renderRepSoc() {
         <tr style="font-weight:600;border-top:1px solid var(--border)"><td>Subtotal</td><td class="num">${money(o.ten - o.bd.reduce((a,z)=>a+z.saldo,0) - o.ad.reduce((a,z)=>a+z.v,0))}</td><td class="num">${money(o.renta + o.gastos + o.imp)}</td><td class="num">-$${fmt(o.gastos)}</td><td class="num">-$${fmt(o.imp)}</td><td class="num">${signo(o.renta)}</td><td></td></tr>
         </tbody></table>`;
       if (o.bd.length) det += `<div style="font-size:11px;color:var(--text3);margin:10px 0 2px;text-transform:uppercase;letter-spacing:.5px">Cuentas</div>
-        <table style="font-size:12px;width:100%"><thead><tr><th>Cuenta</th><th class="num">Saldo ${ANIO}</th><th class="num">Rendimiento</th><th>Sociedad</th></tr></thead><tbody>
-        ${o.bd.map(x=>`<tr><td>${x.b.nombre} <span style="color:var(--text3);font-size:10px">#${x.b.nro}${x.b.es_operativa?' · operativa':''}${x.vivo?'':' · saldo de cierre histórico'}</span></td><td class="num">${money(x.saldo)}</td><td class="num">${x.b.es_operativa?nada:signo(x.rend)}</td><td>${selSoc('bancos', x.b, s.titular)}</td></tr>`).join('')}
+        <table style="font-size:12px;width:100%"><thead><tr><th>Cuenta</th><th class="num">Saldo ${ANIO}</th><th class="num">Crédito</th><th class="num">Rendimiento</th><th>Sociedad</th></tr></thead><tbody>
+        ${o.bd.map(x=>`<tr><td>${x.b.nombre} <span style="color:var(--text3);font-size:10px">#${x.b.nro}${x.b.es_operativa?' · operativa':''}${x.vivo?'':' · saldo de cierre histórico'}${x.desde?' · abrió en '+MESNOM[x.desde]:''}</span></td>
+          <td class="num">${money(x.saldo)}</td>
+          <td class="num" style="color:${x.cred?'var(--usa)':''}">${x.cred?'-$'+fmt(x.cred):nada}</td>
+          <td class="num">${x.b.es_operativa?nada:signo(x.rend)}</td>
+          <td>${selSoc('bancos', x.b, s.titular)}</td></tr>`).join('')}
+        ${o.cred?`<tr style="font-weight:600;border-top:1px solid var(--border)"><td>Deuda bancaria de la sociedad</td><td class="num"></td><td class="num" style="color:var(--usa)">-$${fmt(o.cred)}</td><td colspan="2"></td></tr>`:''}
         </tbody></table>`;
       if (o.ad.length) det += `<div style="font-size:11px;color:var(--text3);margin:10px 0 2px;text-transform:uppercase;letter-spacing:.5px">Autos</div>
         <table style="font-size:12px;width:100%"><thead><tr><th>Auto</th><th class="num">Valor ${ANIO}</th><th class="num">Gastos</th><th>Sociedad</th></tr></thead><tbody>
@@ -8405,6 +8444,7 @@ async function renderRepSoc() {
           <tr><td>Renta neta de propiedades</td><td class="num">${signo(o.renta)}</td></tr>
           ${o.gAuto?`<tr><td>Gastos de autos</td><td class="num">-$${fmt(o.gAuto)}</td></tr>`:''}
           <tr><td>Rendimiento de cuentas de inversión</td><td class="num">${signo(o.rend)}</td></tr>
+          ${o.cred?`<tr><td style="color:var(--text3);font-size:11px">Deuda bancaria <span style="font-size:10px">(ya descontada del saldo, no del resultado)</span></td><td class="num" style="color:var(--usa)">-$${fmt(o.cred)}</td></tr>`:''}
           <tr><td>Impuestos y gastos de la sociedad</td><td class="num">${o.gasto?'-$'+fmt(o.gasto):'$0'}</td></tr>
           <tr style="font-weight:700;border-top:2px solid var(--border)"><td>Resultado ${ANIO}</td><td class="num">${signo(o.res)}</td></tr>
         </tbody></table></div>`;
@@ -8415,6 +8455,16 @@ async function renderRepSoc() {
   raices.forEach(s => fila(s, 0));
 
   cont.innerHTML = `
+    ${(() => {
+      const suma = totSocTen + totDirTen;                 // sin PE: el cuadre es de los 3 rubros
+      const dif  = suma - _patri;
+      const ok   = Math.abs(dif) < 1;
+      return `<div class="card" style="padding:8px 14px;margin-bottom:14px;font-size:11px;
+        border-color:${ok?'var(--esp)':'var(--usa)'};color:${ok?'var(--esp)':'var(--usa)'}">
+        <b>Cuadre con Patrimonio:</b> ${ok ? 'exacto' : (dif>0?'+':'-') + '$' + fmt(Math.abs(dif)) + ' de diferencia'}
+        <span style="color:var(--text3)"> · este reporte $${fmt(suma)} · sumando activo por activo $${fmt(_patri)}
+        ${ok ? '' : ' — algún activo está contado dos veces o falta en una de las dos vistas'}</span></div>`;
+    })()}
     ${Y.truncado.length ? `<div class="card" style="border-color:var(--usa);color:var(--usa);margin-bottom:14px;font-size:12px">
       ⚠ La consulta de <b>${Y.truncado.join(', ')}</b> llegó al tope de 5.000 filas: puede faltar dato. Hay que paginar esa consulta.</div>` : ''}
 
@@ -10629,6 +10679,87 @@ async function loadHistOverrides(){
 // Para sumar un año nuevo: agregarlo acá y listo.
 const BANCOS_ANIOS_LIVE = [2024, 2025, 2026];
 let _bancosHidratados = {};   // { anio: { nro: mes_de_cierre } } — qué celdas vienen del dato real
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   PROPIEDADES Y AUTOS: LA BASE MANDA  (v169)
+   ───────────────────────────────────────────────────────────────────────
+   Había dos fuentes para el valor de un activo y no se hablaban:
+
+     · la tabla de Supabase (`propiedades.valor_2017 … valor_2026`), que es la
+       que ves y editás en la app, y
+     · los arrays hardcodeados PROP_HIST_DATA / AUTOS_HIST_DATA, escritos a
+       mano dentro del index.html.
+
+   Patrimonio Histórico, el Dashboard, los informes y el reporte de Sociedades
+   leían EL HARDCODE. Por eso una propiedad cargada desde la app aparecía en su
+   tabla y en ningún lado más: no existía en el array, y el array sólo cambia
+   con un deploy.
+
+   Estas dos funciones dan vuelta la prioridad. Al arrancar la app se relee la
+   base y se REESCRIBE el contenido de los arrays: la fila de Supabase pisa al
+   hardcode, y el hardcode sólo sobrevive en los años que la base tiene en NULL
+   (2017-2019 de algunos activos, que nunca se cargaron). Los activos que están
+   en la base y no en el array se agregan; el array deja de ser una fuente y
+   pasa a ser un respaldo.
+
+   Se muta el contenido del array (splice/push) en vez de reasignarlo, para que
+   quede enganchado todo lo que ya lo referencia. Mismo patrón y mismo lugar que
+   `hidratarBancosHist()`, y corre DESPUÉS de `loadHistOverrides()` por la misma
+   razón: en los años sin detalle el lápiz ✎ sigue mandando.
+   ═══════════════════════════════════════════════════════════════════════ */
+const HIST_ANIOS = [2017,2018,2019,2020,2021,2022,2023,2024,2025,2026];
+let _hidratado = { prop:0, auto:0, nuevos:[] };
+
+async function _hidratarArray(tabla, arr, campoActivo) {
+  const { data, error } = await sb.from(tabla).select('*');
+  if (error || !data || !data.length) return 0;
+  const porNro = {}; arr.forEach(x => porNro[x.nro] = x);
+  let tocados = 0;
+  data.forEach(r => {
+    if (r.nro == null) return;
+    let h = porNro[r.nro];
+    if (!h) {                                   // activo que existe en la base y no en el array
+      h = { nro: r.nro, nombre: r.nombre, titular: r.titular, pais: r.pais,
+            vendida: false, valor_venta: null, valores: {} };
+      arr.push(h); porNro[r.nro] = h;
+      _hidratado.nuevos.push(tabla + ' #' + r.nro + ' ' + r.nombre);
+    }
+    // identidad: manda siempre la base, que es lo que se ve y se edita
+    h.nombre  = r.nombre  ?? h.nombre;
+    h.titular = r.titular ?? h.titular;
+    h.pais    = r.pais    ?? h.pais;
+    h.vendida = (r.vendida === true);
+    if (r.valor_venta != null) h.valor_venta = Number(r.valor_venta);
+    h.valores = h.valores || {};
+    // valor por año: la base pisa; donde la base no tiene dato queda el hardcode
+    HIST_ANIOS.forEach(y => {
+      const v = r['valor_' + y];
+      if (v !== undefined && v !== null && v !== '') h.valores[String(y)] = Number(v);
+    });
+    // Una vendida no puede tener valor en los años posteriores a la venta:
+    // si no, sigue sumando al patrimonio después de haberse ido de la cartera.
+    if (h.vendida) {
+      const ay = r.fecha_venta ? Number(String(r.fecha_venta).slice(0,4)) : null;
+      if (ay) HIST_ANIOS.filter(y => y > ay).forEach(y => { delete h.valores[String(y)]; });
+    }
+    if (r[campoActivo] === false) h.inactivo = true;
+    tocados++;
+  });
+  arr.sort((a,b) => (a.nro ?? 9999) - (b.nro ?? 9999));
+  return tocados;
+}
+
+async function hidratarActivosHist() {
+  _hidratado = { prop:0, auto:0, nuevos:[] };
+  try { _hidratado.prop = await _hidratarArray('propiedades', PROP_HIST_DATA, 'activa'); }
+  catch (e) { console.warn('hidratarPropHist:', e.message); }
+  try { _hidratado.auto = await _hidratarArray('autos', AUTOS_HIST_DATA, 'activo'); }
+  catch (e) { console.warn('hidratarAutosHist:', e.message); }
+  if (_hidratado.nuevos.length)
+    console.info('Activos que estaban en la base y no en el histórico:', _hidratado.nuevos.join(' · '));
+  return _hidratado;
+}
 
 async function hidratarBancosHist() {
   _bancosHidratados = {};
@@ -13606,7 +13737,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260818-168';
+const APP_VERSION = '20260818-169';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
