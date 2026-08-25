@@ -3492,7 +3492,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
       <div class="modal-overlay" id="modal-nueva-cuenta">
         <div class="modal">
           <div class="modal-header">
-            <div class="modal-title">Nueva cuenta bancaria</div>
+            <div class="modal-title" id="nc-title">Nueva cuenta bancaria</div>
             <button class="modal-close" onclick="closeModal('modal-nueva-cuenta')">×</button>
           </div>
           <div class="modal-body">
@@ -3797,7 +3797,24 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
           </div>
           <div><label class="fld">Año</label><select class="fld" id="chq-anio" style="width:auto" onchange="chqAnioSet(this.value)"></select></div>
         </div>
-        <div id="chq-contenido"><div class="loader"><div class="spinner"></div></div></div>
+        <div class="tabs">
+          <button class="tab-btn active" onclick="switchTab('chq','consistencia',this)">Consistencia interna</button>
+          <button class="tab-btn" onclick="switchTab('chq','completo',this);renderChqCompleto()">Contra el COMPLETO</button>
+        </div>
+        <div id="chq-consistencia" class="tab-content active" style="display:block">
+          <div id="chq-contenido"><div class="loader"><div class="spinner"></div></div></div>
+        </div>
+        <div id="chq-completo" class="tab-content">
+          <div class="card" style="padding:14px 18px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap">
+            <div>
+              <div style="font-size:13px;font-weight:600">Soltá el COMPLETO del mes</div>
+              <div style="font-size:11px;color:var(--text3);margin-top:2px">Se lee en tu navegador y se compara contra lo cargado, rubro por rubro y mes por mes. El archivo no se sube a ningún lado.</div>
+            </div>
+            <input type="file" accept=".xlsx,.xlsm" id="chqc-file" onchange="chqArchivo(this)"
+                   style="font-size:12px;max-width:280px">
+          </div>
+          <div id="chqc-contenido"></div>
+        </div>
       </div>
 
       <!-- ======== TIPO DE CAMBIO ======== -->
@@ -3926,6 +3943,10 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
     <div class="modal-body">
       <p style="font-size:12px;margin:0 0 12px" id="as-nombre"></p>
       <div><label class="fld">Sociedad</label><select class="fld" id="as-soc"></select></div>
+      <label style="display:flex;align-items:center;gap:8px;margin-top:16px;font-size:12px;cursor:pointer">
+        <input type="checkbox" id="as-oculto" style="width:auto;margin:0"> Sacar este activo del organigrama
+      </label>
+      <p style="font-size:11px;color:var(--text3);margin:6px 0 0;line-height:1.5">Sólo lo saca del dibujo. El activo sigue existiendo, sigue en su tabla y sigue sumando al patrimonio y a los reportes. Se puede volver a mostrar desde el panel de arriba de la solapa.</p>
       <button class="btn-primary" style="margin-top:18px" onclick="guardarActivoSoc()">Guardar</button>
     </div>
   </div>
@@ -4602,7 +4623,7 @@ function mountExport() {
 }
 
 function switchTab(group, tab, el) {
-  const pageMap = { prop:'propiedades', banco:'bancos', pe:'private_equity', org:'organigramas', soc:'sociedades', aut:'autos', gasto:'gastos', tar:'tarjetas', rep:'reportes' };
+  const pageMap = { prop:'propiedades', banco:'bancos', pe:'private_equity', org:'organigramas', soc:'sociedades', aut:'autos', gasto:'gastos', tar:'tarjetas', rep:'reportes', chq:'chequeo' };
   const pageId = pageMap[group] || group;
   const page = document.getElementById('page-' + pageId);
   if (!page) { console.error('Page not found: page-' + pageId); return; }
@@ -7173,10 +7194,26 @@ function renderBancosInactivos() {
   </div>`;
 }
 
-function nuevaCuentaBanco() {
-  const maxNro = [...bancosData, ...bancosInactivos].reduce((a,b) => Math.max(a, Number(b.nro)||0), 0);
-  const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
-  set('nc-nombre',''); set('nc-nro', maxNro + 1); set('nc-titular','FC'); set('nc-pais','USA'); set('nc-operativa','false');
+function nuevaCuentaBanco() { abrirCuentaEdit(null); }
+
+/* Alta y edición de cuentas comparten modal: `_ncId` null = alta, con id = edición.
+   Antes sólo se podía crear: el nombre, el titular y el país de una cuenta ya
+   creada no se tocaban desde ningún lado de la app. */
+let _ncId = null;
+
+function abrirCuentaEdit(id, ev) {
+  if (ev) ev.stopPropagation();
+  _ncId = id || null;
+  const b = id ? [...(bancosData||[]), ...(bancosInactivos||[])].find(x => x.id === id) : null;
+  const set = (k, v) => { const el = document.getElementById(k); if (el) el.value = (v ?? ''); };
+  const maxNro = [...(bancosData||[]), ...(bancosInactivos||[])].reduce((a,x) => Math.max(a, Number(x.nro)||0), 0);
+  const t = document.getElementById('nc-title');
+  if (t) t.textContent = b ? 'Editar cuenta bancaria' : 'Nueva cuenta bancaria';
+  set('nc-nombre',    b ? b.nombre : '');
+  set('nc-nro',       b ? (b.nro ?? '') : maxNro + 1);
+  set('nc-titular',   b ? (b.titular || 'FC') : 'FC');
+  set('nc-pais',      b ? (b.pais || 'USA') : 'USA');
+  set('nc-operativa', b ? String(b.es_operativa === true) : 'false');
   openModal('modal-nueva-cuenta');
 }
 
@@ -7188,12 +7225,18 @@ async function guardarCuentaBanco() {
   const titular = document.getElementById('nc-titular').value;
   const pais = document.getElementById('nc-pais').value;
   const es_operativa = document.getElementById('nc-operativa').value === 'true';
-  const dup = [...bancosData, ...bancosInactivos].find(b => Number(b.nro) === nro);
-  if (dup && !confirm(`El N° ${nro} ya lo usa "${dup.nombre}". ¿Crear igual? (los números se pueden reordenar después)`)) return;
+  const dup = [...bancosData, ...bancosInactivos].find(b => Number(b.nro) === nro && b.id !== _ncId);
+  if (dup && !confirm(`El N° ${nro} ya lo usa "${dup.nombre}". ¿Guardar igual? (los números se pueden reordenar después)`)) return;
 
-  const { error } = await sb.from('bancos').insert({ nro, nombre, titular, pais, activo: true, es_operativa });
+  const row = { nro, nombre, titular, pais, es_operativa };
+  const { error } = _ncId
+    ? await sb.from('bancos').update(row).eq('id', _ncId)
+    : await sb.from('bancos').insert({ ...row, activo: true });
   if (error) return toast('Error: ' + error.message, 'error');
-  toast('Cuenta creada ✓ — ya figura en carga, aportes, totales y patrimonio', 'success');
+  toast(_ncId ? 'Cuenta actualizada ✓' : 'Cuenta creada ✓ — ya figura en carga, aportes, totales y patrimonio', 'success');
+  _ncId = null;
+  _RSOC = null;                                  // el reporte y el organigrama releen el catálogo
+  try { await populateAllSelects(); } catch (e) {}
   closeModal('modal-nueva-cuenta');
   await loadBancos();
   if (document.getElementById('aportes-lista')) { try { await loadAportes(); } catch(e){} }
@@ -7278,7 +7321,7 @@ function renderBancos(paisFiltro) {
     const dest = _esBancoDestacado(b.nombre);
     return `<tr class="row-${colPais[b.pais]||'arg'}">
       <td style="color:var(--text3)">${b.nro||'—'}</td>
-      <td class="bold" style="${dest?'font-weight:800':''}">${dest?'<span style="color:var(--gold);margin-right:4px" title="Cuenta destacada">•</span>':''}${b.nombre}${mesTxt} <span onclick="toggleOperativa('${b.id}',${b.es_operativa?'true':'false'})" title="Click para cambiar: Inversión / Operativa" style="cursor:pointer;font-size:9px;font-weight:600;border-radius:4px;padding:1px 5px;margin-left:4px;${b.es_operativa?'background:var(--gold-soft);color:var(--gold);border:1px solid var(--gold)':'background:var(--bg2);color:var(--text3);border:1px solid var(--border)'}">${b.es_operativa?'⚙ OPERATIVA':'💼 INVERSIÓN'}</span></td>
+      <td class="bold" style="${dest?'font-weight:800':''}">${dest?'<span style="color:var(--gold);margin-right:4px" title="Cuenta destacada">•</span>':''}${b.nombre}<span onclick="abrirCuentaEdit('${b.id}',event)" title="Editar nombre, N°, titular y país" style="cursor:pointer;margin-left:6px;opacity:.45;font-size:12px">&#9998;</span>${mesTxt} <span onclick="toggleOperativa('${b.id}',${b.es_operativa?'true':'false'})" title="Click para cambiar: Inversión / Operativa" style="cursor:pointer;font-size:9px;font-weight:600;border-radius:4px;padding:1px 5px;margin-left:4px;${b.es_operativa?'background:var(--gold-soft);color:var(--gold);border:1px solid var(--gold)':'background:var(--bg2);color:var(--text3);border:1px solid var(--border)'}">${b.es_operativa?'⚙ OPERATIVA':'💼 INVERSIÓN'}</span></td>
       <td>${b.titular}</td>
       <td><span class="badge badge-${colPais[b.pais]||'arg'}">${b.pais}</span></td>
       <td class="num">$${fmt(u?.inv||0)}</td>
@@ -8383,9 +8426,11 @@ async function _rsocBase() {
   if (_RSOC) return _RSOC;
   const [s, p, b, a, pe] = await Promise.all([
     sb.from('sociedades').select('*').order('nro'),
-    sb.from('propiedades').select('id,nro,nombre,titular,pais,activa,vendida,sociedad_id').order('nro'),
-    sb.from('bancos').select('id,nro,nombre,titular,pais,activo,es_operativa,sociedad_id').order('nro'),
-    sb.from('autos').select('id,nro,nombre,titular,pais,activo,sociedad_id').order('nro'),
+    // '*' a proposito: si se agrega una columna (en_organigrama, etc.) no hay que
+    // acordarse de sumarla aca ni rompe mientras el SQL todavia no se corrio.
+    sb.from('propiedades').select('*').order('nro'),
+    sb.from('bancos').select('*').order('nro'),
+    sb.from('autos').select('*').order('nro'),
     sb.from('private_equity').select('*').order('nro'),
   ]);
   if (s.error) throw new Error('sociedades: ' + s.error.message);
@@ -8489,6 +8534,201 @@ let _chqAnio = 2026;
 
 function chqAnioSet(v) { _chqAnio = parseInt(v) || 2026; loadChequeo(); }
 
+
+/* ═══════════════════════════════════════════════════════════════════════
+   CHEQUEO CONTRA EL COMPLETO  (v173)
+   ───────────────────────────────────────────────────────────────────────
+   Soltás el COMPLETO del mes y la app compara, rubro por rubro y mes por mes,
+   lo que dice la planilla contra lo que tiene cargado. El archivo NO se sube a
+   ningún lado: se lee en el navegador con la librería de Excel que la app ya
+   tenía cargada, así que el control lo podés correr vos solo cada día 10.
+
+   De dónde sale cada lado
+   -----------------------
+   COMPLETO → las filas consolidadas del encabezado de cada anexo (las que
+     empiezan en la fila 2 y tienen la etiqueta en la columna B). Se buscan
+     POR ETIQUETA, nunca por número de fila: el layout cambia entre años.
+     Los meses tampoco están siempre en la misma columna — el anexo de private
+     equity tiene una columna extra de "Acumulado Histórico" — así que la
+     columna de enero se detecta leyendo la fila 1.
+   App → la suma de los movimientos cargados de ese mes, en USD.
+
+   MFL queda afuera de los dos lados: los anexos del COMPLETO no lo suman y la
+   app tampoco, así que comparar con MFL adentro daría una diferencia falsa.
+   ═══════════════════════════════════════════════════════════════════════ */
+let _cmp = null;   // { anio, meses:{1..12}, archivo }
+
+const CHQ_ANEXOS = [
+  { hoja:'ANEXO - (BANCOS)', grupo:'Bancos', filas:[
+      { et:'invest',  lbl:'Inversión' }, { et:'cash', lbl:'Cash' }, { et:'credit', lbl:'Crédito' } ] },
+  { hoja:'ANEXO - (PROPIEDADES)', grupo:'Propiedades', filas:[
+      { et:'renta', lbl:'Renta' }, { et:'gastos', lbl:'Gastos' }, { et:'impuestos', lbl:'Impuestos' } ] },
+  { hoja:'ANEXO - (SOCIEDADES)', grupo:'Sociedades', filas:[
+      { et:'aportes', lbl:'Aportes' }, { et:'impuestos', lbl:'Impuestos' }, { et:'otrosgastos', lbl:'Otros gastos' } ] },
+  { hoja:'ANEXO - (AUTOS)', grupo:'Autos', filas:[ { et:'total', lbl:'Total gastos' } ] },
+  { hoja:'ANEXO - (PRIVATE EQUITY)', grupo:'Private equity', filas:[
+      { et:'utilidad', lbl:'Utilidad' }, { et:'aportedecapital', lbl:'Aporte de capital' } ] },
+];
+const _etq = s => String(s || '').toLowerCase()
+  .normalize('NFD').replace(/[̀-ͯ]/g, '')
+  .replace(/[^a-z]/g, '');
+
+// La columna de ENERO: la primera de la fila 1 que diga "Jan"/"Ene" o sea una
+// fecha de enero. Así el anexo de PE, que tiene una columna extra adelante, se
+// resuelve solo en vez de a mano.
+function _colEnero(ws, XL) {
+  const R = XL.utils.decode_range(ws['!ref']);
+  for (let c = R.s.c; c <= R.e.c; c++) {
+    const cell = ws[XL.utils.encode_cell({ r: 0, c })];
+    if (!cell) continue;
+    const v = cell.v;
+    if (typeof v === 'string' && /^(jan|ene)/i.test(v.trim())) return c;
+    if (cell.t === 'd' && v instanceof Date && v.getMonth() === 0) return c;
+    if (typeof v === 'number' && cell.w && /^(jan|ene)/i.test(String(cell.w))) return c;
+  }
+  return 3;   // D
+}
+
+async function chqArchivo(input) {
+  const f = input.files && input.files[0]; if (!f) return;
+  const cont = document.getElementById('chqc-contenido');
+  cont.innerHTML = '<div class="loader"><div class="spinner"></div></div>';
+  try {
+    const buf = await f.arrayBuffer();
+    const XL = window.XLSX;
+    if (!XL) throw new Error('No cargó la librería de Excel');
+    const wb = XL.read(new Uint8Array(buf), { type:'array', cellDates:true });
+
+    const meses = {}; for (let m = 1; m <= 12; m++) meses[m] = {};
+    const faltan = [];
+    CHQ_ANEXOS.forEach(A => {
+      const ws = wb.Sheets[A.hoja];
+      if (!ws) { faltan.push(A.hoja); return; }
+      const c0 = _colEnero(ws, XL);
+      const R = XL.utils.decode_range(ws['!ref']);
+      // el encabezado son las primeras filas con etiqueta en la columna B
+      for (let r = R.s.r; r <= Math.min(R.s.r + 8, R.e.r); r++) {
+        const lc = ws[XL.utils.encode_cell({ r, c: 1 })];
+        const et = _etq(lc && lc.v);
+        const def = A.filas.find(x => et && (et === x.et || et.startsWith(x.et)));
+        if (!def) continue;
+        for (let m = 1; m <= 12; m++) {
+          const cell = ws[XL.utils.encode_cell({ r, c: c0 + m - 1 })];
+          const v = cell && typeof cell.v === 'number' ? cell.v : 0;
+          meses[m][A.grupo + '|' + def.et] = v;
+        }
+      }
+    });
+
+    // el año: de la hoja de bancos, celda C1, o del nombre del archivo
+    let anio = null;
+    const wsb = wb.Sheets['ANEXO - (BANCOS)'];
+    if (wsb && wsb['C1'] && typeof wsb['C1'].v === 'number') anio = wsb['C1'].v;
+    if (!anio) { const m = String(f.name).match(/20\d{2}/); anio = m ? +m[0] : new Date().getFullYear(); }
+
+    _cmp = { anio, meses, archivo: f.name, faltan };
+    await renderChqCompleto();
+  } catch (e) {
+    cont.innerHTML = `<div class="card" style="color:var(--usa)">No se pudo leer el archivo: ${e.message}<br>
+      <span style="font-size:11px;color:var(--text3)">Tiene que ser el .xlsx del COMPLETO, con sus hojas ANEXO - (...).</span></div>`;
+  }
+}
+
+async function renderChqCompleto() {
+  const cont = document.getElementById('chqc-contenido'); if (!cont) return;
+  if (!_cmp) {
+    cont.innerHTML = `<div class="card" style="text-align:center;padding:34px;color:var(--text3)">
+      <div style="font-size:13px">Soltá acá el COMPLETO del mes para compararlo contra la app.</div>
+      <div style="font-size:11px;margin-top:6px">El archivo se lee en tu navegador. No se sube a ningún lado.</div></div>`;
+    return;
+  }
+  cont.innerHTML = '<div class="loader"><div class="spinner"></div></div>';
+  const Y = _cmp.anio;
+
+  const B = await _rsocBase();
+  const noMFL = new Set(soloSumables(B.props ).map(x => x.id));
+  const noMFLb= new Set(soloSumables(B.bancos).map(x => x.id));
+  const noMFLa= new Set(soloSumables(B.autos ).map(x => x.id));
+  const noMFLs= new Set(soloSumables(B.socs  ).map(x => x.id));
+  const noMFLe= new Set(soloSumables(B.pe    ).map(x => x.id));
+
+  const [mb, mp, ms, ma, mpe] = await Promise.all([
+    sb.from('movimientos_bancos').select('*').eq('anio', Y).limit(5000),
+    sb.from('movimientos_propiedades').select('propiedad_id,mes,total_renta_usd,total_gastos_usd,total_impuestos_usd').eq('anio', Y).limit(5000),
+    sb.from('movimientos_sociedades').select('sociedad_id,mes,aportes,impuestos,otros_gastos').eq('anio', Y).limit(5000),
+    sb.from('movimientos_autos').select('auto_id,mes,total_usd').eq('anio', Y).limit(5000),
+    sb.from('movimientos_pe').select('pe_id,mes,utilidad,aporte_capital').eq('anio', Y).limit(5000),
+  ]);
+
+  const app = {}; for (let m = 1; m <= 12; m++) app[m] = {};
+  const acc = (m, k, v) => { app[m][k] = (app[m][k] || 0) + (Number(v) || 0); };
+  (mb.data ||[]).forEach(x => { if (!noMFLb.has(x.banco_id)) return; const u = bancoMovUSD(x);
+    acc(x.mes, 'Bancos|invest', u.inv); acc(x.mes, 'Bancos|cash', u.cash); acc(x.mes, 'Bancos|credit', u.cred); });
+  (mp.data ||[]).forEach(x => { if (!noMFL.has(x.propiedad_id)) return;
+    acc(x.mes, 'Propiedades|renta', x.total_renta_usd);
+    acc(x.mes, 'Propiedades|gastos', x.total_gastos_usd);
+    acc(x.mes, 'Propiedades|impuestos', x.total_impuestos_usd); });
+  (ms.data ||[]).forEach(x => { if (!noMFLs.has(x.sociedad_id)) return;
+    acc(x.mes, 'Sociedades|aportes', x.aportes);
+    acc(x.mes, 'Sociedades|impuestos', x.impuestos);
+    acc(x.mes, 'Sociedades|otrosgastos', x.otros_gastos); });
+  (ma.data ||[]).forEach(x => { if (!noMFLa.has(x.auto_id)) return; acc(x.mes, 'Autos|total', x.total_usd); });
+  (mpe.data||[]).forEach(x => { if (!noMFLe.has(x.pe_id)) return;
+    acc(x.mes, 'Private equity|utilidad', x.utilidad);
+    acc(x.mes, 'Private equity|aportedecapital', x.aporte_capital); });
+
+  const claves = [];
+  CHQ_ANEXOS.forEach(A => A.filas.forEach(f => claves.push({ grupo:A.grupo, k:A.grupo + '|' + f.et, lbl:f.lbl })));
+  const TOL = 1;
+  const difMes = m => claves.reduce((n, c) =>
+    n + (Math.abs((_cmp.meses[m][c.k] || 0) - (app[m][c.k] || 0)) > TOL ? 1 : 0), 0);
+  const hayDato = m => claves.some(c => Math.abs(_cmp.meses[m][c.k] || 0) > 0.005 || Math.abs(app[m][c.k] || 0) > 0.005);
+
+  const conDato = []; for (let m = 1; m <= 12; m++) if (hayDato(m)) conDato.push(m);
+  if (!window._chqMes || !conDato.includes(window._chqMes)) window._chqMes = conDato.length ? conDato[conDato.length - 1] : 1;
+  const M = window._chqMes;
+
+  const F = v => (v < 0 ? '-' : '') + '$' + fmt(Math.abs(v));
+  const chips = conDato.map(m => { const d = difMes(m);
+    return `<span onclick="_chqMes=${m};renderChqCompleto()" style="cursor:pointer;display:inline-block;padding:4px 10px;margin:0 4px 4px 0;border-radius:6px;font-size:11px;font-weight:${m===M?700:400};
+      border:1px solid ${d?'var(--usa)':'var(--esp)'};color:${d?'var(--usa)':'var(--esp)'};${m===M?'background:var(--bg3)':''}">
+      ${LK_MESNOM[m-1]}${d?' · '+d:' ✓'}</span>`; }).join('');
+
+  const grupos = [...new Set(claves.map(c => c.grupo))];
+  const totDif = conDato.reduce((a,m)=>a+difMes(m),0);
+
+  cont.innerHTML = `
+    <div class="card" style="padding:12px 16px;margin-bottom:14px;border-color:${totDif?'var(--usa)':'var(--esp)'}">
+      <div style="font-size:14px;font-weight:600;color:${totDif?'var(--usa)':'var(--esp)'}">
+        ${totDif ? totDif + ' diferencia' + (totDif===1?'':'s') + ' entre el COMPLETO y la app' : 'El COMPLETO y la app dicen lo mismo'}</div>
+      <div style="font-size:11px;color:var(--text3);margin-top:3px">
+        ${_cmp.archivo} · ejercicio ${Y} · ${conDato.length} mes${conDato.length===1?'':'es'} con dato
+        ${_cmp.faltan.length ? ' · <span style="color:var(--gold)">no encontré: ' + _cmp.faltan.join(', ') + '</span>' : ''}</div>
+    </div>
+
+    <div style="margin-bottom:12px">${chips}</div>
+
+    <div class="card">
+      <div class="section-title" style="font-size:13px;margin:0 0 10px">${LK_MESNOM[M-1]} ${Y}</div>
+      <div class="table-wrap"><table style="font-size:12px">
+        <thead><tr><th style="width:26px"></th><th>Rubro</th><th class="num">COMPLETO</th><th class="num">App</th><th class="num">Diferencia</th></tr></thead>
+        <tbody>${grupos.map(g => `
+          <tr style="background:var(--bg3)"><td></td><td colspan="4" style="font-weight:600;font-size:11px;color:var(--gold)">${g}</td></tr>
+          ${claves.filter(c => c.grupo === g).map(c => {
+            const a = _cmp.meses[M][c.k] || 0, b = app[M][c.k] || 0, d = a - b, ok = Math.abs(d) <= TOL;
+            return `<tr>
+              <td style="text-align:center">${ok?'<span style="color:var(--esp)">●</span>':'<span style="color:var(--usa)">●</span>'}</td>
+              <td>${c.lbl}</td><td class="num">${F(a)}</td><td class="num">${F(b)}</td>
+              <td class="num" style="font-weight:600;color:${ok?'var(--esp)':'var(--usa)'}">${ok?'0':(d>0?'+':'')+F(d)}</td></tr>`;
+          }).join('')}`).join('')}
+        </tbody></table></div>
+      <p style="font-size:11px;color:var(--text3);margin:10px 0 0">
+        <b>COMPLETO</b> es la fila consolidada del encabezado de cada anexo. <b>App</b> es la suma de los movimientos
+        cargados de ese mes, en dólares. MFL queda afuera de los dos lados.
+        Una diferencia positiva significa que <b>el COMPLETO tiene más</b>: falta cargar algo en la app.</p>
+    </div>`;
+}
+
 async function loadChequeo() {
   const cont = document.getElementById('chq-contenido'); if (!cont) return;
   const selA = document.getElementById('chq-anio');
@@ -8503,11 +8743,10 @@ async function loadChequeo() {
   try { [B, D] = await Promise.all([_rsocBase(), _rsocAnio(Y)]); }
   catch (e) { cont.innerHTML = `<div class="card" style="color:var(--usa)">No se pudieron leer los datos: ${e.message}</div>`; return; }
 
-  const [mpR, msR, tcR, ctR] = await Promise.all([
+  const [mpR, msR, tcR] = await Promise.all([
     sb.from('movimientos_propiedades').select('total_renta_usd,total_gastos_usd,total_impuestos_usd,neto_usd,propiedad_id').eq('anio', Y).limit(5000),
     sb.from('movimientos_sociedades').select('aportes,impuestos,otros_gastos,total').eq('anio', Y).limit(5000),
     sb.from('tipo_de_cambio').select('mes').eq('anio', Y),
-    sb.from('contratos_alquiler').select('propiedad_id,inquilino,moneda,precio_base,fecha_inicio,fecha_fin,activo').limit(2000),
   ]);
 
   const props = soloSumables(B.props ).filter(p => p.activa !== false && p.vendida !== true);
@@ -8563,25 +8802,6 @@ async function loadChequeo() {
   props.forEach(p => { const a = D.propNro[p.nro];
     if (a && mpPorProp[p.id] !== undefined) { cruceMov += mpPorProp[p.id]; cruceAnual += a.neto; cruceN++; } });
 
-  /* ── Renta contra los contratos ──
-     Este SÍ es un control interno que no necesita segunda fuente externa: el
-     contrato dice cuánto se cobra por mes, y los movimientos dicen cuánto se
-     cobró. Si una propiedad alquilada tiene contrato vigente todo el año y la
-     renta cargada es mucho menor, hay meses sin cargar. Es lo que hoy no
-     detecta nada.
-     Tolerancia del 20% para no marcar diferencias de tipo de cambio, meses
-     parciales o ajustes de contrato. */
-  const rentaPorProp = {}; mp.forEach(m => rentaPorProp[m.propiedad_id] = (rentaPorProp[m.propiedad_id]||0) + (Number(m.total_renta_usd)||0));
-  const mesesTranscurridos = (Y < new Date().getFullYear()) ? 12 : Math.max(1, new Date().getMonth());
-  const flojas = [];
-  (ctR.data || []).filter(c => c.activo !== false && Number(c.precio_base) > 0).forEach(c => {
-    const p = props.find(x => x.id === c.propiedad_id); if (!p) return;
-    const esperado = Number(c.precio_base) * mesesTranscurridos;      // USD/mes × meses
-    if (c.moneda && c.moneda !== 'USD') return;                        // sin TC no comparo
-    const cargado = rentaPorProp[p.id] || 0;
-    if (esperado > 0 && cargado < esperado * 0.8) flojas.push(p.nombre);
-  });
-
   // ── cobertura
   const sinValor  = props.filter(p => !vProp(p.nro)).length;
   const sinMovBan = bancos.filter(b => !(D.ban || {})[b.id]).length;
@@ -8624,10 +8844,6 @@ async function loadChequeo() {
         true, 'filas'),
     cob('Coherencia interna', 'Filas de sociedades donde aportes + impuestos + otros ≠ total', socMal,
         'Lo mismo para sociedades: el total guardado tiene que ser la suma de los tres rubros.', true, 'filas'),
-    cob('Renta', 'Propiedades con contrato vigente y renta cargada muy por debajo', flojas.length,
-        'El contrato dice cuánto se cobra por mes; los movimientos dicen cuánto se cargó. Si la renta cargada está más de un 20% por debajo del contrato por los meses transcurridos, faltan meses.' +
-        (flojas.length ? '<br><b style="color:var(--gold)">' + flojas.slice(0,12).join(' · ') + (flojas.length>12?' y '+(flojas.length-12)+' más':'') + '</b>' : ''),
-        true, 'propiedades'),
     cob('Cobertura', 'Meses de tipo de cambio cargados en ' + Y, tcMeses,
         'Tienen que ser 12. Con un mes faltante, todo lo que se convierta en ese mes queda mal.', false, 'meses'),
     cob('Cobertura', 'Propiedades activas sin valor en ' + Y, sinValor,
@@ -10760,18 +10976,23 @@ const ORG_NOTA = {
 
 async function renderOrganigramas() {
   const B = await _rsocBase();
-  const act = [
+  const actTodos = [
     ...B.props .filter(p => p.activa !== false && p.vendida !== true).map(x => ({ ...x, _tb:'propiedades'    })),
     ...B.bancos.filter(b => b.activo  !== false).map(x => ({ ...x, _tb:'bancos'         })),
     ...B.autos .filter(a => a.activo  !== false).map(x => ({ ...x, _tb:'autos'          })),
     ...B.pe    .filter(e => e.activo  !== false).map(x => ({ ...x, _tb:'private_equity' })),
   ];
+  // `en_organigrama = false` saca al activo del dibujo y de nada mas: sigue vivo en
+  // su tabla, en el patrimonio y en los reportes. Si la columna todavia no existe
+  // en la base viene undefined y no se oculta nada.
+  const act     = actTodos.filter(a => a.en_organigrama !== false);
+  const actOcul = actTodos.filter(a => a.en_organigrama === false);
   const byId = {}; B.socs.forEach(s => byId[s.id] = s);
   const hijos = {};
   B.socs.forEach(s => { const m = s.sociedad_madre_id; if (m && byId[m]) (hijos[m] = hijos[m] || []).push(s); });
 
   const nodoAct = a => `<div class="org-node ${ORG_CLASES[a._tb].cls}" style="cursor:pointer"
-      title="${ORG_CLASES[a._tb].lbl} · clic para ubicarlo en una sociedad"
+      title="${ORG_CLASES[a._tb].lbl} · clic para ubicarlo en una sociedad o sacarlo del organigrama"
       onclick="abrirActivoSoc('${a._tb}','${a.id}',event)">${a.nombre}</div>`;
   const nodoSoc = s => `<div class="org-node entity">
       <span style="cursor:pointer" title="Clic para editar la sociedad" onclick="abrirSocEdit('${s.id}',event)">${s.nombre.toUpperCase()} <span style="opacity:.5;font-size:10px">✎</span></span>
@@ -10798,6 +11019,7 @@ async function renderOrganigramas() {
     const el = document.getElementById('tree-' + id); if (!el) return;
     const raices  = B.socs.filter(s => s.titular === cli && !(s.sociedad_madre_id && byId[s.sociedad_madre_id]));
     const sueltos = act.filter(a => !a.sociedad_id && a.titular === cli);
+    const ocultos = actOcul.filter(a => a.titular === cli);
     const cols = raices.map(s => `<div class="org-kid">${orgSoc(s)}</div>`);
 
     // Sin sociedad: se agrupan por país, como en el COMPLETO.
@@ -10824,7 +11046,13 @@ async function renderOrganigramas() {
           ${Object.entries(ORG_CLASES).map(([k,c]) => { const n = sueltos.filter(a=>a._tb===k).length;
             return n ? `<span style="color:var(${c.v})">${n} ${c.lbl.toLowerCase()}</span>` : ''; }).filter(Boolean).join(' · ')}
           — cuelgan directo del cliente, agrupados por país abajo. <b>Clic en cualquiera para meterlo en una sociedad.</b></div>
-      </div>` : `<div style="font-size:11px;color:var(--esp);margin:0 4px 16px">Todos los activos de ${lbl} están ubicados en la estructura.</div>`}`;
+      </div>` : `<div style="font-size:11px;color:var(--esp);margin:0 4px 16px">Todos los activos de ${lbl} están ubicados en la estructura.</div>`}
+      ${ocultos.length ? `<div class="card" style="padding:10px 14px;margin:0 4px 16px">
+        <div style="font-size:12px;font-weight:600;color:var(--text3);margin-bottom:4px">${ocultos.length} activo${ocultos.length===1?'':'s'} fuera del organigrama</div>
+        <div style="font-size:11px;color:var(--text3);line-height:1.8">${ocultos.map(a =>
+          `<span onclick="abrirActivoSoc('${a._tb}','${a.id}',event)" style="cursor:pointer;text-decoration:underline;color:var(${ORG_CLASES[a._tb].v})">${a.nombre}</span>`).join(' · ')}
+          — no se dibujan acá, pero siguen sumando al patrimonio y a los reportes. <b>Clic para volver a mostrarlos.</b></div>
+      </div>` : ''}`;
 
     el.innerHTML = cabecera + (cols.length
       ? `<div class="org-col">${node(lbl.toUpperCase(), 'root')}${lineV()}<div class="org-kids">${cols.join('')}</div></div>`
@@ -10913,15 +11141,24 @@ function abrirActivoSoc(tabla, id, ev) {
   document.getElementById('as-nombre').innerHTML = `<b>${a.nombre}</b> <span style="color:var(--text3)">· ${a.titular || '—'} · ${a.pais || '—'}</span>`;
   document.getElementById('as-soc').innerHTML = '<option value="">— sin sociedad (directo del cliente) —</option>' +
     _RSOC.socs.map(s => `<option value="${s.id}"${s.id === a.sociedad_id ? ' selected' : ''}>${s.nro ?? '–'} · ${s.nombre}${s.titular !== a.titular ? ' (' + s.titular + ')' : ''}</option>`).join('');
+  document.getElementById('as-oculto').checked = (a.en_organigrama === false);
   openModal('modal-activo-soc');
 }
 
 async function guardarActivoSoc() {
   if (!_asRef) return;
-  const socId = document.getElementById('as-soc').value || null;
-  const { error } = await sb.from(_asRef.tabla).update({ sociedad_id: socId }).eq('id', _asRef.id);
+  const socId  = document.getElementById('as-soc').value || null;
+  const oculto = document.getElementById('as-oculto').checked;
+  let aviso = '';
+  let { error } = await sb.from(_asRef.tabla).update({ sociedad_id: socId, en_organigrama: !oculto }).eq('id', _asRef.id);
+  // Si todavia no se corrio el SQL que crea la columna, no se pierde el cambio de
+  // sociedad: se reintenta sin ella y se avisa que falta.
+  if (error && /en_organigrama/i.test(error.message || '')) {
+    ({ error } = await sb.from(_asRef.tabla).update({ sociedad_id: socId }).eq('id', _asRef.id));
+    aviso = ' (falta correr el SQL de en_organigrama: no se pudo ocultar)';
+  }
   if (error) return toast('Error: ' + error.message, 'error');
-  toast(socId ? 'Activo movido ✓' : 'Activo desvinculado ✓', 'success');
+  toast((oculto ? 'Activo fuera del organigrama ✓' : socId ? 'Activo movido ✓' : 'Activo desvinculado ✓') + aviso, aviso ? 'error' : 'success');
   closeModal('modal-activo-soc');
   await _rsocRefrescar();
 }
@@ -14237,7 +14474,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260818-172';
+const APP_VERSION = '20260818-173';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
