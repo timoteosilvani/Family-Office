@@ -11543,10 +11543,64 @@ async function guardarHistEdit(){
   const {cat,nro}=_heCtx; const anio=parseInt(document.getElementById('he-anio').value); const campo=document.getElementById('he-campo').value;
   const valor=parseFloat(document.getElementById('he-valor').value);
   if(isNaN(valor))return toast('Poné un valor','error');
+
+  // El valor viejo se lee ANTES de escribir nada: es la base del arrastre de PE.
+  const viejo = _heActual(cat, nro, anio, campo);
+
+  /* v174 — AUTOS: el ✎ escribe en la TABLA, no en historico_overrides.
+     hidratarActivosHist() corre DESPUÉS de loadHistOverrides() y reescribe
+     AUTOS_HIST_DATA con lo que hay en `autos`, así que un override sobre un auto
+     vivía medio segundo y moría pisado. Escribiendo en autos.valor_<año> el lápiz
+     manda de verdad y la base sigue siendo la única fuente. */
+  if (cat === 'auto' && anio >= 2017 && anio <= 2026) {
+    const upd = {}; upd['valor_' + anio] = valor;
+    const { data: dA, error: eA } = await sb.from('autos').update(upd).eq('nro', nro).select('id');
+    if (eA) return toast('Error: ' + eA.message, 'error');
+    if (!dA || !dA.length) return toast('No encontré el auto #' + nro + ' en la base', 'error');
+    // El override viejo de esa celda ya no manda: se limpia para no dejar basura.
+    try { await sb.from('historico_overrides').delete().match({categoria:'auto', nro, anio, campo}); } catch(e){}
+    aplicarOverride(cat, nro, anio, campo, valor);
+    toast('Guardado ✓ (recalcula patrimonio)','success');
+    closeModal('modal-hist-edit');
+    renderAutosHist();
+    return;
+  }
+
   const {error}=await sb.from('historico_overrides').upsert({categoria:cat,nro,anio,campo,valor},{onConflict:'categoria,nro,anio,campo'});
   if(error)return toast('Error: '+error.message,'error');
   aplicarOverride(cat,nro,anio,campo,valor);
-  toast('Guardado ✓ (recalcula patrimonio)','success'); closeModal('modal-hist-edit');
+
+  /* v174 — PE: ARRASTRE DE LA INVERSIÓN ACUMULADA.
+     `ia` es la acumulada al INICIO del año y `ap` el aporte DE ese año, y cada año
+     guarda su propio `ia` como un número suelto (así viene del anexo del COMPLETO).
+     Cambiar el aporte de 2023 no movía 2024/2025/2026 y la posición quedaba partida.
+
+     Se arrastra el DELTA y NO se recalcula la cadena sumando aportes: hay posiciones
+     con saltos de `ia` sin `ap` que los explique (lo documenta peCalc, un caso pierde
+     700.000 si se suman). El delta respeta esos escalones; recalcular los borraría.
+     `ut` no arrastra: es del año y ya se acumula sumando. */
+  let arrastrados = 0;
+  if (cat === 'pe' && (campo === 'ap' || campo === 'ia')) {
+    const delta = valor - viejo;
+    const p = PE_HIST_DATA.find(x => x.nro === nro);
+    if (delta !== 0 && p) {
+      const posteriores = Object.keys(p.byY).map(Number).filter(y => y > anio).sort((a,b) => a - b);
+      for (const y of posteriores) {
+        const iaNuevo = ((p.byY[String(y)] || {}).ia || 0) + delta;
+        const { error: eP } = await sb.from('historico_overrides')
+          .upsert({categoria:'pe', nro, anio:y, campo:'ia', valor:iaNuevo},
+                  {onConflict:'categoria,nro,anio,campo'});
+        if (eP) { toast('No se pudo arrastrar ' + y + ': ' + eP.message, 'error'); break; }
+        aplicarOverride('pe', nro, y, 'ia', iaNuevo);
+        arrastrados++;
+      }
+    }
+  }
+
+  toast('Guardado ✓' + (arrastrados
+          ? ' · ' + arrastrados + (arrastrados > 1 ? ' años posteriores ajustados' : ' año posterior ajustado')
+          : ' (recalcula patrimonio)'),'success');
+  closeModal('modal-hist-edit');
   if(cat==='auto')renderAutosHist();else if(cat==='banco')renderBancosHist();else if(cat==='pe')renderPEHist();else renderHistorialProps('all');
 }
 // Badge del nav. OJO: tiene que contar EXACTAMENTE lo mismo que updateAlertKPIs(), o el número
@@ -14474,7 +14528,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260818-173';
+const APP_VERSION = '20260825-174';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
