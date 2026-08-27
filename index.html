@@ -3800,9 +3800,24 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
         <div class="tabs">
           <button class="tab-btn active" onclick="switchTab('chq','consistencia',this)">Consistencia interna</button>
           <button class="tab-btn" onclick="switchTab('chq','completo',this);renderChqCompleto()">Contra el COMPLETO</button>
+          <button class="tab-btn" onclick="switchTab('chq','cierre',this);renderChqCierre()">Cierre mensual</button>
         </div>
         <div id="chq-consistencia" class="tab-content active" style="display:block">
           <div id="chq-contenido"><div class="loader"><div class="spinner"></div></div></div>
+        </div>
+        <div id="chq-cierre" class="tab-content">
+          <div class="card" style="padding:14px 18px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap">
+            <div>
+              <div style="font-size:13px;font-weight:600">Cierre del mes</div>
+              <div style="font-size:11px;color:var(--text3);margin-top:2px">Todos los 10 se carga el mes anterior. Ac&aacute; ves si qued&oacute; completo y si cuadra contra el COMPLETO.</div>
+            </div>
+            <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+              <div><label class="fld">Mes</label><select class="fld" id="chqm-mes" style="width:auto" onchange="_chqMesCierre=+this.value;renderChqCierre()"></select></div>
+              <div><label class="fld">COMPLETO (opcional)</label>
+                <input type="file" accept=".xlsx,.xlsm" id="chqm-file" onchange="chqArchivo(this,'cierre')" style="font-size:12px;max-width:230px"></div>
+            </div>
+          </div>
+          <div id="chqm-contenido"></div>
         </div>
         <div id="chq-completo" class="tab-content">
           <div class="card" style="padding:14px 18px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap">
@@ -8546,7 +8561,15 @@ async function asignarSociedad(tabla, id, socId, ev) {
    ═══════════════════════════════════════════════════════════════════════ */
 let _chqAnio = 2026;
 
-function chqAnioSet(v) { _chqAnio = parseInt(v) || 2026; loadChequeo(); }
+function chqAnioSet(v) {
+  _chqAnio = parseInt(v) || 2026;
+  loadChequeo();
+  // v176 — el mes por defecto depende del año, así que se recalcula. Y si el
+  // usuario está parado en el cierre mensual, esa sub-solapa también se repinta.
+  _chqMesCierre = null;
+  const c = document.getElementById('chq-cierre');
+  if (c && c.classList.contains('active')) renderChqCierre();
+}
 
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -8603,9 +8626,234 @@ function _colEnero(ws, XL) {
   return 3;   // D
 }
 
-async function chqArchivo(input) {
+/* v176 — Totales de la app por mes, en USD, con MFL afuera. Estaba escrito adentro
+   de renderChqCompleto(); se extrajo para que el cierre mensual use EXACTAMENTE el
+   mismo cálculo y los dos controles no puedan divergir. */
+async function _chqAppMeses(Y) {
+  const B = await _rsocBase();
+  const noMFL = new Set(soloSumables(B.props ).map(x => x.id));
+  const noMFLb= new Set(soloSumables(B.bancos).map(x => x.id));
+  const noMFLa= new Set(soloSumables(B.autos ).map(x => x.id));
+  const noMFLs= new Set(soloSumables(B.socs  ).map(x => x.id));
+  const noMFLe= new Set(soloSumables(B.pe    ).map(x => x.id));
+
+  const [mb, mp, ms, ma, mpe] = await Promise.all([
+    sb.from('movimientos_bancos').select('*').eq('anio', Y).limit(5000),
+    sb.from('movimientos_propiedades').select('propiedad_id,mes,total_renta_usd,total_gastos_usd,total_impuestos_usd').eq('anio', Y).limit(5000),
+    sb.from('movimientos_sociedades').select('sociedad_id,mes,aportes,impuestos,otros_gastos').eq('anio', Y).limit(5000),
+    sb.from('movimientos_autos').select('auto_id,mes,total_usd').eq('anio', Y).limit(5000),
+    sb.from('movimientos_pe').select('pe_id,mes,utilidad,aporte_capital').eq('anio', Y).limit(5000),
+  ]);
+
+  const app = {}; for (let m = 1; m <= 12; m++) app[m] = {};
+  const acc = (m, k, v) => { app[m][k] = (app[m][k] || 0) + (Number(v) || 0); };
+  (mb.data ||[]).forEach(x => { if (!noMFLb.has(x.banco_id)) return; const u = bancoMovUSD(x);
+    acc(x.mes, 'Bancos|invest', u.inv); acc(x.mes, 'Bancos|cash', u.cash); acc(x.mes, 'Bancos|credit', u.cred); });
+  (mp.data ||[]).forEach(x => { if (!noMFL.has(x.propiedad_id)) return;
+    acc(x.mes, 'Propiedades|renta', x.total_renta_usd);
+    acc(x.mes, 'Propiedades|gastos', x.total_gastos_usd);
+    acc(x.mes, 'Propiedades|impuestos', x.total_impuestos_usd); });
+  (ms.data ||[]).forEach(x => { if (!noMFLs.has(x.sociedad_id)) return;
+    acc(x.mes, 'Sociedades|aportes', x.aportes);
+    acc(x.mes, 'Sociedades|impuestos', x.impuestos);
+    acc(x.mes, 'Sociedades|otrosgastos', x.otros_gastos); });
+  (ma.data ||[]).forEach(x => { if (!noMFLa.has(x.auto_id)) return; acc(x.mes, 'Autos|total', x.total_usd); });
+  (mpe.data||[]).forEach(x => { if (!noMFLe.has(x.pe_id)) return;
+    acc(x.mes, 'Private equity|utilidad', x.utilidad);
+    acc(x.mes, 'Private equity|aportedecapital', x.aporte_capital); });
+  return app;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   CIERRE MENSUAL  (v176)
+   ───────────────────────────────────────────────────────────────────────
+   Todos los 10 se carga el COMPLETO del mes anterior. Esta solapa contesta
+   dos preguntas distintas sobre ESE mes:
+
+   1) COMPLETITUD — ¿falta cargar algo que se carga siempre?
+      No hay una lista de "lo que debería estar": se deduce del historial.
+      Un rubro se reclama si apareció en AL MENOS 2 DE LOS 3 MESES ANTERIORES
+      y este mes no está. Con 1 de 3 cualquier gasto esporádico daría falsa
+      alarma; con 3 de 3 se escaparía cualquier cosa bimestral.
+      Maneja el salto de año: para enero mira oct, nov y dic del año anterior.
+
+   2) CONCILIACIÓN — ¿lo cargado cuadra con el COMPLETO?
+      Es el mismo control de "Contra el COMPLETO" acotado a un mes, con el
+      mismo lector y el mismo `_chqAppMeses()`. El archivo es opcional: sin él
+      la solapa igual sirve para la completitud.
+
+   MFL queda afuera de los dos, igual que en el resto de la app.
+   ═══════════════════════════════════════════════════════════════════════ */
+let _chqMesCierre = null;
+
+// Los 4 períodos: el objetivo y los 3 anteriores, del más viejo al objetivo.
+function _chqPeriodos(Y, M) {
+  const per = [];
+  for (let k = 3; k >= 0; k--) {
+    const idx = (Y * 12 + (M - 1)) - k;
+    per.push({ y: Math.floor(idx / 12), m: (idx % 12) + 1 });
+  }
+  return per;
+}
+
+// ¿La entidad sigue viva? Una vendida o dada de baja no se reclama.
+const _chqViva = e => !(e.vendida === true || e.vendido === true ||
+                        e.activa === false || e.activo === false);
+
+async function _chqCompletitud(Y, M) {
+  const per = _chqPeriodos(Y, M);
+  const anios = [...new Set(per.map(p => p.y))];
+  const idxDe = (y, m) => y * 12 + (m - 1);
+  const objetivo = idxDe(Y, M);
+  const previos  = per.slice(0, 3).map(p => idxDe(p.y, p.m));
+  const LIM = 9000;
+
+  const B = await _rsocBase();
+  const [mb, mp, ms, ma, mpe] = await Promise.all([
+    sb.from('movimientos_bancos').select('banco_id,anio,mes').in('anio', anios).limit(LIM),
+    sb.from('movimientos_propiedades').select('propiedad_id,anio,mes,total_renta_usd,total_gastos_usd,total_impuestos_usd').in('anio', anios).limit(LIM),
+    sb.from('movimientos_sociedades').select('sociedad_id,anio,mes,aportes,impuestos,otros_gastos').in('anio', anios).limit(LIM),
+    sb.from('movimientos_autos').select('auto_id,anio,mes,total_usd').in('anio', anios).limit(LIM),
+    sb.from('movimientos_pe').select('pe_id,anio,mes,utilidad,aporte_capital,gastos,impuestos').in('anio', anios).limit(LIM),
+  ]);
+
+  // presencia[clave] = Set de índices de mes en los que ese rubro tuvo dato
+  const pres = {}, meta = {};
+  const marca = (clave, y, m, nombre, grupo, rubro) => {
+    (pres[clave] = pres[clave] || new Set()).add(idxDe(y, m));
+    meta[clave] = { nombre, grupo, rubro };
+  };
+  const nz = v => Math.abs(Number(v) || 0) > 0.005;
+
+  const idx = arr => { const o = {}; arr.forEach(x => o[x.id] = x); return o; };
+  const Ib = idx(soloSumables(B.bancos).filter(_chqViva));
+  const Ip = idx(soloSumables(B.props ).filter(_chqViva));
+  const Is = idx(soloSumables(B.socs  ).filter(_chqViva));
+  const Ia = idx(soloSumables(B.autos ).filter(_chqViva));
+  const Ie = idx(soloSumables(B.pe    ).filter(_chqViva));
+
+  (mb.data ||[]).forEach(x => { const e = Ib[x.banco_id]; if (!e) return;
+    marca('b|' + x.banco_id, x.anio, x.mes, e.nombre, 'Bancos', 'saldo del mes'); });
+  (mp.data ||[]).forEach(x => { const e = Ip[x.propiedad_id]; if (!e) return;
+    if (nz(x.total_renta_usd))     marca('p|' + x.propiedad_id + '|r', x.anio, x.mes, e.nombre, 'Propiedades', 'renta');
+    if (nz(x.total_gastos_usd))    marca('p|' + x.propiedad_id + '|g', x.anio, x.mes, e.nombre, 'Propiedades', 'gastos');
+    if (nz(x.total_impuestos_usd)) marca('p|' + x.propiedad_id + '|i', x.anio, x.mes, e.nombre, 'Propiedades', 'impuestos'); });
+  (ms.data ||[]).forEach(x => { const e = Is[x.sociedad_id]; if (!e) return;
+    if (nz(x.aportes) || nz(x.impuestos) || nz(x.otros_gastos))
+      marca('s|' + x.sociedad_id, x.anio, x.mes, e.nombre, 'Sociedades', 'movimiento'); });
+  (ma.data ||[]).forEach(x => { const e = Ia[x.auto_id]; if (!e) return;
+    if (nz(x.total_usd)) marca('a|' + x.auto_id, x.anio, x.mes, e.nombre, 'Autos', 'gastos'); });
+  (mpe.data||[]).forEach(x => { const e = Ie[x.pe_id]; if (!e) return;
+    if (nz(x.utilidad) || nz(x.aporte_capital) || nz(x.gastos) || nz(x.impuestos))
+      marca('e|' + x.pe_id, x.anio, x.mes, e.nombre, 'Private equity', 'movimiento'); });
+
+  const faltan = [], ok = [];
+  Object.keys(meta).forEach(k => {
+    const s = pres[k];
+    const veces = previos.filter(i => s.has(i)).length;
+    if (veces < 2) return;                        // no es habitual: no se reclama
+    (s.has(objetivo) ? ok : faltan).push({ ...meta[k], veces });
+  });
+  faltan.sort((a, b) => (a.grupo + a.nombre).localeCompare(b.grupo + b.nombre));
+  return { faltan, esperados: faltan.length + ok.length, per };
+}
+
+async function renderChqCierre() {
+  const cont = document.getElementById('chqm-contenido'); if (!cont) return;
+  const Y = _chqAnio;
+  const hoy = new Date();
+  if (_chqMesCierre == null) {
+    _chqMesCierre = (Y === hoy.getFullYear()) ? Math.max(1, hoy.getMonth()) : 12;
+  }
+  const sel = document.getElementById('chqm-mes');
+  if (sel) {
+    sel.innerHTML = LK_MESNOM.map((n, i) => `<option value="${i + 1}">${n}</option>`).join('');
+    sel.value = String(_chqMesCierre);
+  }
+  const M = _chqMesCierre;
+  cont.innerHTML = '<div class="loader"><div class="spinner"></div></div>';
+
+  let C, app;
+  try { [C, app] = await Promise.all([_chqCompletitud(Y, M), _chqAppMeses(Y)]); }
+  catch (e) { cont.innerHTML = `<div class="card" style="color:var(--usa)">No se pudieron leer los datos: ${e.message}</div>`; return; }
+
+  // ── Conciliación (solo si hay archivo cargado y es del mismo ejercicio)
+  const claves = [];
+  CHQ_ANEXOS.forEach(A => A.filas.forEach(f => claves.push({ grupo:A.grupo, k:A.grupo + '|' + f.et, lbl:f.lbl })));
+  const TOL = 1;
+  const hayArch = !!_cmp && _cmp.anio === Y;
+  const difs = hayArch ? claves.filter(c => Math.abs((_cmp.meses[M][c.k] || 0) - (app[M][c.k] || 0)) > TOL) : [];
+
+  const F = v => (v < 0 ? '-' : '') + '$' + fmt(Math.abs(v));
+  const nPend = C.faltan.length + difs.length;
+  const perTxt = C.per.slice(0, 3).map(p => LK_MESNOM[p.m - 1] + (p.y !== Y ? ' ' + p.y : '')).join(', ');
+
+  const semaforo = (titulo, estado, detalle) => `
+    <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border2)">
+      <span style="color:${estado ? 'var(--usa)' : 'var(--esp)'};font-size:14px">●</span>
+      <div style="flex:1"><div style="font-size:12px;font-weight:600">${titulo}</div>
+        <div style="font-size:11px;color:var(--text3)">${detalle}</div></div></div>`;
+
+  cont.innerHTML = `
+    <div class="card" style="padding:14px 18px;margin-bottom:14px;border-color:${nPend ? 'var(--usa)' : 'var(--esp)'}">
+      <div style="font-size:15px;font-weight:600;color:${nPend ? 'var(--usa)' : 'var(--esp)'}">
+        ${nPend ? `${LK_MESNOM[M - 1]} ${Y} — ${nPend} cosa${nPend === 1 ? '' : 's'} para mirar`
+                : `${LK_MESNOM[M - 1]} ${Y} cerrado ✓`}</div>
+      <div style="margin-top:8px">
+        ${semaforo('Completitud', C.faltan.length,
+            C.faltan.length ? `${C.faltan.length} de ${C.esperados} rubros habituales sin cargar`
+                            : `Los ${C.esperados} rubros habituales están cargados`)}
+        ${semaforo('Conciliación contra el COMPLETO', difs.length,
+            !hayArch ? 'Sin archivo — subí el COMPLETO acá arriba para correr este control'
+                     : (difs.length ? `${difs.length} rubro${difs.length === 1 ? '' : 's'} no cuadra${difs.length === 1 ? '' : 'n'}`
+                                    : `Los ${claves.length} rubros cuadran contra ${_cmp.archivo}`))}
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="section-title" style="font-size:13px;margin:0 0 4px">Completitud</div>
+      <p style="font-size:11px;color:var(--text3);margin:0 0 12px">
+        Se reclama lo que apareció en <b>al menos 2 de los 3 meses anteriores</b> (${perTxt}) y este mes no está.
+        Lo esporádico no se reclama. MFL, vendidos y dados de baja quedan afuera.</p>
+      ${C.faltan.length ? `<div class="table-wrap"><table style="font-size:12px">
+        <thead><tr><th>Rubro</th><th>Activo</th><th>Falta</th><th class="num">Meses previos</th></tr></thead>
+        <tbody>${C.faltan.map(f => `<tr>
+          <td style="font-size:11px;color:var(--gold)">${f.grupo}</td>
+          <td class="bold">${f.nombre}</td>
+          <td>${f.rubro}</td>
+          <td class="num" style="color:var(--text3)">${f.veces} de 3</td></tr>`).join('')}
+        </tbody></table></div>`
+        : `<p style="font-size:12px;color:var(--esp)">Nada pendiente: todo lo que se carga habitualmente está cargado.</p>`}
+    </div>
+
+    <div class="card" style="margin-top:14px">
+      <div class="section-title" style="font-size:13px;margin:0 0 10px">Conciliación · ${LK_MESNOM[M - 1]} ${Y}</div>
+      ${!hayArch ? `<p style="font-size:12px;color:var(--text3)">
+          Subí el COMPLETO del ejercicio ${Y} en el recuadro de arriba y este bloque compara, rubro por rubro,
+          lo que dice la planilla contra lo que tiene cargado la app.
+          ${_cmp ? `<br><span style="color:var(--gold)">El archivo cargado es del ejercicio ${_cmp.anio}, no del ${Y}.</span>` : ''}</p>`
+        : `<div class="table-wrap"><table style="font-size:12px">
+        <thead><tr><th style="width:26px"></th><th>Rubro</th><th class="num">COMPLETO</th><th class="num">App</th><th class="num">Diferencia</th></tr></thead>
+        <tbody>${[...new Set(claves.map(c => c.grupo))].map(g => `
+          <tr style="background:var(--bg3)"><td></td><td colspan="4" style="font-weight:600;font-size:11px;color:var(--gold)">${g}</td></tr>
+          ${claves.filter(c => c.grupo === g).map(c => {
+            const a = _cmp.meses[M][c.k] || 0, b = app[M][c.k] || 0, d = a - b, bien = Math.abs(d) <= TOL;
+            return `<tr>
+              <td style="text-align:center"><span style="color:${bien ? 'var(--esp)' : 'var(--usa)'}">●</span></td>
+              <td>${c.lbl}</td><td class="num">${F(a)}</td><td class="num">${F(b)}</td>
+              <td class="num" style="font-weight:600;color:${bien ? 'var(--esp)' : 'var(--usa)'}">${bien ? '0' : (d > 0 ? '+' : '') + F(d)}</td></tr>`;
+          }).join('')}`).join('')}
+        </tbody></table></div>
+        <p style="font-size:11px;color:var(--text3);margin:10px 0 0">
+          Una diferencia positiva significa que <b>el COMPLETO tiene más</b>: falta cargar algo en la app.</p>`}
+    </div>`;
+}
+
+async function chqArchivo(input, destino) {
   const f = input.files && input.files[0]; if (!f) return;
-  const cont = document.getElementById('chqc-contenido');
+  // v176 — el mismo lector sirve para las dos sub-solapas; `destino` dice cuál
+  // repintar. El archivo queda en `_cmp` y lo comparten las dos.
+  const cont = document.getElementById(destino === 'cierre' ? 'chqm-contenido' : 'chqc-contenido');
   cont.innerHTML = '<div class="loader"><div class="spinner"></div></div>';
   try {
     const buf = await f.arrayBuffer();
@@ -8641,7 +8889,7 @@ async function chqArchivo(input) {
     if (!anio) { const m = String(f.name).match(/20\d{2}/); anio = m ? +m[0] : new Date().getFullYear(); }
 
     _cmp = { anio, meses, archivo: f.name, faltan };
-    await renderChqCompleto();
+    if (destino === 'cierre') await renderChqCierre(); else await renderChqCompleto();
   } catch (e) {
     cont.innerHTML = `<div class="card" style="color:var(--usa)">No se pudo leer el archivo: ${e.message}<br>
       <span style="font-size:11px;color:var(--text3)">Tiene que ser el .xlsx del COMPLETO, con sus hojas ANEXO - (...).</span></div>`;
@@ -8659,37 +8907,7 @@ async function renderChqCompleto() {
   cont.innerHTML = '<div class="loader"><div class="spinner"></div></div>';
   const Y = _cmp.anio;
 
-  const B = await _rsocBase();
-  const noMFL = new Set(soloSumables(B.props ).map(x => x.id));
-  const noMFLb= new Set(soloSumables(B.bancos).map(x => x.id));
-  const noMFLa= new Set(soloSumables(B.autos ).map(x => x.id));
-  const noMFLs= new Set(soloSumables(B.socs  ).map(x => x.id));
-  const noMFLe= new Set(soloSumables(B.pe    ).map(x => x.id));
-
-  const [mb, mp, ms, ma, mpe] = await Promise.all([
-    sb.from('movimientos_bancos').select('*').eq('anio', Y).limit(5000),
-    sb.from('movimientos_propiedades').select('propiedad_id,mes,total_renta_usd,total_gastos_usd,total_impuestos_usd').eq('anio', Y).limit(5000),
-    sb.from('movimientos_sociedades').select('sociedad_id,mes,aportes,impuestos,otros_gastos').eq('anio', Y).limit(5000),
-    sb.from('movimientos_autos').select('auto_id,mes,total_usd').eq('anio', Y).limit(5000),
-    sb.from('movimientos_pe').select('pe_id,mes,utilidad,aporte_capital').eq('anio', Y).limit(5000),
-  ]);
-
-  const app = {}; for (let m = 1; m <= 12; m++) app[m] = {};
-  const acc = (m, k, v) => { app[m][k] = (app[m][k] || 0) + (Number(v) || 0); };
-  (mb.data ||[]).forEach(x => { if (!noMFLb.has(x.banco_id)) return; const u = bancoMovUSD(x);
-    acc(x.mes, 'Bancos|invest', u.inv); acc(x.mes, 'Bancos|cash', u.cash); acc(x.mes, 'Bancos|credit', u.cred); });
-  (mp.data ||[]).forEach(x => { if (!noMFL.has(x.propiedad_id)) return;
-    acc(x.mes, 'Propiedades|renta', x.total_renta_usd);
-    acc(x.mes, 'Propiedades|gastos', x.total_gastos_usd);
-    acc(x.mes, 'Propiedades|impuestos', x.total_impuestos_usd); });
-  (ms.data ||[]).forEach(x => { if (!noMFLs.has(x.sociedad_id)) return;
-    acc(x.mes, 'Sociedades|aportes', x.aportes);
-    acc(x.mes, 'Sociedades|impuestos', x.impuestos);
-    acc(x.mes, 'Sociedades|otrosgastos', x.otros_gastos); });
-  (ma.data ||[]).forEach(x => { if (!noMFLa.has(x.auto_id)) return; acc(x.mes, 'Autos|total', x.total_usd); });
-  (mpe.data||[]).forEach(x => { if (!noMFLe.has(x.pe_id)) return;
-    acc(x.mes, 'Private equity|utilidad', x.utilidad);
-    acc(x.mes, 'Private equity|aportedecapital', x.aporte_capital); });
+  const app = await _chqAppMeses(Y);
 
   const claves = [];
   CHQ_ANEXOS.forEach(A => A.filas.forEach(f => claves.push({ grupo:A.grupo, k:A.grupo + '|' + f.et, lbl:f.lbl })));
@@ -14624,7 +14842,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260825-175';
+const APP_VERSION = '20260827-176';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
