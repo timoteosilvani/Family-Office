@@ -4227,6 +4227,20 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
   </div>
 </div>
 
+<!-- Modal: historial de pagos de una alerta (v175) -->
+<div class="modal-overlay" id="modal-pagos-alerta">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="pa-title">Historial de pagos</div>
+      <button class="modal-close" onclick="closeModal('modal-pagos-alerta')">&times;</button>
+    </div>
+    <div class="modal-body" id="pa-body"></div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closeModal('modal-pagos-alerta')">Cerrar</button>
+    </div>
+  </div>
+</div>
+
 <!-- Modal: Nueva PE -->
 <div class="modal-overlay" id="modal-pe-nuevo">
   <div class="modal">
@@ -11697,9 +11711,11 @@ function renderAlertas(filtro) {
     const acciones = a._sintetico
       ? '<span style="font-size:10px;color:var(--text3)">alquiler ↗</span>'
       : (pagadasView
-        ? `<button class="btn-secondary" style="padding:3px 8px;font-size:11px" onclick="reabrirPagadaAlerta('${a.id}')" title="Volver a activas">↩ Reabrir</button>`
+        ? `<button class="btn-secondary" style="padding:3px 8px;font-size:11px" onclick="reabrirPagadaAlerta('${a.id}')" title="Volver a activas">↩ Reabrir</button>
+           <button class="btn-secondary" style="padding:3px 8px;font-size:11px;margin-left:4px" onclick="abrirPagosAlerta('${a.id}')" title="Historial de pagos">🕐</button>`
         : `<button class="btn-secondary" style="padding:3px 9px;font-size:11px;background:var(--esp-soft,rgba(39,174,96,.12));border-color:var(--esp);color:var(--esp)" onclick="marcarPagadaAlerta('${a.id}')" title="${a.recurrente?('Marcar pagado '+(fEf?fEf.toLocaleDateString('es-AR'):'el ciclo en curso')):'Marcar pagada'}">✓ Pagado</button>
-           <button class="btn-secondary" style="padding:3px 8px;font-size:11px;margin-left:4px" onclick="editarAlerta('${a.id}')">✎</button>`);
+           <button class="btn-secondary" style="padding:3px 8px;font-size:11px;margin-left:4px" onclick="editarAlerta('${a.id}')">✎</button>
+           <button class="btn-secondary" style="padding:3px 8px;font-size:11px;margin-left:4px" onclick="abrirPagosAlerta('${a.id}')" title="Historial de pagos">🕐</button>`);
     return `<tr${pagadasView?' style="opacity:0.7"':''}>
       <td><span class="${est.cls}" style="color:${est.color}">${est.label}</span>${yaPago?`<br><span style="font-size:9px;color:var(--esp);font-weight:600">✓ pagó ${cicPag}</span>`:''}</td>
       <td style="font-size:12px">${a.tipo}</td>
@@ -11742,6 +11758,24 @@ function filtroAlertas(filtro, btn) {
 // Marcar pagada: no-recurrente → Pagadas (definitivo); recurrente → pagada el CICLO en curso.
 // Ojo: guardamos el mes del CICLO, no el mes calendario. Una patente de junio pagada en julio
 // queda registrada contra junio, y el próximo vencimiento pasa a ser agosto (no julio).
+/* v175 — HISTORIAL DE PAGOS.
+   `alertas` guarda un solo `pagada_mes`/`pagada_anio`, así que cada pago PISA al
+   anterior: la tabla sólo sabe el último. `pagos_alertas` guarda una fila por
+   ciclo pagado y con eso queda la serie.
+
+   `pagada_mes`/`pagada_anio` NO se tocan: toda la lógica de ciclos
+   (`_cicloAPagar`, el próximo vencimiento, el chip "✓ pagó Ago") depende de esos
+   campos. El historial es un agregado, no un reemplazo.
+
+   Todo lo que toca `pagos_alertas` va en try/catch y con el error ignorado: si el
+   SQL todavía no se corrió, la app sigue funcionando exactamente como antes. */
+function _cicloDePago(a, now) {
+  if (a.recurrente) { const c = _cicloAPagar(a); return { y: c.y, m: c.m + 1 }; }
+  // No recurrente: no hay ciclo, se registra contra el mes del vencimiento.
+  const fv = a.fecha_vencimiento ? new Date(a.fecha_vencimiento + 'T00:00:00') : now;
+  return { y: fv.getFullYear(), m: fv.getMonth() + 1 };
+}
+
 async function marcarPagadaAlerta(id) {
   const a = alertasData.find(x => x.id === id); if (!a) return;
   const now = new Date();
@@ -11750,6 +11784,13 @@ async function marcarPagadaAlerta(id) {
   else { upd.pagada = true; upd.activa = false; }
   const { error } = await sb.from('alertas').update(upd).eq('id', id);
   if (error) return toast('Error: ' + error.message + ' (¿corriste alertas_pagadas.sql?)', 'error');
+  // Historial: upsert, para que volver a marcar el mismo ciclo no rompa nada.
+  const cic = _cicloDePago(a, now);
+  try {
+    await sb.from('pagos_alertas').upsert(
+      { alerta_id: id, ciclo_anio: cic.y, ciclo_mes: cic.m, fecha_pago: upd.fecha_pago },
+      { onConflict: 'alerta_id,ciclo_anio,ciclo_mes' });
+  } catch (e) { console.warn('pagos_alertas:', e.message); }
   if (a.recurrente) {
     const prox = fechaEfectivaAlerta({ ...a, pagada_mes: upd.pagada_mes, pagada_anio: upd.pagada_anio });
     toast('Pagado ✓ — próximo vencimiento ' + (prox ? prox.toLocaleDateString('es-AR') : '—'), 'success');
@@ -11761,11 +11802,66 @@ async function marcarPagadaAlerta(id) {
 
 async function reabrirPagadaAlerta(id) {
   const a = alertasData.find(x => x.id === id); if (!a) return;
-  const upd = a.recurrente ? { pagada_mes: null, pagada_anio: null } : { pagada: false, activa: true };
+  // Se borra del historial el ciclo que estaba registrado y `pagada_mes/anio`
+  // vuelve al ANTERIOR que haya quedado, en vez de quedar en NULL. Si la tabla no
+  // existe o no queda ninguno, se comporta igual que antes.
+  let ult = null, hayHist = false;
+  try {
+    if (a.recurrente && a.pagada_anio && a.pagada_mes) {
+      await sb.from('pagos_alertas').delete()
+        .match({ alerta_id: id, ciclo_anio: a.pagada_anio, ciclo_mes: a.pagada_mes });
+    } else if (!a.recurrente) {
+      await sb.from('pagos_alertas').delete().eq('alerta_id', id);
+    }
+    if (a.recurrente) {
+      const { data, error: eH } = await sb.from('pagos_alertas')
+        .select('ciclo_anio,ciclo_mes').eq('alerta_id', id)
+        .order('ciclo_anio', { ascending: false })
+        .order('ciclo_mes', { ascending: false }).limit(1);
+      if (!eH) { hayHist = true; ult = (data && data[0]) || null; }
+    }
+  } catch (e) { console.warn('pagos_alertas:', e.message); }
+  const upd = a.recurrente
+    ? { pagada_mes:  (hayHist && ult) ? ult.ciclo_mes  : null,
+        pagada_anio: (hayHist && ult) ? ult.ciclo_anio : null }
+    : { pagada: false, activa: true };
   const { error } = await sb.from('alertas').update(upd).eq('id', id);
   if (error) return toast('Error: ' + error.message, 'error');
-  toast('Reabierta ✓', 'success');
+  toast(ult ? ('Reabierta ✓ — último pago registrado: ' + MESNOM[ult.ciclo_mes] + ' ' + ult.ciclo_anio)
+            : 'Reabierta ✓', 'success');
   await loadAlertas();
+}
+
+// Modal 🕐: todos los ciclos pagados de una alerta, del más nuevo al más viejo.
+async function abrirPagosAlerta(id) {
+  const a = alertasData.find(x => x.id === id); if (!a) return;
+  document.getElementById('pa-title').textContent =
+    'Historial de pagos — ' + (a.descripcion || a.tipo || '');
+  const cont = document.getElementById('pa-body');
+  cont.innerHTML = '<p style="color:var(--text3);font-size:12px">Cargando…</p>';
+  openModal('modal-pagos-alerta');
+  const { data, error } = await sb.from('pagos_alertas')
+    .select('ciclo_anio,ciclo_mes,fecha_pago,importe,nota')
+    .eq('alerta_id', id)
+    .order('ciclo_anio', { ascending: false })
+    .order('ciclo_mes', { ascending: false }).limit(500);
+  if (error) {
+    cont.innerHTML = '<p style="color:var(--usa);font-size:12px">Falta la tabla <code>pagos_alertas</code>. Corré el SQL del historial de pagos y volvé a intentar.</p>';
+    return;
+  }
+  if (!data || !data.length) {
+    cont.innerHTML = '<p style="color:var(--text3);font-size:12px">Todavía no hay pagos registrados. El historial arranca con el primer «✓ Pagado» de acá en adelante.</p>';
+    return;
+  }
+  cont.innerHTML = `<div class="table-wrap"><table style="font-size:12px">
+      <thead><tr><th>Ciclo</th><th>Fecha de pago</th><th class="num">Importe</th><th>Nota</th></tr></thead>
+      <tbody>${data.map(p => `<tr>
+        <td class="bold">${MESNOM[p.ciclo_mes] || p.ciclo_mes} ${p.ciclo_anio}</td>
+        <td style="color:var(--text3)">${p.fecha_pago ? new Date(p.fecha_pago + 'T00:00:00').toLocaleDateString('es-AR') : '—'}</td>
+        <td class="num">${p.importe != null ? '$' + fmt(p.importe) : '—'}</td>
+        <td style="color:var(--text3);font-size:11px">${p.nota || '—'}</td>
+      </tr>`).join('')}</tbody></table></div>
+    <p style="color:var(--text3);font-size:11px;margin-top:8px">${data.length} pago${data.length > 1 ? 's' : ''} registrado${data.length > 1 ? 's' : ''}.</p>`;
 }
 
 // Abrir el modal en modo ALTA (limpio). Antes se abría el modal directo y quedaba
@@ -14528,7 +14624,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260825-174';
+const APP_VERSION = '20260825-175';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
