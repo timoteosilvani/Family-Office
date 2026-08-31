@@ -4693,6 +4693,7 @@ async function initApp() {
   await loadHistOverrides();
   await hidratarActivosHist();  // v169: propiedades y autos salen de la base, no del hardcode
   await hidratarBancosHist();   // v141: años live → el Historial sale de movimientos_bancos
+  await hidratarPEHist();       // v177: aportes y utilidades de PE salen de movimientos_pe
   try {
     await populateAllSelects();
   } catch(e) {
@@ -6478,6 +6479,8 @@ async function guardarMovPE() {
   toast('Movimiento guardado ✓', 'success');
   // Recargar los valores guardados (en vez de poner todo en 0) y refrescar evolución
   await loadMovPE();
+  // v177 — el Historial y el patrimonio tienen que ver el cambio ya, sin deploy.
+  await hidratarPEHist();
   await refrescarVistaActual();
 }
 
@@ -11728,6 +11731,114 @@ async function hidratarActivosHist() {
   return _hidratado;
 }
 
+/* ═══════════════════════════════════════════════════════════════════════
+   PRIVATE EQUITY: LA BASE MANDA  (v177)
+   ───────────────────────────────────────────────────────────────────────
+   PE era el último rubro con dos fuentes que no se hablaban: la pantalla de
+   PE lee la tabla `private_equity` + `movimientos_pe`, pero el Historial, el
+   Patrimonio y los informes leían el array hardcodeado PE_HIST_DATA, que sólo
+   cambia con un deploy. Resultado: cargabas julio de Panera Rosa y el
+   Historial seguía mostrando el número de abril.
+
+   QUÉ SE HIDRATA Y QUÉ NO
+   -----------------------
+   · `ap` (aporte del año) y `ut` (utilidad del año) ← se recalculan sumando
+     `movimientos_pe` de ese año. La base pisa DONDE HAY FILAS; donde no hay
+     movimientos cargados, sobrevive el hardcode.
+   · `ia` (inversión acumulada al inicio) ← NO SE TOCA, a propósito.
+     No tiene origen en `movimientos_pe`: sale de la columna "Acumulado
+     Histórico" del anexo, que nunca se cargó como movimientos. Y derivarlo
+     sumando los aportes rompe dos casos REALES, verificados el 27/08:
+       – Palm Bay 2026: el acumulado salta +450.000 sin `ap` que lo explique.
+       – Boston 2025: el acumulado cae a 0 porque la posición se cerró.
+     `ia` sigue saliendo del hardcode + el lápiz ✎, que ya arrastra (v174).
+
+   ⚠ MATCH POR NOMBRE, NUNCA POR NRO. `private_equity` y PE_HIST_DATA tienen
+   numeraciones distintas: en la tabla TGA es 11, falta el 10 y llega a 20; en
+   el array TGA es 10 y termina en 19. Además el nro DEL ARRAY es la clave de
+   PE_ATTR, PE_VAL y de los `historico_overrides` de PE, así que no se pisa
+   nunca con el de la tabla. Mismo criterio que `hidratarBancosHist()`.
+
+   ⚠ Para una posición con movimientos cargados, editar `ap`/`ut` con el ✎ no
+   sirve: la hidratación corre después y los reescribe. Esos años se editan en
+   la pantalla de PE, que es donde vive el dato.
+   ═══════════════════════════════════════════════════════════════════════ */
+let _peHidratado = { pos:0, anios:0, nuevos:[], sinMatch:[] };
+
+async function hidratarPEHist() {
+  _peHidratado = { pos:0, anios:0, nuevos:[], sinMatch:[] };
+  try {
+    const [{ data: pos }, { data: movs }] = await Promise.all([
+      sb.from('private_equity').select('*'),
+      sb.from('movimientos_pe').select('pe_id,anio,utilidad,aporte_capital').limit(9000),
+    ]);
+    if (!pos || !pos.length) return _peHidratado;
+
+    const porNombre = {};
+    PE_HIST_DATA.forEach(p => porNombre[_peNorm(p.nombre)] = p);
+    for (const base in PE_ALIAS) {
+      const h = porNombre[_peNorm(PE_ALIAS[base])];
+      if (h) porNombre[base] = h;
+    }
+    // Nro sintético para posiciones que están en la base y no en el array: se
+    // arranca arriba del máximo del hardcode para no chocar con PE_ATTR/PE_VAL.
+    let nroLibre = PE_HIST_DATA.reduce((m, p) => Math.max(m, Number(p.nro) || 0), 0);
+
+    pos.forEach(r => {
+      let h = porNombre[_peNorm(r.nombre)];
+      if (!h) {
+        h = { nro: ++nroLibre, nombre: r.nombre, titular: r.titular,
+              aporteHist: 0, utilHist: 0, terminado: false, byY: {} };
+        PE_HIST_DATA.push(h);
+        porNombre[_peNorm(r.nombre)] = h;
+        _peHidratado.nuevos.push(r.nombre);
+      }
+      // identidad: manda la base, que es lo que se ve y se edita
+      h.nombre  = r.nombre  ?? h.nombre;
+      h.titular = r.titular ?? h.titular;
+      if (r.activo === false) h.inactivo = true;
+      _peHidratado.pos++;
+    });
+
+    // ap / ut por año, sumando los movimientos de cada posición
+    const porId = {}; pos.forEach(r => porId[r.id] = r);
+    const agg = {};
+    (movs || []).forEach(m => {
+      const r = porId[m.pe_id]; if (!r || m.anio == null) return;
+      const k = _peNorm(r.nombre) + '|' + m.anio;
+      const a = agg[k] = agg[k] || { ap:0, ut:0 };
+      a.ap += Number(m.aporte_capital) || 0;
+      a.ut += Number(m.utilidad) || 0;
+    });
+    Object.keys(agg).forEach(k => {
+      const corte = k.lastIndexOf('|');
+      const h = porNombre[k.slice(0, corte)]; if (!h) return;
+      const y = k.slice(corte + 1);
+      h.byY = h.byY || {};
+      if (!h.byY[y]) {
+        // Año nuevo: el acumulado de apertura es el cierre del año anterior.
+        // Los años que YA existen conservan su `ia` intacto.
+        const prev = Object.keys(h.byY).map(Number).filter(n => n < +y).sort((a,b) => b - a)[0];
+        const pd = prev ? h.byY[String(prev)] : null;
+        h.byY[y] = { ia: pd ? (pd.ia || 0) + (pd.ap || 0) : 0, ap:0, ut:0 };
+      }
+      h.byY[y].ap = agg[k].ap;
+      h.byY[y].ut = agg[k].ut;
+      _peHidratado.anios++;
+    });
+
+    PE_HIST_DATA.sort((a, b) => (a.nro ?? 9999) - (b.nro ?? 9999));
+    _peHistIdx = null;   // el índice nombre→historial se rearma con lo hidratado
+
+    const sinMatch = pos.filter(r => !porNombre[_peNorm(r.nombre)]).map(r => r.nombre);
+    if (sinMatch.length) { _peHidratado.sinMatch = sinMatch;
+      console.warn('hidratarPEHist · posiciones de la base sin equivalente en PE_HIST_DATA:', sinMatch); }
+    if (_peHidratado.nuevos.length)
+      console.info('PE que estaba en la base y no en el histórico:', _peHidratado.nuevos.join(' · '));
+  } catch (e) { console.warn('hidratarPEHist:', e.message); }
+  return _peHidratado;
+}
+
 async function hidratarBancosHist() {
   _bancosHidratados = {};
   try {
@@ -14842,7 +14953,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260827-176';
+const APP_VERSION = '20260827-177';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
