@@ -1,0 +1,60 @@
+name: Keep Supabase alive
+
+# ─────────────────────────────────────────────────────────────────────────────
+# POR QUÉ EXISTE ESTE ARCHIVO
+#
+# Supabase pausa los proyectos del plan gratuito que no reciben actividad de
+# base de datos durante 7 días. OFFIDA es una página estática: sólo consulta
+# Supabase cuando alguien la abre. Si Timoteo pasa una semana sin entrar, no
+# hay actividad y el proyecto se pausa (pasó el 07/09/2026).
+#
+# Esto hace una consulta trivial tres veces por semana para que el reloj de los
+# 7 días nunca llegue al final. No toca ni un dato: sólo lee una fila.
+#
+# ⚠ GitHub desactiva los workflows programados después de 60 días sin actividad
+#   en el repositorio. Cada deploy de index.html cuenta como actividad, así que
+#   mientras deployees cada tanto sigue vivo. Si se desactiva, GitHub te manda
+#   un mail y se vuelve a prender con un click desde la solapa Actions.
+# ─────────────────────────────────────────────────────────────────────────────
+
+on:
+  schedule:
+    # Lunes, miércoles y viernes a las 12:00 UTC (09:00 en Buenos Aires).
+    # Tres veces por semana y no una: el cron de GitHub puede demorarse o
+    # saltear una corrida cuando hay mucha carga.
+    - cron: '0 12 * * 1,3,5'
+  workflow_dispatch:        # botón para correrlo a mano y probarlo
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Consultar Supabase
+        env:
+          SUPABASE_URL: https://pvaqgdqdpuobnsdcystz.supabase.co
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${SUPABASE_ANON_KEY:-}" ]; then
+            echo "::error::Falta el secret SUPABASE_ANON_KEY (Settings → Secrets and variables → Actions)."
+            exit 1
+          fi
+
+          codigo=$(curl -sS --max-time 30 -o respuesta.txt -w '%{http_code}' \
+            "$SUPABASE_URL/rest/v1/tipo_de_cambio?select=anio&limit=1" \
+            -H "apikey: $SUPABASE_ANON_KEY" \
+            -H "Authorization: Bearer $SUPABASE_ANON_KEY")
+
+          echo "HTTP $codigo"
+          head -c 300 respuesta.txt; echo
+
+          # 200 es lo único que garantiza que la consulta llegó a la base.
+          # Una respuesta vacía por RLS también da 200 y sirve igual: lo que
+          # cuenta como actividad es que Postgres haya ejecutado la query.
+          if [ "$codigo" != "200" ]; then
+            echo "::error::Supabase respondió $codigo — el keep-alive no sirvió. Revisá el secret o el nombre de la tabla."
+            exit 1
+          fi
+
+          echo "✓ Supabase respondió OK. Contador de inactividad reiniciado."
