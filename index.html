@@ -1427,12 +1427,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
               </div>
               <div>
                 <label class="fld">Año</label>
-                <select class="fld" id="carga-prop-anio" onchange="refrescarPropsCarga()">
-                  <option value="2026">2026</option>
-                  <option value="2025">2025</option>
-                  <option value="2024">2024</option>
-                  <option value="2023">2023</option>
-                </select>
+                <select class="fld" id="carga-prop-anio" onchange="refrescarPropsCarga()"><option value="2026">2026</option><option value="2025">2025</option><option value="2024">2024</option><option value="2023">2023</option><option value="2022">2022</option><option value="2021">2021</option><option value="2020">2020</option></select>
               </div>
               <div>
                 <label class="fld">Mes</label>
@@ -1664,9 +1659,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
             <div class="form-row cols-3" style="margin:0">
               <div>
                 <label class="fld">Año</label>
-                <select class="fld" id="banco-evol-anio" onchange="loadBancosEvolucion()">
-                  <option value="2026">2026</option><option value="2025">2025</option><option value="2024">2024</option>
-                </select>
+                <select class="fld" id="banco-evol-anio" onchange="loadBancosEvolucion()"><option value="2026">2026</option><option value="2025">2025</option><option value="2024">2024</option><option value="2023">2023</option><option value="2022">2022</option><option value="2021">2021</option><option value="2020">2020</option></select>
               </div>
               <div>
                 <label class="fld">Filtrar titular</label>
@@ -1688,6 +1681,12 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
                   <option value="ESP">🇪🇸 ESP</option>
                 </select>
               </div>
+              <div>
+                <label class="fld">Cuenta</label>
+                <select class="fld" id="banco-evol-cuenta" onchange="loadBancosEvolucion()">
+                  <option value="">Todas</option>
+                </select>
+              </div>
             </div>
           </div>
           <div id="banco-evol-result"><div class="loader"><div class="spinner"></div></div></div>
@@ -1706,12 +1705,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
               </div>
               <div>
                 <label class="fld">Año</label>
-                <select class="fld" id="carga-banco-anio">
-                  <option value="2026">2026</option>
-                  <option value="2025">2025</option>
-                  <option value="2024">2024</option>
-                  <option value="2023">2023</option>
-                </select>
+                <select class="fld" id="carga-banco-anio"><option value="2026">2026</option><option value="2025">2025</option><option value="2024">2024</option><option value="2023">2023</option><option value="2022">2022</option><option value="2021">2021</option><option value="2020">2020</option></select>
               </div>
               <div>
                 <label class="fld">Mes</label>
@@ -1912,11 +1906,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
                 </select>
               </div>
               <div><label class="fld">Año</label>
-                <select class="fld" id="pe-ev-anio" onchange="loadPEEvolucion()">
-                  <option value="2026">2026</option>
-                  <option value="2025">2025</option>
-                  <option value="2024">2024</option>
-                </select>
+                <select class="fld" id="pe-ev-anio" onchange="loadPEEvolucion()"><option value="2026">2026</option><option value="2025">2025</option><option value="2024">2024</option><option value="2023">2023</option><option value="2022">2022</option><option value="2021">2021</option><option value="2020">2020</option></select>
               </div>
               <div><label class="fld">Titular</label>
                 <select class="fld" id="pe-ev-titular" onchange="loadPEEvolucion()">
@@ -2027,11 +2017,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
                   <select class="fld" id="pe-mens-sel" onchange="loadMovPE()"><option value="">Seleccionar...</option></select>
                 </div>
                 <div><label class="fld">Año</label>
-                  <select class="fld" id="pe-mens-anio" onchange="loadMovPE()">
-                    <option value="2026">2026</option>
-                    <option value="2025">2025</option>
-                    <option value="2024">2024</option>
-                  </select>
+                  <select class="fld" id="pe-mens-anio" onchange="loadMovPE()"><option value="2026">2026</option><option value="2025">2025</option><option value="2024">2024</option><option value="2023">2023</option><option value="2022">2022</option><option value="2021">2021</option><option value="2020">2020</option></select>
                 </div>
                 <div><label class="fld">Mes</label>
                   <select class="fld" id="pe-mens-mes" onchange="loadMovPE()">
@@ -2176,9 +2162,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
             <div class="form-row cols-2" style="margin:0">
               <div>
                 <label class="fld">Año</label>
-                <select class="fld" id="auto-evol-anio" onchange="loadAutosEvolucion()">
-                  <option value="2026">2026</option><option value="2025">2025</option><option value="2024">2024</option>
-                </select>
+                <select class="fld" id="auto-evol-anio" onchange="loadAutosEvolucion()"><option value="2026">2026</option><option value="2025">2025</option><option value="2024">2024</option><option value="2023">2023</option><option value="2022">2022</option><option value="2021">2021</option><option value="2020">2020</option></select>
               </div>
               <div>
                 <label class="fld">Titular</label>
@@ -2204,9 +2188,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
               </div>
               <div>
                 <label class="fld">Año</label>
-                <select class="fld" id="carga-auto-anio">
-                  <option value="2026">2026</option><option value="2025">2025</option><option value="2024">2024</option>
-                </select>
+                <select class="fld" id="carga-auto-anio"><option value="2026">2026</option><option value="2025">2025</option><option value="2024">2024</option><option value="2023">2023</option><option value="2022">2022</option><option value="2021">2021</option><option value="2020">2020</option></select>
               </div>
               <div>
                 <label class="fld">Mes</label>
@@ -2361,9 +2343,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
               </div>
               <div>
                 <label class="fld">Año</label>
-                <select class="fld" id="gastos-anio-tabla" onchange="verGastosTabla()">
-                  <option value="2026">2026</option><option value="2025">2025</option><option value="2024">2024</option>
-                </select>
+                <select class="fld" id="gastos-anio-tabla" onchange="verGastosTabla()"><option value="2026">2026</option><option value="2025">2025</option><option value="2024">2024</option><option value="2023">2023</option><option value="2022">2022</option><option value="2021">2021</option><option value="2020">2020</option></select>
               </div>
               <div>
                 <label class="fld">País</label>
@@ -2403,9 +2383,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
               </div>
               <div>
                 <label class="fld">Año</label>
-                <select class="fld" id="det-anio" onchange="loadDetalle()">
-                  <option value="2026">2026</option><option value="2025">2025</option><option value="2024">2024</option>
-                </select>
+                <select class="fld" id="det-anio" onchange="loadDetalle()"><option value="2026">2026</option><option value="2025">2025</option><option value="2024">2024</option><option value="2023">2023</option><option value="2022">2022</option><option value="2021">2021</option><option value="2020">2020</option></select>
               </div>
               <div>
                 <label class="fld">Mes</label>
@@ -2490,9 +2468,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
               </div>
               <div>
                 <label class="fld">Año</label>
-                <select class="fld" id="gastos-anio-anual2" onchange="filtrarAnual2()">
-                  <option value="2026">2026</option><option value="2025">2025</option><option value="2024">2024</option>
-                </select>
+                <select class="fld" id="gastos-anio-anual2" onchange="filtrarAnual2()"><option value="2026">2026</option><option value="2025">2025</option><option value="2024">2024</option><option value="2023">2023</option><option value="2022">2022</option><option value="2021">2021</option><option value="2020">2020</option></select>
               </div>
               <div>
                 <label class="fld">País</label>
@@ -2541,10 +2517,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
               </div>
               <div>
                 <label class="fld">Año</label>
-                <select class="fld" id="carga-prop-anio2" onchange="refrescarPropsCarga()">
-                  <option value="2026">2026</option><option value="2025">2025</option>
-                  <option value="2024">2024</option><option value="2023">2023</option>
-                </select>
+                <select class="fld" id="carga-prop-anio2" onchange="refrescarPropsCarga()"><option value="2026">2026</option><option value="2025">2025</option><option value="2024">2024</option><option value="2023">2023</option><option value="2022">2022</option><option value="2021">2021</option><option value="2020">2020</option></select>
               </div>
               <div>
                 <label class="fld">Mes</label>
@@ -3267,11 +3240,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
           <div class="card" style="margin-bottom:14px;padding:12px 16px">
             <div class="form-row cols-2" style="margin:0">
               <div><label class="fld">Año</label>
-                <select class="fld" id="soc-evol-anio" onchange="loadSocEvolucion()">
-                  <option value="2026">2026</option>
-                  <option value="2025">2025</option>
-                  <option value="2024">2024</option>
-                </select>
+                <select class="fld" id="soc-evol-anio" onchange="loadSocEvolucion()"><option value="2026">2026</option><option value="2025">2025</option><option value="2024">2024</option><option value="2023">2023</option><option value="2022">2022</option><option value="2021">2021</option><option value="2020">2020</option></select>
               </div>
               <div><label class="fld">Titular</label>
                 <select class="fld" id="soc-evol-tit" onchange="loadSocEvolucion()">
@@ -3296,9 +3265,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
               </div>
               <div>
                 <label class="fld">Año</label>
-                <select class="fld" id="carga-soc-anio">
-                  <option value="2026">2026</option><option value="2025">2025</option><option value="2024">2024</option>
-                </select>
+                <select class="fld" id="carga-soc-anio"><option value="2026">2026</option><option value="2025">2025</option><option value="2024">2024</option><option value="2023">2023</option><option value="2022">2022</option><option value="2021">2021</option><option value="2020">2020</option></select>
               </div>
               <div>
                 <label class="fld">Mes</label>
@@ -7710,28 +7677,64 @@ async function loadLinkeo() {
     return;
   }
 
-  // ── juntar los rubros con importe, por activo y por mes
+  /* ── juntar los rubros, por activo y por mes ──────────────────────────────
+     v178 — DOS CAMBIOS:
+
+     1) MFL QUEDA AFUERA. Decisión de Timoteo (08/09): "ya no lo vamos a pagar
+        más". Se usa `sumaTit`, el mismo criterio que el resto de la app, así
+        "MFL no cuenta" sigue definido en un solo lugar. Las reglas de MFL que
+        ya estén cargadas NO se borran: quedan en la base, sin mostrarse.
+
+     2) FILAS POR RECURRENCIA. Antes sólo se armaba fila para un rubro que YA
+        tenía importe dentro de la vigencia (julio 2026 en adelante), y por eso
+        no se podía dejar la cuenta puesta ANTES de que el gasto apareciera:
+        faltaban las expensas de Coral, la comisión de las Brickell, etc.
+        Ahora, en la vista de año completo, un rubro que aparece en 2 o más
+        meses del año GENERA FILA aunque todavía no tenga importe en la
+        vigencia. Es el mismo criterio de recurrencia del cierre mensual.
+        En la vista de UN MES no aplica: ahí se cargan excepciones sobre
+        movimientos reales, y un movimiento que no existe no tiene excepción. */
   const bloques = []; let pendRubros = 0, pendMonto = 0, nExc = 0;
+  const MESES_AÑO = [1,2,3,4,5,6,7,8,9,10,11,12];
   for (const t of LK_TIPOS) {
     const [{ data: cat }, movR] = await Promise.all([
       sb.from(t.cat).select('id,nro,nombre,titular'),
-      sb.from(t.tabla).select('*').eq('anio', anio).in('mes', meses).limit(5000).then(r=>r, ()=>({data:[]})),
+      // En año completo se trae el año entero: los meses previos a la vigencia
+      // no generan pendiente pero sí sirven para detectar la recurrencia.
+      sb.from(t.tabla).select('*').eq('anio', anio).in('mes', mesSel ? meses : MESES_AÑO).limit(5000).then(r=>r, ()=>({data:[]})),
     ]);
-    const porId = {}; (cat||[]).forEach(c => { porId[c.id]=c; _lkCat[t.key+'|'+c.nro]=c.nombre; });
+    const porId = {};
+    soloSumables(cat||[]).forEach(c => { porId[c.id]=c; _lkCat[t.key+'|'+c.nro]=c.nombre; });
     const ordenRubro = {}; let k = 0;
     t.grupos.forEach(gr => gr.campos.forEach(c => ordenRubro[c] = k++));
 
-    const acum = {};
+    const acum = {}, recur = {};
     (movR.data||[]).forEach(m => {
       const a = porId[m[t.fk]]; if (!a) return;
-      if (!lkVigente(Number(m.anio), Number(m.mes))) return;
+      const enVigencia = lkVigente(Number(m.anio), Number(m.mes));
       t.grupos.forEach(gr => gr.campos.forEach(c => {
         const v = Number(m[c])||0; if (!v) return;
+        // recurrencia: se cuenta sobre TODO el año, dentro y fuera de la vigencia
+        if (!mesSel) {
+          const rk = a.id+'|'+c;
+          if (!recur[rk]) recur[rk] = { act:a, grupo:gr.g, rubro:c, monto:0, meses:[] };
+          recur[rk].monto += v;
+          if (!recur[rk].meses.includes(m.mes)) recur[rk].meses.push(m.mes);
+        }
+        if (!enVigencia) return;
         const key = mesSel ? a.id+'|'+c+'|'+m.mes : a.id+'|'+c;
         if (!acum[key]) acum[key] = { act:a, grupo:gr.g, rubro:c, monto:0, meses:[], mes: m.mes };
         acum[key].monto += v;
         if (!acum[key].meses.includes(m.mes)) acum[key].meses.push(m.mes);
       }));
+    });
+
+    // Los recurrentes que todavía no tienen importe en la vigencia entran como
+    // fila propia, marcados, para poder dejarles la cuenta puesta de antemano.
+    if (!mesSel) Object.keys(recur).forEach(rk => {
+      if (acum[rk]) return;
+      if (recur[rk].meses.length < 2) return;      // con una sola vez no alcanza
+      acum[rk] = { ...recur[rk], soloRecurrente: true };
     });
 
     const filas = Object.values(acum).map(x => {
@@ -7796,10 +7799,11 @@ async function loadLinkeo() {
               </tr></thead><tbody>
               ${a.rubros.map(x => {
                 const origen = x.exc ? 'Excepción' : (x.regla ? 'Regla' : '—');
-                return `<tr>
-                  <td>${LK_NOM[x.rubro] || x.rubro} <span style="color:var(--text3);font-size:10px">${x.grupo}</span></td>
+                return `<tr${x.soloRecurrente ? ' style="opacity:0.75"' : ''}>
+                  <td>${LK_NOM[x.rubro] || x.rubro} <span style="color:var(--text3);font-size:10px">${x.grupo}</span>
+                      ${x.soloRecurrente ? `<div style="font-size:9px;color:var(--gold)">recurrente · ${x.meses.length} meses en ${anio}, todavía sin importe en el período</div>` : ''}</td>
                   ${mesSel?'':`<td class="num" style="color:var(--text3)">${x.meses.length}</td>`}
-                  <td class="num">$${fmt(x.monto)}</td>
+                  <td class="num"${x.soloRecurrente ? ' style="color:var(--text3)"' : ''}>$${fmt(x.monto)}</td>
                   <td style="font-size:11px">${lkTxtCuenta(x.efectiva)}
                       <span style="color:var(--text3);font-size:10px">${origen !== '—' ? '· ' + origen : ''}</span></td>
                   <td>${mesSel
@@ -7880,11 +7884,15 @@ function renderLinkeoReglas() {
     return _lkCat[k+'|'+nro] || '';
   };
   const catLbl = { propiedades:'Propiedades', autos:'Autos', sociedades:'Sociedades', private_equity:'Private Equity' };
-  const rows = _lkReglas.slice().sort((a,b) =>
+  // v178 — las reglas de activos de MFL no se listan (ya no se pagan). Siguen en
+  // la base: si alguna vez vuelven, están. `_lkCat` sólo tiene los no-MFL, porque
+  // loadLinkeo() lo llena con soloSumables().
+  const esMFL = r => !_lkCat[({propiedades:'propiedad',autos:'auto',sociedades:'sociedad',private_equity:'pe'}[r.categoria]||r.categoria)+'|'+r.activo_nro];
+  const rows = _lkReglas.slice().filter(r => !esMFL(r)).sort((a,b) =>
       String(a.categoria).localeCompare(String(b.categoria)) || (a.activo_nro - b.activo_nro)
       || String(a.rubro).localeCompare(String(b.rubro)));
 
-  const exc = _lkExc.slice().sort((a,b) => a.mes - b.mes || a.activo_nro - b.activo_nro);
+  const exc = _lkExc.slice().filter(e => !esMFL(e)).sort((a,b) => a.mes - b.mes || a.activo_nro - b.activo_nro);
 
   cont.innerHTML = `
     <div class="card">
@@ -13896,6 +13904,7 @@ async function loadBancosEvolucion() {
   const anio = parseInt(document.getElementById('banco-evol-anio')?.value || 2026);
   const titFiltro = document.getElementById('banco-evol-tit')?.value || '';
   const paisFiltro = document.getElementById('banco-evol-pais')?.value || '';
+  const ctaFiltro = document.getElementById('banco-evol-cuenta')?.value || '';   // v178
   const res = document.getElementById('banco-evol-result');
   if (!res) return;
   res.innerHTML = '<div class="loader"><div class="spinner"></div></div>';
@@ -13909,9 +13918,23 @@ async function loadBancosEvolucion() {
   const meses = ['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
   const MM = [1,2,3,4,5,6,7,8,9,10,11,12];
 
+  /* v178 — El desplegable de cuentas se llena con lo que hay en la base y respeta
+     los otros dos filtros: si elegís titular JC, sólo ofrece las cuentas de JC. Se
+     repuebla en cada corrida pero conserva lo elegido si sigue siendo válido. */
+  const selCta = document.getElementById('banco-evol-cuenta');
+  if (selCta) {
+    const elegibles = (bancos||[])
+      .filter(b => (!titFiltro || b.titular === titFiltro) && (!paisFiltro || b.pais === paisFiltro))
+      .sort((a,b) => (a.nro ?? 9999) - (b.nro ?? 9999));
+    selCta.innerHTML = '<option value="">Todas</option>' +
+      elegibles.map(b => `<option value="${b.id}">${b.nro ?? '—'} · ${b.nombre}</option>`).join('');
+    selCta.value = elegibles.some(b => b.id === ctaFiltro) ? ctaFiltro : '';
+  }
+
   let filtered = (bancos||[]);
   if (titFiltro) filtered = filtered.filter(b => b.titular === titFiltro);
   if (paisFiltro) filtered = filtered.filter(b => b.pais === paisFiltro);
+  if (selCta && selCta.value) filtered = filtered.filter(b => b.id === selCta.value);
 
   const movMap = {};
   (movs||[]).forEach(m => { (movMap[m.banco_id] ||= {})[m.mes] = m; });
@@ -14953,7 +14976,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260827-177';
+const APP_VERSION = '20260908-178';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
