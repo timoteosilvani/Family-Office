@@ -3645,6 +3645,24 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
         <div class="tabs">
           <button class="tab-btn active" onclick="switchTab('rep','patrimonial',this)">Patrimonial</button>
           <button class="tab-btn" onclick="switchTab('rep','sociedades',this);renderRepSoc()">Sociedades</button>
+          <button class="tab-btn" onclick="switchTab('rep','porcliente',this);renderRepCliente()">Por cliente</button>
+        </div>
+
+        <div id="rep-porcliente" class="tab-content">
+          <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:16px;margin-bottom:18px">
+            <div>
+              <div class="section-title" style="margin-bottom:4px">Reporte por cliente</div>
+              <p style="color:var(--text3);font-size:13px;margin:0;max-width:660px">El patrimonio de un cliente como bloque propio: cu&aacute;nto vale, de qu&eacute; est&aacute; hecho, cu&aacute;nto rinde y qu&eacute; conviene mirar.</p>
+            </div>
+            <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+              <div><label class="fld">Cliente</label>
+                <select class="fld" id="rc-cliente" style="min-width:190px" onchange="renderRepCliente()"></select></div>
+              <div><label class="fld">A&ntilde;o</label>
+                <select class="fld" id="rc-anio" style="width:auto" onchange="renderRepCliente()"></select></div>
+              <button class="btn-secondary" style="padding:8px 14px;font-size:12px" onclick="exportarRepClientePDF()">&#11015; PDF</button>
+            </div>
+          </div>
+          <div id="rc-contenido"><div class="loader"><div class="spinner"></div></div></div>
         </div>
 
         <div id="rep-patrimonial" class="tab-content active" style="display:block">
@@ -8299,6 +8317,247 @@ async function renderRepSociedad() {
       Valores al cierre de cada año, de la misma fuente que Patrimonio Histórico. El resultado operativo es
       renta neta de propiedades menos gastos de autos, más rendimiento de cuentas de inversión, menos impuestos
       y gastos de la sociedad. Private equity se mide con su propia lógica y va aparte. MFL no suma.</p>`;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   REPORTE POR CLIENTE  (v179)
+   ───────────────────────────────────────────────────────────────────────
+   El informe patrimonial que ya existía muestra el patrimonio de UNA PERSONA,
+   y como `H` se reparte ÷3, al elegir FC ahí ya se ve el tercio de H sumado a
+   lo propio. Lo que no existía es ver **H como bloque**: el patrimonio que los
+   tres comparten, sin diluir dentro del patrimonio individual de cada uno.
+
+   Esto es eso, y sirve para cualquier cliente. Cuando el elegido es H, agrega
+   el bloque "tu parte" (÷3 entre FC, FCC y YAC, que es como reparte toda la
+   app vía H_SHARE).
+
+   ⚠ La atribución ÷3 rige DESDE 2026. Antes, las tenencias de H se imputaban a
+   JC (ver `derivePropsHistByTit`). El bloque existía igual, así que el reporte
+   muestra el valor del bloque en cualquier año, pero sólo ofrece "tu parte" de
+   2026 en adelante, que es cuando el reparto empezó a regir de verdad.
+   ═══════════════════════════════════════════════════════════════════════ */
+const RC_NOM = { M:'Martona', JC:'Juan Cocci', FC:'Franco Cocci', FCC:'F.C. Cocci',
+                 YAC:'Y.A. Cocci', G:'Grupillo', MFL:'M.F. Lorenzo', H:'H — compartido' };
+const RC_CLIENTES = ['H','M','JC','FC','FCC','YAC','G','MFL'];
+
+/* Titular normalizado. Decisión de Timoteo (09/09): "todo lo que diga AP tomalo
+   como H" — el auto MB CLA 200 está cargado como `AP / H`. Esto es un puente
+   hasta que corra el UPDATE que normaliza el dato en la base; después queda
+   como una identidad y no molesta. */
+function _rcTit(x) {
+  const t = String((x && x.titular) || '').trim().toUpperCase();
+  if (!t) return '';
+  return /(^|[^A-Z])AP([^A-Z]|$)/.test(t) ? 'H' : t;
+}
+const _rcVendido = (x, Y) => {
+  if (!(x.vendida === true || x.vendido === true)) return false;
+  const ay = x.fecha_venta ? Number(String(x.fecha_venta).slice(0,4)) : null;
+  return ay ? ay <= Y : true;
+};
+
+async function renderRepCliente() {
+  const selC = document.getElementById('rc-cliente');
+  if (selC && !selC.options.length)
+    selC.innerHTML = RC_CLIENTES.map(c => `<option value="${c}">${c} · ${RC_NOM[c]||c}</option>`).join('');
+  const selY = document.getElementById('rc-anio');
+  if (selY && !selY.options.length) {
+    let o = ''; for (let y = 2026; y >= 2020; y--) o += `<option value="${y}">${y}</option>`;
+    selY.innerHTML = o;
+  }
+  const CLI = selC ? selC.value : 'H';
+  const Y   = parseInt(selY ? selY.value : 2026) || 2026;
+  const cont = document.getElementById('rc-contenido'); if (!cont) return;
+  cont.innerHTML = '<div class="loader"><div class="spinner"></div></div>';
+
+  let B, D, Dp, contratos;
+  try {
+    [B, D, Dp, contratos] = await Promise.all([
+      _rsocBase(), _rsocAnio(Y), _rsocAnio(Y - 1),
+      sb.from('contratos_alquiler').select('propiedad_id,fecha_fin,activo,inquilino').limit(2000).then(r=>r.data||[], ()=>[]),
+    ]);
+  } catch (e) { cont.innerHTML = `<div class="card" style="color:var(--usa)">No se pudieron leer los datos: ${e.message}</div>`; return; }
+
+  const mio = x => _rcTit(x) === CLI;
+  const props  = B.props .filter(p => mio(p) && !_rcVendido(p, Y) && p.activa !== false);
+  const autos  = B.autos .filter(a => mio(a) && !_rcVendido(a, Y));
+  const bancos = B.bancos.filter(b => mio(b));
+  const pes    = B.pe    .filter(p => mio(p) && p.activo !== false);
+
+  // ── Valuación por tipo, en el año elegido y en el anterior
+  const valProp = (arr, y) => arr.reduce((s,p) => s + (Number(p['valor_' + y]) || 0), 0);
+  const valBanco = (arr, dat) => arr.reduce((s,b) => { const m = dat.ban && dat.ban[b.id];
+    return s + (m ? bancoMovUSD(m).neto : 0); }, 0);
+  const valPE = (arr, y) => arr.reduce((s,p) => s + (peCalc(p, y).tenencia || 0), 0);
+
+  const vP = valProp(props, Y),  vA = valProp(autos, Y);
+  const vB = valBanco(bancos, D), vE = valPE(pes, Y);
+  const TOT = vP + vA + vB + vE;
+  const prev = valProp(props, Y-1) + valProp(autos, Y-1) + valBanco(bancos, Dp) + valPE(pes, Y-1);
+  const dif = TOT - prev, difPct = prev ? (dif / prev * 100) : null;
+
+  // ── Renta, gastos e impuestos de propiedades
+  let renta = 0, gastos = 0, imp = 0;
+  props.forEach(p => { const d = D.prop[p.id] || (p.nro != null ? D.propNro[p.nro] : null);
+    if (!d) return; renta += d.renta||0; gastos += d.gastos||0; imp += d.imp||0; });
+  const gastosAuto = autos.reduce((s,a) => s + (D.auto[a.id] || (a.nro!=null ? D.autoNro[a.nro] : 0) || 0), 0);
+  const neta = renta - gastos - imp;
+  const yieldPct = vP > 0 ? (neta / vP * 100) : null;
+
+  // ── Ocupación: contrato vigente al día de hoy
+  const hoy = new Date().toISOString().slice(0,10);
+  const conContrato = new Set(contratos
+    .filter(c => c.activo !== false && (!c.fecha_fin || c.fecha_fin >= hoy))
+    .map(c => c.propiedad_id));
+  const alquiladas = props.filter(p => conContrato.has(p.id));
+  const vacias     = props.filter(p => !conContrato.has(p.id));
+  const valVacias  = valProp(vacias, Y);
+
+  // ── Composición
+  const porTipo = [['Propiedades', vP], ['Private Equity', vE], ['Bancos', vB], ['Autos', vA]]
+    .filter(([,v]) => Math.abs(v) > 0.5).sort((a,b) => b[1] - a[1]);
+  const porPais = {};
+  props.forEach(p => { const k = p.pais || '—'; porPais[k] = (porPais[k]||0) + (Number(p['valor_'+Y])||0); });
+  autos.forEach(a => { const k = a.pais || '—'; porPais[k] = (porPais[k]||0) + (Number(a['valor_'+Y])||0); });
+  const paises = Object.entries(porPais).filter(([,v]) => v > 0.5).sort((a,b) => b[1]-a[1]);
+  const totPais = paises.reduce((s,[,v]) => s+v, 0);
+
+  // ── Detalle por propiedad, ordenado por yield
+  const detalle = props.map(p => {
+    const d = D.prop[p.id] || (p.nro != null ? D.propNro[p.nro] : null) || {};
+    const val = Number(p['valor_'+Y]) || 0;
+    const n = (d.renta||0) - (d.gastos||0) - (d.imp||0);
+    return { p, val, renta: d.renta||0, neta: n, yld: val > 0 ? (n/val*100) : null,
+             ocupada: conContrato.has(p.id) };
+  }).sort((a,b) => (b.yld ?? -999) - (a.yld ?? -999));
+
+  // ── Qué mirar: contratos que vencen en 120 días + PE sin recuperar
+  const lim = new Date(Date.now() + 120*86400000).toISOString().slice(0,10);
+  const idProp = {}; props.forEach(p => idProp[p.id] = p);
+  const vencen = contratos
+    .filter(c => c.activo !== false && c.fecha_fin && c.fecha_fin >= hoy && c.fecha_fin <= lim && idProp[c.propiedad_id])
+    .sort((a,b) => String(a.fecha_fin).localeCompare(String(b.fecha_fin)));
+  const peAbierto = pes.map(p => { const c = peCalc(p, Y);
+    return { p, c, sinRecuperar: Math.max(0, (c.aportado||0) - (c.distribuido||0)) }; })
+    .filter(x => x.sinRecuperar > 0.5).sort((a,b) => b.sinRecuperar - a.sinRecuperar);
+
+  const F  = v => (v < 0 ? '-' : '') + '$' + fmt(Math.abs(v));
+  const pc = v => (v == null ? '—' : (v >= 0 ? '' : '-') + Math.abs(v).toFixed(1) + '%');
+  const esH = CLI === 'H';
+  const compartido = esH && Y >= 2026;
+  const kpi = (lbl, val, col, sub) => `<div style="border:1px solid var(--border);border-radius:8px;padding:14px;text-align:center">
+      <div style="font-size:10px;letter-spacing:1px;color:var(--text3);text-transform:uppercase;margin-bottom:6px">${lbl}</div>
+      <div style="font-size:22px;font-weight:300;color:${col||'var(--text)'}">${val}</div>
+      ${sub ? `<div style="font-size:10px;color:var(--text3);margin-top:3px">${sub}</div>` : ''}</div>`;
+  const barra = (items, tot) => items.map(([k,v]) => {
+    const p = tot ? v/tot*100 : 0;
+    return `<div style="margin-bottom:7px">
+      <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:2px">
+        <span>${k}</span><span style="color:var(--text3)">${F(v)} · ${p.toFixed(1)}%</span></div>
+      <div style="height:6px;background:var(--bg3);border-radius:3px;overflow:hidden">
+        <div style="height:100%;width:${p.toFixed(1)}%;background:var(--gold)"></div></div></div>`; }).join('');
+
+  const topTipo = porTipo[0], topPais = paises[0];
+  const lectura = (topTipo && TOT) ? `Está <b>${(topTipo[1]/TOT*100).toFixed(0)}%</b> en ${topTipo[0].toLowerCase()}${
+      topPais && totPais ? `, y de eso <b>${(topPais[1]/totPais*100).toFixed(0)}%</b> en ${topPais[0]}` : ''}.` : '';
+
+  cont.innerHTML = `
+    <div class="card" style="margin-bottom:14px">
+      <div class="section-title" style="font-size:14px;margin:0 0 4px">${CLI} · ${RC_NOM[CLI]||CLI} — ${Y}</div>
+      <p style="font-size:11px;color:var(--text3);margin:0 0 12px">
+        ${props.length} propiedades · ${bancos.length} cuentas · ${pes.length} posiciones de PE · ${autos.length} autos
+        ${esH ? ' · el bloque se reparte ÷3 entre FC, FCC y YAC' : ''}</p>
+      <div class="form-row ${compartido ? 'cols-3' : 'cols-2'}" style="margin:0">
+        ${kpi('Patrimonio', F(TOT), 'var(--gold)',
+              prev ? `${dif >= 0 ? '+' : ''}${F(dif)} vs ${Y-1} · ${pc(difPct)}` : '')}
+        ${compartido ? kpi('Tu parte (÷3)', F(TOT/3), 'var(--esp)', 'FC · FCC · YAC') : ''}
+        ${kpi('Renta neta ' + Y, F(neta), neta >= 0 ? 'var(--esp)' : 'var(--usa)',
+              yieldPct != null ? `yield ${pc(yieldPct)} sobre las propiedades` : '')}
+      </div>
+      ${esH && Y < 2026 ? `<p style="font-size:11px;color:var(--gold);margin:12px 0 0">
+        El reparto ÷3 entre FC, FCC y YAC rige desde 2026. En ${Y} estas tenencias se imputaban a JC,
+        así que el bloque vale lo que dice arriba pero no se dividía.</p>` : ''}
+    </div>
+
+    <div class="form-row cols-2" style="margin:0 0 14px">
+      <div class="card" style="margin:0">
+        <div class="section-title" style="font-size:13px;margin:0 0 10px">Por tipo de activo</div>
+        ${barra(porTipo, TOT) || '<p style="font-size:12px;color:var(--text3)">Sin activos en ' + Y + '.</p>'}
+        ${lectura ? `<p style="font-size:11px;color:var(--text3);margin:10px 0 0;padding-top:8px;border-top:1px solid var(--border)">${lectura}</p>` : ''}
+      </div>
+      <div class="card" style="margin:0">
+        <div class="section-title" style="font-size:13px;margin:0 0 10px">Por país <span style="font-weight:400;color:var(--text3);font-size:11px">· propiedades y autos</span></div>
+        ${barra(paises, totPais) || '<p style="font-size:12px;color:var(--text3)">—</p>'}
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:14px">
+      <div class="section-title" style="font-size:13px;margin:0 0 10px">Qué rinde · ${Y}</div>
+      <div class="form-row cols-4" style="margin:0 0 12px">
+        ${kpi('Renta bruta', F(renta))}
+        ${kpi('Gastos', F(-gastos), 'var(--usa)', gastosAuto ? `+ ${F(gastosAuto)} de autos` : '')}
+        ${kpi('Impuestos', F(-imp), 'var(--usa)')}
+        ${kpi('Promedio mensual', F(neta/12), neta >= 0 ? 'var(--esp)' : 'var(--usa)',
+              compartido ? `${F(neta/12/3)} cada uno` : (Y === new Date().getFullYear() ? 'año en curso' : ''))}
+      </div>
+      <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:12px;padding-top:10px;border-top:1px solid var(--border)">
+        <span><b style="color:var(--esp)">${alquiladas.length}</b> alquiladas</span>
+        <span><b style="color:${vacias.length ? 'var(--usa)' : 'var(--esp)'}">${vacias.length}</b> sin contrato vigente</span>
+        ${vacias.length ? `<span style="color:var(--text3)">— ${F(valVacias)} de valor sin generar renta</span>` : ''}
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:14px">
+      <div class="section-title" style="font-size:13px;margin:0 0 10px">Propiedad por propiedad <span style="font-weight:400;color:var(--text3);font-size:11px">· ordenadas por rendimiento</span></div>
+      <div class="table-wrap"><table style="font-size:12px">
+        <thead><tr><th></th><th>Propiedad</th><th>País</th><th class="num">Valor</th><th class="num">Renta neta</th><th class="num">Yield</th></tr></thead>
+        <tbody>${detalle.map(x => `<tr${x.ocupada ? '' : ' style="opacity:0.7"'}>
+          <td style="text-align:center">${x.ocupada
+            ? '<span style="color:var(--esp)" title="Con contrato vigente">●</span>'
+            : '<span style="color:var(--usa)" title="Sin contrato vigente">○</span>'}</td>
+          <td class="bold">${x.p.nombre}</td>
+          <td style="color:var(--text3);font-size:11px">${x.p.pais||'—'}</td>
+          <td class="num">${F(x.val)}</td>
+          <td class="num" style="color:${x.neta >= 0 ? 'var(--esp)' : 'var(--usa)'}">${F(x.neta)}</td>
+          <td class="num" style="font-weight:600;color:${(x.yld ?? 0) >= 0 ? 'var(--esp)' : 'var(--usa)'}">${pc(x.yld)}</td>
+        </tr>`).join('') || '<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:18px">Sin propiedades.</td></tr>'}
+        </tbody></table></div>
+      <p style="font-size:11px;color:var(--text3);margin:10px 0 0">● con contrato vigente · ○ sin contrato. El yield es la renta neta del año sobre el valor del activo.</p>
+    </div>
+
+    <div class="card">
+      <div class="section-title" style="font-size:13px;margin:0 0 10px">Qué mirar ahora</div>
+      ${vencen.length ? `<div style="margin-bottom:12px">
+        <div style="font-size:12px;font-weight:600;margin-bottom:6px">Contratos que vencen en los próximos 120 días</div>
+        ${vencen.map(c => `<div style="font-size:12px;padding:4px 0;border-bottom:1px solid var(--border)">
+          <b>${idProp[c.propiedad_id].nombre}</b>
+          <span style="color:var(--text3)">${c.inquilino ? '· ' + c.inquilino : ''} · vence ${new Date(c.fecha_fin+'T00:00:00').toLocaleDateString('es-AR')}</span></div>`).join('')}
+      </div>` : ''}
+      ${peAbierto.length ? `<div style="margin-bottom:12px">
+        <div style="font-size:12px;font-weight:600;margin-bottom:6px">Capital de private equity sin recuperar</div>
+        ${peAbierto.map(x => `<div style="font-size:12px;padding:4px 0;border-bottom:1px solid var(--border)">
+          <b>${x.p.nombre}</b> <span style="color:var(--text3)">· puesto ${F(x.c.aportado||0)} · devuelto ${F(x.c.distribuido||0)} ·
+          <span style="color:var(--gold)">falta ${F(x.sinRecuperar)}</span>
+          (${x.c.aportado ? ((x.c.distribuido||0)/x.c.aportado*100).toFixed(0) : 0}% recuperado)</span></div>`).join('')}
+      </div>` : ''}
+      ${vacias.length ? `<div>
+        <div style="font-size:12px;font-weight:600;margin-bottom:6px">Sin contrato vigente</div>
+        <div style="font-size:12px;color:var(--text3)">${vacias.map(p => p.nombre).join(' · ')}</div>
+      </div>` : ''}
+      ${(!vencen.length && !peAbierto.length && !vacias.length)
+        ? '<p style="font-size:12px;color:var(--esp);margin:0">Nada pendiente: todo alquilado, sin vencimientos cerca y sin capital de PE abierto.</p>' : ''}
+    </div>`;
+}
+
+async function exportarRepClientePDF() {
+  const c = document.getElementById('rc-cliente'), y = document.getElementById('rc-anio');
+  const nom = c && c.selectedIndex >= 0 ? c.options[c.selectedIndex].text : '';
+  return _exportarPDF({
+    contId: 'rc-contenido',
+    cliNom: nom,
+    titulo: 'Reporte por cliente',
+    subtitulo: nom + ' · Ejercicio ' + (y ? y.value : ''),
+    vacio: 'Esperá a que cargue el reporte',
+  });
 }
 
 async function exportarRepSoc1PDF() {
@@ -14976,7 +15235,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260908-178';
+const APP_VERSION = '20260909-179';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
