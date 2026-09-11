@@ -8653,6 +8653,7 @@ async function _exportarPDF(opt) {
 const REP_CLIENTES = [
   {code:'JC',nombre:'Juan Cocci'},{code:'FC',nombre:'Franco Cocci'},{code:'FCC',nombre:'Fiorella Cocci'},
   {code:'MFL',nombre:'Maria F. Lorenzo'},{code:'YAC',nombre:'Yanina Cocci'},{code:'M',nombre:'Martona'},{code:'G',nombre:'Grupillo'},
+  {code:'H',nombre:'Hermanos (FC · FCC · YAC)'},   // v181 — H es un cliente más desde v180
   {code:'FO',nombre:'Family Office (consolidado)'}
 ];
 const H_SHARE_REP = [];   // v180 — ver el comentario de H_SHARE
@@ -9826,8 +9827,11 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
   const varBancos = bancosMes - bancosPrev;
 
   // Patrimonio (props+pe+autos anuales + bancos del mes)
+  // v181 — antes decía 'valor_2026' fijo: un informe de 2025 mostraba valores de 2026.
+  const _vY = 'valor_' + anio;
   const sumV=(arr,f)=>arr.reduce((a,r)=>a+(Number(r[f])||0)*share(r),0);
-  const patFijo = sumV(props,'valor_2026')+sumV(pe,'valor_2026')+sumV(autos,'valor_2026');
+  const vProps = sumV(props,_vY), vPE = sumV(pe,_vY), vAutos = sumV(autos,_vY);
+  const patFijo = vProps + vPE + vAutos;
   const patTotal = patFijo + bancosMes, patPrev = patFijo + bancosPrev;
   const varMes = patTotal - patPrev, varPct = patPrev ? (varMes/patPrev*100) : 0;
 
@@ -9842,7 +9846,24 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
   const venc = (alR.data||[]).filter(a=> titFilter.includes(a.titular) && a.fecha_vencimiento && a.fecha_vencimiento>=hoy && a.fecha_vencimiento<=lim && !a.pagada)
     .sort((a,b)=>(a.fecha_vencimiento||'').localeCompare(b.fecha_vencimiento||''));
 
-  // ---- Render ----
+  /* ═══════════════════════════════════════════════════════════════════════
+     RENDER DEL INFORME MENSUAL  (v181)
+     ─────────────────────────────────────────────────────────────────────
+     Hasta v180 el mensual y el semestral mostraban LO MISMO: los dos salían
+     de esta función y sólo cambiaba el rótulo. Ahora el semestral y el anual
+     van por `generarInforme()` — que es el completo — y el mensual es esto:
+     una foto corta, ordenada por TIPO DE ACTIVO. Para profundizar está el
+     semestral; acá la pregunta es "cómo cerró el mes y qué se movió".
+
+     Se sacaron a propósito la tabla propiedad por propiedad y el cuadro de
+     vencimientos: son de seguimiento, no de cierre mensual, y viven en el
+     semestral y en la solapa de Alertas.
+
+     ⚠ Propiedades, PE y autos se valúan UNA VEZ AL AÑO (`valor_<año>`), así
+     que dentro de un mes no se mueven: la variación mensual del patrimonio
+     es, por construcción, el movimiento de la caja. En vez de mostrar tres
+     filas con 0,0% —que parecería un error— se dice explícitamente.
+     ═══════════════════════════════════════════════════════════════════════ */
   const $m = v => '$'+fmt(Math.round(v));
   const sg = v => (v>=0?'+':'−');
   const col = v => v>=0?'var(--esp)':'var(--usa)';
@@ -9851,39 +9872,67 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
     <div style="font-size:20px;font-weight:700;color:${c||'var(--text)'}">${v}</div>
     <div style="font-size:10.5px;color:var(--text3);margin-top:5px">${s||''}</div></div>`;
 
+  const TIPOS = [
+    { n:'Propiedades',    v:vProps,    d:null },
+    { n:'Bancos',         v:bancosMes, d:varBancos },
+    { n:'Private Equity', v:vPE,       d:null },
+    { n:'Autos',          v:vAutos,    d:null },
+  ].filter(t => Math.abs(t.v) > 0.5).sort((a,b) => b.v - a.v);
+
+  const filasTipo = TIPOS.map(t => {
+    const p = patTotal ? t.v/patTotal*100 : 0;
+    return `<tr>
+      <td style="font-weight:600">${t.n}</td>
+      <td class="num">${$m(t.v)}</td>
+      <td class="num" style="color:var(--text3)">${p.toFixed(1)}%</td>
+      <td style="width:34%;padding-right:14px">
+        <div style="height:6px;background:var(--bg3);border-radius:3px;overflow:hidden">
+          <div style="height:100%;width:${Math.max(p,0.4).toFixed(1)}%;background:var(--gold);border-radius:3px"></div></div></td>
+      <td class="num" style="color:${t.d==null?'var(--text3)':col(t.d)};font-weight:${t.d==null?400:600}">
+        ${t.d==null ? '—' : sg(t.d)+$m(Math.abs(t.d)).slice(1)}</td>
+    </tr>`; }).join('');
+
   const frases = [
-    `En ${label}, el patrimonio de ${cliNom} cerró en <b>${$m(patTotal)}</b>${patPrev?`, ${sg(varMes)}${Math.abs(varPct).toFixed(1)}% respecto al inicio del ${periodoTxt}`:''}.`,
-    (rMes||gMes||iMes) ? `Las propiedades de renta generaron <b>${$m(netaMes)}</b> netos en el ${periodoTxt} (renta ${$m(rMes)}, gastos ${$m(gMes)}, impuestos ${$m(iMes)}).` : `No se registraron movimientos de renta de propiedades en el ${periodoTxt}.`,
-    bancosPrev ? `La liquidez en bancos ${varBancos>=0?'aumentó':'disminuyó'} <b>${$m(Math.abs(varBancos))}</b>, cerrando en ${$m(bancosMes)}.` : `La liquidez en bancos cerró en <b>${$m(bancosMes)}</b>.`,
-    deuda>0 ? `Endeudamiento de ${$m(deuda)} (apalancamiento ${apal.toFixed(1)}% sobre el patrimonio).` : null,
-    venc.length ? `Hay ${venc.length} vencimiento${venc.length>1?'s':''} en los próximos 60 días (ver detalle).` : null,
+    `El patrimonio de ${cliNom} cerró ${label} en <b>${$m(patTotal)}</b>${patPrev?`, ${sg(varMes)}${$m(Math.abs(varMes)).slice(1)} contra el cierre del mes anterior (${sg(varMes)}${Math.abs(varPct).toFixed(1)}%)`:''}.`,
+    (rMes||gMes||iMes)
+      ? `Las propiedades dejaron <b>${$m(netaMes)}</b> netos en el mes: ${$m(rMes)} de renta, ${$m(gMes)} de gastos y ${$m(iMes)} de impuestos.`
+      : `No hubo movimientos de renta de propiedades en el mes.`,
+    bancosPrev
+      ? `La caja ${varBancos>=0?'subió':'bajó'} <b>${$m(Math.abs(varBancos))}</b> y cerró en ${$m(bancosMes)}.`
+      : `La caja cerró en <b>${$m(bancosMes)}</b>.`,
+    deuda>0 ? `Deuda viva de ${$m(deuda)} — ${apal.toFixed(1)}% del patrimonio.` : null,
   ].filter(Boolean);
 
-  const _byProp={}; (mpR.data||[]).forEach(m=>{ const o=_byProp[m.propiedad_id]=_byProp[m.propiedad_id]||{r:0,g:0,i:0}; o.r+=m.total_renta_usd||0; o.g+=m.total_gastos_usd||0; o.i+=m.total_impuestos_usd||0; });
-  const rentaRows = props.filter(p=>p.tipo==='R').map(p=>{ const o=_byProp[p.id]; if(!o||(!o.r&&!o.g&&!o.i)) return '';
-    const r=o.r, g=o.g, im=o.i, n=r-g-im;
-    return `<tr><td>${p.nombre}</td><td class="num positive">${r?'$'+fmt(r):'—'}</td><td class="num negative">${g?'$'+fmt(g):'—'}</td><td class="num negative">${im?'$'+fmt(im):'—'}</td><td class="num" style="font-weight:700;color:${col(n)}">$${fmt(n)}</td></tr>`;
-  }).filter(Boolean).join('');
-  const rentaTable = rentaRows ? `<div class="card" style="margin-bottom:16px"><div class="section-title" style="margin-bottom:12px">Propiedades de renta · ${label}</div>
-    <div class="table-wrap"><table><thead><tr><th>Propiedad</th><th class="num">Renta</th><th class="num">Gastos</th><th class="num">Impuestos</th><th class="num">Neto</th></tr></thead><tbody>${rentaRows}</tbody></table></div></div>` : '';
-
-  const vencRows = venc.slice(0,12).map(a=>`<tr><td style="white-space:nowrap">${a.fecha_vencimiento}</td><td>${a.descripcion||a.tipo||'—'}</td></tr>`).join('');
-  const vencTable = vencRows ? `<div class="card"><div class="section-title" style="margin-bottom:12px">Próximos vencimientos (60 días)</div>
-    <div class="table-wrap"><table><thead><tr><th>Fecha</th><th>Concepto</th></tr></thead><tbody>${vencRows}</tbody></table></div></div>` : '';
-
   cont.innerHTML = `
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:18px">
-      ${kpi('Patrimonio total', $m(patTotal), label)}
-      ${kpi('Variación del '+periodoTxt, (patPrev?sg(varMes)+'$'+fmt(Math.abs(Math.round(varMes))):'—'), (patPrev?sg(varMes)+Math.abs(varPct).toFixed(1)+'%':'sin período previo'), col(varMes))}
-      ${kpi('Renta neta del '+periodoTxt, $m(netaMes), 'Propiedades', col(netaMes))}
-      ${kpi('Liquidez en bancos', $m(bancosMes), 'Neto al cierre')}
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:18px">
+      ${kpi('Patrimonio al cierre', $m(patTotal), label)}
+      ${kpi('Variación del mes', (patPrev?sg(varMes)+$m(Math.abs(varMes)).slice(1):'—'),
+            (patPrev?sg(varMes)+Math.abs(varPct).toFixed(1)+'%':'sin mes previo'), col(varMes))}
+      ${kpi('Renta neta del mes', $m(netaMes), 'Propiedades', col(netaMes))}
     </div>
+
     <div class="card" style="margin-bottom:16px">
-      <div class="section-title" style="margin-bottom:12px">Resumen · ${label}</div>
-      ${frases.map(f=>`<p style="margin:7px 0;font-size:13px;line-height:1.5">• ${f}</p>`).join('')}
+      <div class="section-title" style="margin-bottom:12px">Por tipo de activo · ${label}</div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Tipo</th><th class="num">Valor</th><th class="num">%</th><th></th><th class="num">Var. del mes</th></tr></thead>
+        <tbody>${filasTipo}</tbody>
+        <tfoot><tr style="border-top:2px solid var(--border2)">
+          <td style="font-weight:700">Total</td>
+          <td class="num" style="font-weight:700">${$m(patTotal)}</td>
+          <td class="num" style="color:var(--text3)">100%</td><td></td>
+          <td class="num" style="font-weight:700;color:${col(varMes)}">${patPrev?sg(varMes)+$m(Math.abs(varMes)).slice(1):'—'}</td>
+        </tr></tfoot>
+      </table></div>
+      <p style="font-size:11px;color:var(--text3);margin:11px 0 0;padding-top:9px;border-top:1px solid var(--border)">
+        Propiedades, private equity y autos se valúan una vez al año, así que dentro del mes no se mueven:
+        la variación mensual del patrimonio es el movimiento de la caja.
+        Para el detalle activo por activo está el informe semestral.</p>
     </div>
-    ${rentaTable}
-    ${vencTable}`;
+
+    <div class="card">
+      <div class="section-title" style="margin-bottom:12px">El mes en breve</div>
+      ${frases.map(f=>`<p style="margin:7px 0;font-size:13px;line-height:1.5">• ${f}</p>`).join('')}
+    </div>`;
 }
 
 // Titulares que se TRAEN para el FO consolidado. 'H' entra una sola vez (no se reparte ÷3).
@@ -15249,7 +15298,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260911-180';
+const APP_VERSION = '20260911-181';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
