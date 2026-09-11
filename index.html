@@ -9807,12 +9807,19 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
   const pe = peR.data||[], autos = autosR.data||[], bancos = (bancosR.data||[]).filter(b=>b.activo!==false);
   const bancoIds = bancos.map(b=>b.id), propIds = props.map(p=>p.id);
 
+  await peValCargar();   // v183 — sin esto peCalc ignora las valuaciones manuales
+
   const _e = {data:[]};
-  const [mpR, mbYearR, mbPrevDicR, alR] = await Promise.all([
+  const autoIds = autos.map(a=>a.id), autoNros = autos.map(a=>a.nro).filter(x=>x!=null);
+  const [mpR, mbYearR, mbPrevDicR, alR, maR, gaR] = await Promise.all([
     propIds.length ? sb.from('movimientos_propiedades').select('*').eq('anio',anio).gte('mes',m1).lte('mes',m2).in('propiedad_id',propIds) : Promise.resolve(_e),
     bancoIds.length ? sb.from('movimientos_bancos').select('*').eq('anio',anio).in('banco_id',bancoIds) : Promise.resolve(_e),
     bancoIds.length ? sb.from('movimientos_bancos').select('*').eq('anio',anio-1).eq('mes',12).in('banco_id',bancoIds) : Promise.resolve(_e),
     sb.from('alertas').select('*').eq('activa',true).then(r=>r,()=>_e),
+    // Gastos de autos del ano, hasta el mes del informe. Dos fuentes: movimientos_autos
+    // (2026 en adelante, con mes) y gastos_anual_auto (historico, total del ano por nro).
+    autoIds.length ? sb.from('movimientos_autos').select('auto_id,mes,total_usd').eq('anio',anio).lte('mes',m2).in('auto_id',autoIds).then(r=>r,()=>_e) : Promise.resolve(_e),
+    autoNros.length ? sb.from('gastos_anual_auto').select('nro,total_usd').eq('anio',anio).in('nro',autoNros).then(r=>r,()=>_e) : Promise.resolve(_e),
   ]);
 
   // Renta neta del mes (propiedades)
@@ -9876,6 +9883,34 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
     <div style="font-size:20px;font-weight:700;color:${c||'var(--text)'}">${v}</div>
     <div style="font-size:10.5px;color:var(--text3);margin-top:5px">${s||''}</div></div>`;
 
+  /* Donut SVG inline, no Chart.js: el informe se imprime abriendo una ventana
+     nueva con este mismo HTML, y un <canvas> no se copia — llegaria en blanco.
+     Un SVG viaja como cualquier otro nodo e imprime nitido a cualquier escala. */
+  const DONUT_COL = ['#a87316','#0e9c8d','#2f6dbd','#c85043'];
+  const donut = (items, size=136, hole=0.58) => {
+    const tot = items.reduce((a,x)=>a+x.v,0) || 1;
+    const r = size/2-2, cx = size/2, cy = size/2, ri = r*hole;
+    let a0 = -Math.PI/2, out = '';
+    items.forEach((it,i) => {
+      const frac = it.v/tot; if (frac <= 0) return;
+      const a1 = a0 + frac*2*Math.PI, c = DONUT_COL[i%4];
+      if (frac > 0.9999) {   // un gajo de 100% no se dibuja con un arco: va como anillo
+        out += `<circle cx="${cx}" cy="${cy}" r="${((r+ri)/2).toFixed(2)}" fill="none" stroke="${c}" stroke-width="${(r-ri).toFixed(2)}"/>`;
+      } else {
+        const L = frac > 0.5 ? 1 : 0;
+        const x0=cx+r*Math.cos(a0),  y0=cy+r*Math.sin(a0);
+        const x1=cx+r*Math.cos(a1),  y1=cy+r*Math.sin(a1);
+        const i1=cx+ri*Math.cos(a1), j1=cy+ri*Math.sin(a1);
+        const i0=cx+ri*Math.cos(a0), j0=cy+ri*Math.sin(a0);
+        out += `<path d="M ${x0.toFixed(2)} ${y0.toFixed(2)} A ${r.toFixed(2)} ${r.toFixed(2)} 0 ${L} 1 ${x1.toFixed(2)} ${y1.toFixed(2)} `
+             + `L ${i1.toFixed(2)} ${j1.toFixed(2)} A ${ri.toFixed(2)} ${ri.toFixed(2)} 0 ${L} 0 ${i0.toFixed(2)} ${j0.toFixed(2)} Z" `
+             + `fill="${c}" stroke="var(--bg2,#fff)" stroke-width="2" stroke-linejoin="round"/>`;
+      }
+      a0 = a1;
+    });
+    return `<svg viewBox="0 0 ${size} ${size}" width="${size}" height="${size}" role="img" style="flex-shrink:0">${out}</svg>`;
+  };
+
   const TIPOS = [
     { n:'Propiedades',    v:vProps,    d:null },
     { n:'Bancos',         v:bancosMes, d:varBancos },
@@ -9886,22 +9921,22 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
   const filasTipo = TIPOS.map(t => {
     const p = patTotal ? t.v/patTotal*100 : 0;
     return `<tr>
-      <td style="font-weight:600">${t.n}</td>
+      <td style="font-weight:600"><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${DONUT_COL[TIPOS.indexOf(t)%4]};margin-right:7px"></span>${t.n}</td>
       <td class="num">${$m(t.v)}</td>
       <td class="num" style="color:var(--text3)">${p.toFixed(1)}%</td>
       <td style="width:34%;padding-right:14px">
         <div style="height:6px;background:var(--bg3);border-radius:3px;overflow:hidden">
-          <div style="height:100%;width:${Math.max(p,0.4).toFixed(1)}%;background:var(--gold);border-radius:3px"></div></div></td>
+          <div style="height:100%;width:${Math.max(p,0.4).toFixed(1)}%;background:${DONUT_COL[TIPOS.indexOf(t)%4]};border-radius:3px"></div></div></td>
       <td class="num" style="color:${t.d==null?'var(--text3)':col(t.d)};font-weight:${t.d==null?400:600}">
         ${t.d==null ? '—' : sg(t.d)+$m(Math.abs(t.d)).slice(1)}</td>
     </tr>`; }).join('');
 
-  /* ── DETALLE POR ACTIVO (v182) ───────────────────────────────────────────
-     Pedido de Timoteo: "lista de cada activo con sus valores mas importantes,
-     pocos, pero los mas importantes". La regla es TRES columnas de dato por
-     tabla y ninguna mas: el mensual sigue siendo una foto, no el semestral.
-     Cada tabla se omite entera si el cliente no tiene ese tipo de activo. */
-  const _cap = 'Sin datos';
+  /* ── DETALLE POR ACTIVO (v183) ───────────────────────────────────────────
+     Mismo formato que el reporte por cliente en PDF, que es el que Timoteo usa
+     como referencia: propiedades partidas en renta / no renta con subtotales,
+     bancos agrupados por pais, y private equity en tarjetas en vez de filas.
+     Sigue siendo "pocos valores, los mas importantes" — lo que cambio es el
+     CORTE de cada tabla, no la cantidad de columnas. */
   const _tabla = (titulo, heads, filas, nota) => !filas.length ? '' : `
     <div class="card" style="margin-bottom:16px">
       <div class="section-title" style="margin-bottom:12px">${titulo}</div>
@@ -9911,66 +9946,148 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
       </table></div>
       ${nota ? `<p style="font-size:11px;color:var(--text3);margin:10px 0 0">${nota}</p>` : ''}
     </div>`;
+  const _fGrupo = (txt, n) => `<tr style="background:var(--bg3)"><td colspan="${n}" style="font-size:10px;letter-spacing:.7px;text-transform:uppercase;color:var(--text3);font-weight:600;padding:6px 10px">${txt}</td></tr>`;
+  const _dash = v => Math.abs(v) < 0.5 ? '—' : sg(v) + $m(Math.abs(v)).slice(1);
 
-  // Propiedades — renta neta del mes propiedad por propiedad
+  /* ── PROPIEDADES: de renta / no renta, con subtotal de cada grupo ── */
   const _netaProp = {};
   (mpR.data||[]).forEach(m => { const sh = share({ titular:_titOf[m.propiedad_id] });
     _netaProp[m.propiedad_id] = (_netaProp[m.propiedad_id]||0) +
       ((m.total_renta_usd||0) - (m.total_gastos_usd||0) - (m.total_impuestos_usd||0)) * sh; });
-  const filasProps = props
-    .map(p => ({ p, v:(Number(p[_vY])||0)*share(p), n:_netaProp[p.id]||0 }))
-    .sort((a,b) => b.v - a.v)
-    .map(({p,v,n}) => `<tr>
+  // Dentro de cada grupo van en el orden del COMPLETO, que es el orden de `nro`.
+  const _propsOrd = props.map(p => ({ p, v:(Number(p[_vY])||0)*share(p), n:_netaProp[p.id]||0 }))
+                         .sort((a,b) => (a.p.nro||9999) - (b.p.nro||9999));
+  const _filaProp = ({p,v,n}) => `<tr>
       <td style="font-weight:600">${p.nombre||'—'}</td>
       <td class="num" style="color:var(--text3)">${p.pais||'—'}</td>
       <td class="num">${$m(v)}</td>
-      <td class="num" style="color:${Math.abs(n)<0.5?'var(--text3)':col(n)}">${Math.abs(n)<0.5 ? '—' : sg(n)+$m(Math.abs(n)).slice(1)}</td>
-    </tr>`);
+      <td class="num" style="color:${Math.abs(n)<0.5?'var(--text3)':col(n)}">${_dash(n)}</td></tr>`;
+  const _sub = (lbl, v, n) => `<tr style="border-top:1px solid var(--border2)">
+      <td colspan="2" style="font-weight:600">${lbl}</td>
+      <td class="num" style="font-weight:600">${$m(v)}</td>
+      <td class="num" style="font-weight:600;color:${Math.abs(n)<0.5?'var(--text3)':col(n)}">${_dash(n)}</td></tr>`;
+  const _gR = _propsOrd.filter(x => x.p.tipo === 'R'), _gN = _propsOrd.filter(x => x.p.tipo !== 'R');
+  const _sumV = a => a.reduce((s,x)=>s+x.v,0), _sumN = a => a.reduce((s,x)=>s+x.n,0);
+  const filasProps = !_propsOrd.length ? [] : [
+    ..._gR.length ? [_fGrupo('De renta', 4), ..._gR.map(_filaProp), _sub('Subtotal de renta', _sumV(_gR), _sumN(_gR))] : [],
+    ..._gN.length ? [_fGrupo('No renta', 4), ..._gN.map(_filaProp), _sub('Subtotal no renta', _sumV(_gN), _sumN(_gN))] : [],
+    `<tr style="border-top:2px solid var(--border2)">
+      <td colspan="2" style="font-weight:700">Total propiedades</td>
+      <td class="num" style="font-weight:700">${$m(_sumV(_propsOrd))}</td>
+      <td class="num" style="font-weight:700;color:${col(_sumN(_propsOrd))}">${_dash(_sumN(_propsOrd))}</td></tr>`,
+  ];
 
-  // Bancos — saldo al cierre y cuanto se movio en el mes
-  const filasBancos = bancos
-    .map(b => { const c = netoAt(b.id, m2).neto; const s0 = netoAt(b.id, m1-1);
-                return { b, c, d: c - (s0.mes ? s0.neto : (prevDic[b.id]||0)) }; })
-    .filter(x => Math.abs(x.c) > 0.5 || Math.abs(x.d) > 0.5)
-    .sort((a,b) => b.c - a.c)
-    .map(({b,c,d}) => `<tr>
-      <td style="font-weight:600">${b.nombre||'—'}</td>
-      <td class="num" style="color:var(--text3)">${b.pais||'—'}</td>
-      <td class="num">${$m(c)}</td>
-      <td class="num" style="color:${Math.abs(d)<0.5?'var(--text3)':col(d)}">${Math.abs(d)<0.5 ? '—' : sg(d)+$m(Math.abs(d)).slice(1)}</td>
-    </tr>`);
+  /* ── BANCOS: tres saldos y corte por pais ──
+     "Saldo al 1/1" es el cierre de diciembre del ano anterior: es el mismo dato,
+     visto desde el otro lado. Si esa fila no existe en la base el saldo arranca
+     en 0, que es lo que la app ya asume en todos lados. */
+  const _saldo1 = b => prevDic[b.id] || 0;
+  const _saldoPrev = b => { const x = netoAt(b.id, m1-1); return x.mes ? x.neto : (prevDic[b.id]||0); };
+  const _bancosOrd = bancos.map(b => ({ b, i:_saldo1(b), a:_saldoPrev(b), c:netoAt(b.id,m2).neto }))
+                           .filter(x => Math.abs(x.i)>0.5 || Math.abs(x.a)>0.5 || Math.abs(x.c)>0.5);
+  const _byPais = {}; _bancosOrd.forEach(x => (_byPais[x.b.pais||'—'] = _byPais[x.b.pais||'—']||[]).push(x));
+  const _paisOrd = ['ARG','URU','USA','ESP','PAR'];
+  const _paises = Object.keys(_byPais).sort((a,b) => {
+    const ia = _paisOrd.indexOf(a), ib = _paisOrd.indexOf(b);
+    return (ia<0?99:ia) - (ib<0?99:ib) || a.localeCompare(b); });
+  const _bSub = (lbl, i, a, c, bold) => `<tr style="border-top:1px solid var(--border2)">
+      <td style="font-weight:${bold?700:600}">${lbl}</td>
+      <td class="num" style="font-weight:${bold?700:600};color:var(--text3)">${$m(i)}</td>
+      <td class="num" style="font-weight:${bold?700:600};color:var(--text3)">${$m(a)}</td>
+      <td class="num" style="font-weight:${bold?700:600}">${$m(c)}</td>
+      <td class="num" style="font-weight:${bold?700:600};color:${Math.abs(c-a)<0.5?'var(--text3)':col(c-a)}">${_dash(c-a)}</td></tr>`;
+  const filasBancos = !_bancosOrd.length ? [] : [
+    ..._paises.flatMap(pz => {
+      const g = _byPais[pz].sort((x,y) => y.c - x.c);
+      const si = g.reduce((s,x)=>s+x.i,0), sa = g.reduce((s,x)=>s+x.a,0), sc = g.reduce((s,x)=>s+x.c,0);
+      return [
+        ...(_paises.length > 1 ? [_fGrupo(pz, 5)] : []),
+        ...g.map(({b,i,a,c}) => `<tr>
+          <td style="font-weight:600">${b.nombre||'—'}</td>
+          <td class="num" style="color:var(--text3)">${$m(i)}</td>
+          <td class="num" style="color:var(--text3)">${$m(a)}</td>
+          <td class="num">${$m(c)}</td>
+          <td class="num" style="color:${Math.abs(c-a)<0.5?'var(--text3)':col(c-a)}">${_dash(c-a)}</td></tr>`),
+        ...(_paises.length > 1 ? [_bSub('Subtotal ' + pz, si, sa, sc, false)] : []),
+      ];
+    }),
+    _bSub('Total cuentas', _bancosOrd.reduce((s,x)=>s+x.i,0), _bancosOrd.reduce((s,x)=>s+x.a,0), _bancosOrd.reduce((s,x)=>s+x.c,0), true),
+  ];
+  const _mesLbl = ['','enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+  const _hdrPrev = m1 > 1 ? ('Al cierre de ' + _mesLbl[m1-1]) : 'Al cierre de diciembre';
+  const _hdrCie  = 'Al cierre de ' + (m1===m2 ? _mesLbl[m2] : _mesLbl[m2]);
 
-  // Private equity — valuacion y plata efectivamente puesta (tenencia de peCalc)
-  const filasPE = pe
-    .map(p => { let t = 0; try { t = (peCalc(p, anio)||{}).tenencia || 0; } catch(e) { t = 0; }
-                return { p, v:(Number(p[_vY])||0)*share(p), t: t*share(p) }; })
-    .filter(x => Math.abs(x.v) > 0.5 || Math.abs(x.t) > 0.5)
-    .sort((a,b) => b.v - a.v)
-    .map(({p,v,t}) => `<tr>
-      <td style="font-weight:600">${p.nombre||'—'}</td>
-      <td class="num" style="color:var(--text3)">${p.pais||'—'}</td>
-      <td class="num">${$m(v)}</td>
-      <td class="num" style="color:var(--text3)">${Math.abs(t)<0.5 ? '—' : $m(t)}</td>
-    </tr>`);
-
-  // Autos
+  /* ── AUTOS: compra, valor actual y gastos del ano hasta el mes del informe ── */
+  const _gAuto = {};
+  (maR.data||[]).forEach(m => { _gAuto[m.auto_id] = (_gAuto[m.auto_id]||0) + (Number(m.total_usd)||0); });
+  const _idByNro = {}; autos.forEach(a => { if (a.nro!=null) _idByNro[a.nro] = a.id; });
+  // El historico (gastos_anual_auto) es el total del ano y solo se usa cuando no
+  // hay ningun movimiento cargado: si hubiera los dos, sumarlos duplicaria.
+  (gaR.data||[]).forEach(g => { const id = _idByNro[g.nro];
+    if (id && !(id in _gAuto)) _gAuto[id] = Number(g.total_usd)||0; });
   const filasAutos = autos
-    .map(a => ({ a, v:(Number(a[_vY])||0)*share(a) }))
-    .filter(x => Math.abs(x.v) > 0.5)
-    .sort((a,b) => b.v - a.v)
-    .map(({a,v}) => `<tr>
+    .map(a => ({ a, vc:(Number(a.valor_compra)||0)*share(a), v:(Number(a[_vY])||0)*share(a), g:(_gAuto[a.id]||0)*share(a) }))
+    .filter(x => Math.abs(x.v)>0.5 || Math.abs(x.vc)>0.5 || Math.abs(x.g)>0.5)
+    .sort((x,y) => y.v - x.v)
+    .map(({a,vc,v,g}) => `<tr>
       <td style="font-weight:600">${a.nombre||'—'}</td>
-      <td class="num" style="color:var(--text3)">${a.anio||'—'}</td>
+      <td class="num" style="color:var(--text3)">${Math.abs(vc)<0.5 ? '—' : $m(vc)}</td>
       <td class="num">${$m(v)}</td>
-    </tr>`);
+      <td class="num" style="color:${Math.abs(g)<0.5?'var(--text3)':'var(--usa)'}">${Math.abs(g)<0.5 ? '—' : '−'+$m(g)}</td></tr>`);
+  if (filasAutos.length) {
+    const tvc = autos.reduce((s,a)=>s+(Number(a.valor_compra)||0)*share(a),0);
+    const tg  = autos.reduce((s,a)=>s+(_gAuto[a.id]||0)*share(a),0);
+    filasAutos.push(`<tr style="border-top:2px solid var(--border2)">
+      <td style="font-weight:700">Total autos</td>
+      <td class="num" style="font-weight:700;color:var(--text3)">${Math.abs(tvc)<0.5?'—':$m(tvc)}</td>
+      <td class="num" style="font-weight:700">${$m(vAutos)}</td>
+      <td class="num" style="font-weight:700;color:${Math.abs(tg)<0.5?'var(--text3)':'var(--usa)'}">${Math.abs(tg)<0.5?'—':'−'+$m(tg)}</td></tr>`);
+  }
+
+  /* ── PRIVATE EQUITY: tarjetas, no filas ──
+     Todo sale de peCalc, asi que las mismas cuatro lineas sirven para los tres
+     tipos: en un prestamo "capital sin recuperar" es el capital vivo, en una
+     participacion es lo aportado menos lo distribuido. La nota de peCalc explica
+     como esta valuada cada una ("a costo, sin revaluar", "en mora", "cerrada"). */
+  const _peCards = pe.map(p => { let c; try { c = peCalc(p, anio); } catch(e) { c = null; } return { p, c }; })
+    .filter(x => x.c && (Math.abs(x.c.aportado)>0.5 || Math.abs(x.c.tenencia)>0.5))
+    .sort((x,y) => y.c.tenencia - x.c.tenencia)
+    .map(({p,c}) => {
+      const sh = share(p);
+      const ap = c.aportado*sh, di = c.distribuido*sh, sr = Math.max(0, ap-di), te = c.tenencia*sh;
+      const pct = ap > 0 ? Math.min(100, di/ap*100) : 0;
+      const lbl = (typeof PE_TIPOS !== 'undefined' && PE_TIPOS[c.tipo]) ? PE_TIPOS[c.tipo].lbl.toLowerCase() : c.tipo;
+      return `<div style="border:1px solid var(--border2);border-radius:8px;padding:15px 16px">
+        <div style="font-weight:700;font-size:13px;margin-bottom:2px">${p.nombre||'—'}</div>
+        <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.6px;margin-bottom:11px">${lbl}${p.pais?' · '+p.pais:''}</div>
+        <div style="display:flex;justify-content:space-between;font-size:11.5px;margin:5px 0"><span style="color:var(--text3)">Capital aportado</span><span>${$m(ap)}</span></div>
+        <div style="display:flex;justify-content:space-between;font-size:11.5px;margin:5px 0"><span style="color:var(--text3)">Distribuciones recibidas</span><span style="color:var(--esp)">${$m(di)}</span></div>
+        <div style="display:flex;justify-content:space-between;font-size:11.5px;margin:5px 0"><span style="color:var(--text3)">Capital sin recuperar</span><span style="color:${sr>0.5?'var(--usa)':'var(--text3)'}">${$m(sr)}</span></div>
+        <div style="margin-top:11px">
+          <div style="display:flex;justify-content:space-between;font-size:11.5px;margin-bottom:5px"><span style="color:var(--text3)">Recuperado</span><span style="font-weight:700">${pct.toFixed(0)}%</span></div>
+          <div style="height:6px;background:var(--bg3);border-radius:3px;overflow:hidden">
+            <div style="height:100%;width:${Math.max(pct,0.4).toFixed(1)}%;background:#0e9c8d;border-radius:3px"></div></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:11.5px;margin-top:11px;padding-top:9px;border-top:1px solid var(--border)">
+          <span style="color:var(--text3)">Valuación</span>
+          <span style="font-weight:600">${$m(te)} <span style="color:var(--text3);font-size:9.5px;font-weight:400">${c.nota||''}</span></span></div>
+      </div>`; });
+
+  const _peHTML = !_peCards.length ? '' : `
+    <div class="card" style="margin-bottom:16px">
+      <div class="section-title" style="margin-bottom:12px">Private equity · ${_peCards.length}</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px">${_peCards.join('')}</div>
+      <p style="font-size:11px;color:var(--text3);margin:12px 0 0">
+        La valuación es la plata efectivamente puesta menos lo devuelto, salvo que haya una
+        valuación cargada. Las distribuciones son resultado del año y no bajan la tenencia.</p>
+    </div>`;
 
   const detalleHTML = [
-    _tabla(`Propiedades · ${filasProps.length}`, ['Propiedad','País','Valor','Renta neta del mes'], filasProps,
+    _tabla(`Propiedades · ${_propsOrd.length}`, ['Propiedad','País','Valor','Renta neta del mes'], filasProps,
            'La renta neta es del mes; el valor es la valuación anual.'),
-    _tabla(`Cuentas · ${filasBancos.length}`, ['Cuenta','País','Saldo al cierre','Var. del mes'], filasBancos, ''),
-    _tabla(`Private equity · ${filasPE.length}`, ['Inversión','País','Valuación','Invertido neto'], filasPE,
-           'Invertido neto = lo aportado menos lo devuelto.'),
-    _tabla(`Autos · ${filasAutos.length}`, ['Vehículo','Año','Valor'], filasAutos, ''),
+    _tabla(`Cuentas · ${_bancosOrd.length}`, ['Cuenta','Saldo al 1/1',_hdrPrev,_hdrCie,'Var. del mes'], filasBancos, ''),
+    _peHTML,
+    _tabla(`Autos · ${filasAutos.length ? filasAutos.length-1 : 0}`, ['Vehículo','Valor de compra','Valor actual',`Gastos ${anio} a ${_mesLbl[m2]}`], filasAutos, ''),
   ].join('');
 
   const frases = [
@@ -9994,7 +10111,8 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
 
     <div class="card" style="margin-bottom:16px">
       <div class="section-title" style="margin-bottom:12px">Por tipo de activo · ${label}</div>
-      <div class="table-wrap"><table>
+      <div style="display:flex;align-items:center;gap:22px;flex-wrap:wrap">
+      <div class="table-wrap" style="flex:1;min-width:300px"><table>
         <thead><tr><th>Tipo</th><th class="num">Valor</th><th class="num">%</th><th></th><th class="num">Var. del mes</th></tr></thead>
         <tbody>${filasTipo}</tbody>
         <tfoot><tr style="border-top:2px solid var(--border2)">
@@ -10004,6 +10122,8 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
           <td class="num" style="font-weight:700;color:${col(varMes)}">${patPrev?sg(varMes)+$m(Math.abs(varMes)).slice(1):'—'}</td>
         </tr></tfoot>
       </table></div>
+      ${donut(TIPOS)}
+      </div>
       <p style="font-size:11px;color:var(--text3);margin:11px 0 0;padding-top:9px;border-top:1px solid var(--border)">
         Propiedades, private equity y autos se valúan una vez al año, así que dentro del mes no se mueven:
         la variación mensual del patrimonio es el movimiento de la caja.</p>
@@ -15385,7 +15505,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260911-182';
+const APP_VERSION = '20260911-183';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
