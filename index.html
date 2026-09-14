@@ -4931,6 +4931,74 @@ function tcFor(anio, mes) {
   return tcLatest || { ars_usd: 1220, uyu_usd: 42.415, eur_usd: 0.9638 };
 }
 
+/* ═══ RUBRO DE UNA PROPIEDAD, EN DOLARES  (v186) ══════════════════════════
+   En `movimientos_propiedades` los rubros sueltos (renta, expensas, arba_abl…)
+   se guardan en MONEDA NATIVA; solo `total_renta_usd` / `total_gastos_usd` /
+   `total_impuestos_usd` vienen convertidos. La moneda es por rubro
+   (`moneda_<rubro>`) y, si falta, la de la seccion. Sumar los rubros crudos
+   mezcla pesos con dolares y el total no cierra nunca contra las columnas
+   _usd — que es exactamente lo que pasaba en el linkeo del informe mensual.
+   `secMon` es 'moneda_renta' | 'moneda_gastos' | 'moneda_impuestos'. */
+function rubroPropUSD(m, campo, secMon) {
+  if (!m) return 0;
+  const mon = m['moneda_' + campo] || (secMon ? m[secMon] : null) || m.moneda || 'USD';
+  return convUSD(Number(m[campo]) || 0, mon, m.anio, m.mes);
+}
+
+/* ═══ DONUT SVG  (v186) ═══════════════════════════════════════════════════
+   Inline y sin Chart.js: los informes se imprimen abriendo una ventana nueva
+   con el mismo HTML, y un <canvas> no se copia — llegaria en blanco.
+   `items` es [{v}] o [[label, valor]]. */
+const OFF_CAT = ['#a87316','#0e9c8d','#2f6dbd','#c85043','#7a4fa3','#b5851f'];
+function offDonut(items, size, hole) {
+  size = size || 136; hole = hole || 0.58;
+  const vs = items.map(x => Array.isArray(x) ? x[1] : x.v);
+  const tot = vs.reduce((a,b) => a + (b > 0 ? b : 0), 0) || 1;
+  const r = size/2 - 2, cx = size/2, cy = size/2, ri = r*hole;
+  let a0 = -Math.PI/2, out = '';
+  vs.forEach((v,i) => {
+    const frac = v/tot; if (!(frac > 0)) return;
+    const a1 = a0 + frac*2*Math.PI, c = OFF_CAT[i % OFF_CAT.length];
+    if (frac > 0.9999) {
+      out += `<circle cx="${cx}" cy="${cy}" r="${((r+ri)/2).toFixed(2)}" fill="none" stroke="${c}" stroke-width="${(r-ri).toFixed(2)}"/>`;
+    } else {
+      const L = frac > 0.5 ? 1 : 0;
+      const x0=cx+r*Math.cos(a0),  y0=cy+r*Math.sin(a0);
+      const x1=cx+r*Math.cos(a1),  y1=cy+r*Math.sin(a1);
+      const i1=cx+ri*Math.cos(a1), j1=cy+ri*Math.sin(a1);
+      const i0=cx+ri*Math.cos(a0), j0=cy+ri*Math.sin(a0);
+      out += `<path d="M ${x0.toFixed(2)} ${y0.toFixed(2)} A ${r.toFixed(2)} ${r.toFixed(2)} 0 ${L} 1 ${x1.toFixed(2)} ${y1.toFixed(2)} `
+           + `L ${i1.toFixed(2)} ${j1.toFixed(2)} A ${ri.toFixed(2)} ${ri.toFixed(2)} 0 ${L} 0 ${i0.toFixed(2)} ${j0.toFixed(2)} Z" `
+           + `fill="${c}" stroke="var(--bg2,#fff)" stroke-width="2" stroke-linejoin="round"/>`;
+    }
+    a0 = a1;
+  });
+  return `<svg viewBox="0 0 ${size} ${size}" width="${size}" height="${size}" role="img" style="flex-shrink:0">${out}</svg>`;
+}
+
+/* ═══ BARRAS VERTICALES  (v186) ═══════════════════════════════════════════
+   Una barra por año, con la linea del cero cuando hay valores negativos.
+   `items` = [{lbl, v}]. */
+function offBarras(items, w, h) {
+  if (!items.length) return '';
+  w = w || 640; h = h || 150;
+  const max = Math.max(0, ...items.map(x => x.v)), min = Math.min(0, ...items.map(x => x.v));
+  const span = (max - min) || 1;
+  const padB = 20, alto = h - padB;
+  const y0 = alto * (max / span);                       // donde cae el cero
+  const paso = w / items.length, an = Math.min(paso*0.58, 54);
+  let out = `<line x1="0" y1="${y0.toFixed(1)}" x2="${w}" y2="${y0.toFixed(1)}" stroke="var(--border2)" stroke-width="1"/>`;
+  items.forEach((it,i) => {
+    const cx = paso*i + paso/2;
+    const alt = Math.abs(it.v)/span*alto;
+    const y = it.v >= 0 ? y0 - alt : y0;
+    const c = it.v >= 0 ? 'var(--esp,#0e9c8d)' : 'var(--usa,#c85043)';
+    if (alt > 0.4) out += `<rect x="${(cx-an/2).toFixed(1)}" y="${y.toFixed(1)}" width="${an.toFixed(1)}" height="${Math.max(alt,1.2).toFixed(1)}" fill="${c}" rx="2"/>`;
+    out += `<text x="${cx.toFixed(1)}" y="${(h-6).toFixed(1)}" text-anchor="middle" font-size="10" fill="var(--text3,#888)">${it.lbl}</text>`;
+  });
+  return `<svg viewBox="0 0 ${w} ${h}" width="100%" height="${h}" preserveAspectRatio="none" role="img">${out}</svg>`;
+}
+
 // Convierte un valor a USD usando el TC del mes del movimiento.
 function convUSD(val, moneda, anio, mes) {
   val = parseFloat(val) || 0;
@@ -8391,11 +8459,16 @@ async function renderRepCliente() {
   const cont = document.getElementById('rc-contenido'); if (!cont) return;
   cont.innerHTML = '<div class="loader"><div class="spinner"></div></div>';
 
-  let B, D, Dp, contratos;
+  let B, D, Dp, contratos, movRub, apHist;
   try {
-    [B, D, Dp, contratos] = await Promise.all([
+    [B, D, Dp, contratos, movRub, apHist] = await Promise.all([
       _rsocBase(), _rsocAnio(Y), _rsocAnio(Y - 1),
       sb.from('contratos_alquiler').select('propiedad_id,fecha_fin,activo,inquilino').limit(2000).then(r=>r.data||[], ()=>[]),
+      // v186 — rubros sueltos del año, para poder desglosar ingresos, gastos e
+      // impuestos. Vienen en moneda nativa: se convierten con rubroPropUSD().
+      sb.from('movimientos_propiedades').select('*').eq('anio', Y).limit(5000).then(r=>r.data||[], ()=>[]),
+      // Aportes de capital de TODOS los años: es el "invertido" de una cuenta.
+      sb.from('aportes_bancos').select('banco_id,tipo,monto').limit(9000).then(r=>r.data||[], ()=>[]),
     ]);
   } catch (e) { cont.innerHTML = `<div class="card" style="color:var(--usa)">No se pudieron leer los datos: ${e.message}</div>`; return; }
 
@@ -8437,13 +8510,72 @@ async function renderRepCliente() {
   // ── Composición
   const porTipo = [['Propiedades', vP], ['Private Equity', vE], ['Bancos', vB], ['Autos', vA]]
     .filter(([,v]) => Math.abs(v) > 0.5).sort((a,b) => b[1] - a[1]);
+  /* v186 — el cuadro por pais contaba SOLO propiedades y autos, asi que el
+     total no daba el patrimonio y los porcentajes estaban calculados sobre una
+     base distinta a la del cuadro de al lado. Ahora entra todo. */
   const porPais = {};
-  props.forEach(p => { const k = p.pais || '—'; porPais[k] = (porPais[k]||0) + (Number(p['valor_'+Y])||0); });
-  autos.forEach(a => { const k = a.pais || '—'; porPais[k] = (porPais[k]||0) + (Number(a['valor_'+Y])||0); });
-  const paises = Object.entries(porPais).filter(([,v]) => v > 0.5).sort((a,b) => b[1]-a[1]);
+  const _sumPais = (k, v) => { if (Math.abs(v) > 0.005) porPais[k||'—'] = (porPais[k||'—']||0) + v; };
+  props .forEach(p => _sumPais(p.pais, Number(p['valor_'+Y])||0));
+  autos .forEach(a => _sumPais(a.pais, Number(a['valor_'+Y])||0));
+  pes   .forEach(p => { let t=0; try { t = peCalc(p, Y).tenencia||0; } catch(e){} _sumPais(p.pais, t); });
+  bancos.forEach(b => { const m = D.ban && D.ban[b.id]; _sumPais(b.pais, m ? bancoMovUSD(m).neto : 0); });
+  const paises = Object.entries(porPais).filter(([,v]) => Math.abs(v) > 0.5).sort((a,b) => b[1]-a[1]);
   const totPais = paises.reduce((s,[,v]) => s+v, 0);
 
-  // ── Detalle por propiedad, ordenado por yield
+  /* ── SERIE HISTORICA (v186) ───────────────────────────────────────────────
+     El patrimonio de cada año sale de los arrays hidratados, que son la misma
+     fuente que Patrimonio Historico: asi las dos pantallas dicen lo mismo.
+     Para el año EN CURSO los bancos no pueden salir de ahi — hidratarBancosHist
+     solo rellena diciembre — y se usa el ultimo mes cargado, igual que arriba. */
+  const _phN = {}; (B.ph||{}) && Object.values(B.ph||{}).forEach(o => _phN[o.nro] = o);
+  const _serie = [];
+  for (let y = 2017; y <= Y; y++) {
+    const vp = props.reduce((a,p) => a + (Number((B.ph[p.nro]||{}).valores?.[String(y)]) || (y===Y ? Number(p['valor_'+y])||0 : 0)), 0);
+    const va = autos.reduce((a,x) => a + (Number((B.ah[x.nro]||{}).valores?.[String(y)]) || (y===Y ? Number(x['valor_'+y])||0 : 0)), 0);
+    const ve = pes.reduce((a,x) => { let t=0; try { t = peCalc(x, y).tenencia || 0; } catch(e){} return a + t; }, 0);
+    const vb = (y === Y) ? vB
+             : bancos.reduce((a,b) => a + (Number(((B.bh[b.nro]||{}).byY||{})[String(y)]?.n) || 0), 0);
+    const tot = vp + vb + ve + va;
+    if (tot > 0.5 || y === Y) _serie.push({ y, prop:vp, banco:vb, pe:ve, autos:va, tot });
+  }
+  _serie.forEach((d,i) => { d.dif = i ? d.tot - _serie[i-1].tot : null; });
+
+  /* ── INVERTIDO vs ACTUAL ──
+     Propiedades y autos: lo que costaron. PE: lo aportado, que es la plata que
+     efectivamente se puso. Bancos: los aportes netos de retiros — una cuenta no
+     se "compra", se fondea. Timoteo ya avisó que faltan aportes cargados en
+     varias cuentas, asi que la fila de bancos puede quedar corta: se marca. */
+  const _apBanco = {};
+  (apHist||[]).forEach(a => { _apBanco[a.banco_id] = (_apBanco[a.banco_id]||0) +
+    (a.tipo==='retiro' ? -1 : 1) * Math.abs(Number(a.monto)||0); });
+  const invProp  = props.reduce((a,p) => a + (Number(p.valor_compra)||0), 0);
+  const invAuto  = autos.reduce((a,x) => a + (Number(x.valor_compra)||0), 0);
+  const invPE    = pes.reduce((a,x) => { let v=0; try { v = peCalc(x,Y).aportado||0; } catch(e){} return a+v; }, 0);
+  const invBanco = bancos.reduce((a,b) => a + (_apBanco[b.id]||0), 0);
+  const _INV = [
+    { n:'Propiedades',    inv:invProp,  act:vP },
+    { n:'Bancos',         inv:invBanco, act:vB, flojo:invBanco <= 0.5 || invBanco < vB*0.2 },
+    { n:'Private equity', inv:invPE,    act:vE },
+    { n:'Autos',          inv:invAuto,  act:vA },
+  ].filter(x => Math.abs(x.inv) > 0.5 || Math.abs(x.act) > 0.5);
+
+  /* ── DESGLOSES DE INGRESOS, GASTOS E IMPUESTOS ── */
+  const _RB_IN  = ['renta','otro_ingreso'];
+  const _RB_GA  = ['gas','luz','cable','telefono','expensas','jardinero','limpieza','mantenimiento',
+                   'deposito','comision','seguros','administracion','otros_gastos'];
+  const _RB_IM  = ['arba_abl','municipalidad_tigre','property_tax','tributo_domiciliario',
+                   'impuesto_primarias','contribucion_inmobiliaria','saneamiento','ascensor','otros_impuestos'];
+  const _misProp = new Set(props.map(p => p.id));
+  const _desg = (campos, secMon) => {
+    const acc = {};
+    (movRub||[]).forEach(m => { if (!_misProp.has(m.propiedad_id)) return;
+      campos.forEach(f => { const v = rubroPropUSD(m, f, secMon); if (Math.abs(v) > 0.005) acc[f] = (acc[f]||0) + v; }); });
+    return Object.entries(acc).sort((a,b) => Math.abs(b[1]) - Math.abs(a[1]));
+  };
+  const dIn = _desg(_RB_IN,'moneda_renta'), dGa = _desg(_RB_GA,'moneda_gastos'), dIm = _desg(_RB_IM,'moneda_impuestos');
+  const _NOMR = (typeof LK_NOM !== 'undefined') ? LK_NOM : {};
+
+  /* ── DETALLE POR PROPIEDAD ── */
   const detalle = props.map(p => {
     const d = D.prop[p.id] || (p.nro != null ? D.propNro[p.nro] : null) || {};
     const val = Number(p['valor_'+Y]) || 0;
@@ -8452,35 +8584,95 @@ async function renderRepCliente() {
              ocupada: conContrato.has(p.id) };
   }).sort((a,b) => (b.yld ?? -999) - (a.yld ?? -999));
 
-  // ── Qué mirar: contratos que vencen en 120 días + PE sin recuperar
-  const lim = new Date(Date.now() + 120*86400000).toISOString().slice(0,10);
-  const idProp = {}; props.forEach(p => idProp[p.id] = p);
-  const vencen = contratos
-    .filter(c => c.activo !== false && c.fecha_fin && c.fecha_fin >= hoy && c.fecha_fin <= lim && idProp[c.propiedad_id])
-    .sort((a,b) => String(a.fecha_fin).localeCompare(String(b.fecha_fin)));
-  const peAbierto = pes.map(p => { const c = peCalc(p, Y);
-    return { p, c, sinRecuperar: Math.max(0, (c.aportado||0) - (c.distribuido||0)) }; })
-    .filter(x => x.sinRecuperar > 0.5).sort((a,b) => b.sinRecuperar - a.sinRecuperar);
-
   const F  = v => (v < 0 ? '-' : '') + '$' + fmt(Math.abs(v));
   const pc = v => (v == null ? '—' : (v >= 0 ? '' : '-') + Math.abs(v).toFixed(1) + '%');
   const esH = CLI === 'H';
   const compartido = esH && Y >= 2026;
+  const CV = v => v >= 0 ? 'var(--esp)' : 'var(--usa)';
+  const SG = v => Math.abs(v) < 0.5 ? '—' : (v > 0 ? '+' : '') + F(v);
   const kpi = (lbl, val, col, sub) => `<div style="border:1px solid var(--border);border-radius:8px;padding:14px;text-align:center">
       <div style="font-size:10px;letter-spacing:1px;color:var(--text3);text-transform:uppercase;margin-bottom:6px">${lbl}</div>
       <div style="font-size:22px;font-weight:300;color:${col||'var(--text)'}">${val}</div>
       ${sub ? `<div style="font-size:10px;color:var(--text3);margin-top:3px">${sub}</div>` : ''}</div>`;
-  const barra = (items, tot) => items.map(([k,v]) => {
+  // Barras con el color de la categoria, para que peguen con el donut de al lado.
+  const barra = (items, tot) => items.map(([k,v],i) => {
     const p = tot ? v/tot*100 : 0;
     return `<div style="margin-bottom:7px">
       <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:2px">
-        <span>${k}</span><span style="color:var(--text3)">${F(v)} · ${p.toFixed(1)}%</span></div>
+        <span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${OFF_CAT[i%OFF_CAT.length]};margin-right:6px"></span>${k}</span>
+        <span style="color:var(--text3)">${F(v)} · ${p.toFixed(1)}%</span></div>
       <div style="height:6px;background:var(--bg3);border-radius:3px;overflow:hidden">
-        <div style="height:100%;width:${p.toFixed(1)}%;background:var(--gold)"></div></div></div>`; }).join('');
+        <div style="height:100%;width:${Math.max(p,0.4).toFixed(1)}%;background:${OFF_CAT[i%OFF_CAT.length]}"></div></div></div>`; }).join('');
+  // Barra apilada: la composicion entera en un solo renglon.
+  const apilada = (items, tot) => !tot ? '' : `<div style="display:flex;height:12px;border-radius:3px;overflow:hidden;margin-bottom:10px">
+      ${items.map(([k,v],i) => `<div title="${k}" style="width:${(v/tot*100).toFixed(2)}%;background:${OFF_CAT[i%OFF_CAT.length]}"></div>`).join('')}</div>`;
+  const conDonut = (contenido, items) => `<div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap">
+      <div style="flex:1;min-width:190px">${contenido}</div>${offDonut(items, 118)}</div>`;
 
   const topTipo = porTipo[0], topPais = paises[0];
   const lectura = (topTipo && TOT) ? `Está <b>${(topTipo[1]/TOT*100).toFixed(0)}%</b> en ${topTipo[0].toLowerCase()}${
-      topPais && totPais ? `, y de eso <b>${(topPais[1]/totPais*100).toFixed(0)}%</b> en ${topPais[0]}` : ''}.` : '';
+      topPais && totPais ? `, y <b>${(topPais[1]/totPais*100).toFixed(0)}%</b> en ${topPais[0]}` : ''}.` : '';
+
+  // Filas de propiedades partidas en renta / no renta
+  const _filaP = x => `<tr${x.ocupada ? '' : ' style="opacity:0.7"'}>
+      <td style="text-align:center">${x.ocupada
+        ? '<span style="color:var(--esp)" title="Con contrato vigente">●</span>'
+        : '<span style="color:var(--usa)" title="Sin contrato vigente">○</span>'}</td>
+      <td class="bold">${x.p.nombre}</td>
+      <td style="color:var(--text3);font-size:11px">${x.p.pais||'—'}</td>
+      <td class="num">${F(x.val)}</td>
+      <td class="num" style="color:${CV(x.neta)}">${F(x.neta)}</td>
+      <td class="num" style="font-weight:600;color:${CV(x.yld ?? 0)}">${pc(x.yld)}</td></tr>`;
+  const _BANDA = 'background:var(--gold-soft,#f7f0e2);color:var(--gold);font-size:10px;letter-spacing:1px;text-transform:uppercase;font-weight:700;padding:7px 10px';
+  const _subP = (lbl, g, css) => `<tr style="${css}">
+      <td colspan="3">${lbl}</td>
+      <td class="num">${F(g.reduce((a,x)=>a+x.val,0))}</td>
+      <td class="num" style="color:${CV(g.reduce((a,x)=>a+x.neta,0))}">${F(g.reduce((a,x)=>a+x.neta,0))}</td>
+      <td class="num">${(() => { const v=g.reduce((a,x)=>a+x.val,0), n=g.reduce((a,x)=>a+x.neta,0); return v>0?pc(n/v*100):'—'; })()}</td></tr>`;
+  const _dR = detalle.filter(x => x.p.tipo === 'R'), _dN = detalle.filter(x => x.p.tipo !== 'R');
+  const _SUB = 'background:var(--bg3);font-weight:600';
+  const _TOT = 'background:var(--bg3);font-weight:700;border-top:2px solid var(--border2)';
+  const filasDet = !detalle.length ? '<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:18px">Sin propiedades.</td></tr>' : [
+    ..._dR.length ? [`<tr><td colspan="6" style="${_BANDA}">De renta</td></tr>`, ..._dR.map(_filaP), _subP('Subtotal de renta', _dR, _SUB)] : [],
+    ..._dN.length ? [`<tr><td colspan="6" style="${_BANDA}">No renta</td></tr>`, ..._dN.map(_filaP), _subP('Subtotal no renta', _dN, _SUB)] : [],
+    _subP('Total propiedades', detalle, _TOT),
+  ].join('');
+
+  /* ── BLOQUES PATRIMONIALES DE BANCOS, PE Y AUTOS ──
+     Conciso a proposito: cuanto hay y de que esta hecho. El detalle movimiento
+     por movimiento vive en los informes periodicos. */
+  const _bl = (titulo, filas, pie) => !filas.length ? '' : `
+    <div class="card" style="margin:0">
+      <div class="section-title" style="font-size:13px;margin:0 0 10px">${titulo}</div>
+      ${filas.map(f => `<div style="display:flex;justify-content:space-between;gap:10px;font-size:12px;padding:5px 0;border-bottom:1px solid var(--border)">
+        <span>${f[0]}${f[2]?`<span style="color:var(--text3);font-size:10px;display:block">${f[2]}</span>`:''}</span>
+        <span style="white-space:nowrap;${f[3]||''}">${f[1]}</span></div>`).join('')}
+      ${pie ? `<p style="font-size:11px;color:var(--text3);margin:9px 0 0">${pie}</p>` : ''}
+    </div>`;
+  const _bkOper = bancos.filter(b => b.es_operativa === true), _bkInv = bancos.filter(b => b.es_operativa !== true);
+  const _vBk = b => { const m = D.ban && D.ban[b.id]; return m ? bancoMovUSD(m).neto : 0; };
+  const filasBk = bancos.map(b => [b.nombre, F(_vBk(b)), (b.pais||'') + (b.es_operativa?' · operativa':' · inversión'), ''])
+                        .filter((_,i) => Math.abs(_vBk(bancos[i])) > 0.5)
+                        .concat(bancos.length ? [['<b>Total</b>', '<b>'+F(vB)+'</b>', '', '']] : []);
+  const filasPE = pes.map(p => { let c; try { c = peCalc(p, Y); } catch(e) { c = null; } return { p, c }; })
+    .filter(x => x.c && (Math.abs(x.c.tenencia) > 0.5 || Math.abs(x.c.aportado) > 0.5))
+    .sort((a,b) => b.c.tenencia - a.c.tenencia)
+    .map(({p,c}) => [p.nombre, F(c.tenencia),
+        ((typeof PE_TIPOS!=='undefined'&&PE_TIPOS[c.tipo]?PE_TIPOS[c.tipo].lbl.toLowerCase():c.tipo) + ' · ' + (c.nota||'')), ''])
+    .concat(pes.length ? [['<b>Total</b>', '<b>'+F(vE)+'</b>', '', '']] : []);
+  const filasAu = autos.map(a => [a.nombre, F(Number(a['valor_'+Y])||0),
+        (a.pais||'') + (a.valor_compra ? ' · compra ' + F(Number(a.valor_compra)) : ''), ''])
+    .filter(f => f[1] !== '$0')
+    .concat(autos.length ? [['<b>Total</b>', '<b>'+F(vA)+'</b>', '', '']] : []);
+
+  const _desgHTML = (titulo, items, tot, neg) => `
+    <div>
+      <div style="display:flex;justify-content:space-between;font-size:12px;font-weight:700;padding-bottom:6px;border-bottom:1px solid var(--border2);margin-bottom:6px">
+        <span>${titulo}</span><span style="color:${neg?'var(--usa)':'var(--esp)'}">${neg?'-':''}${F(Math.abs(tot))}</span></div>
+      ${items.length ? items.map(([k,v]) => `<div style="display:flex;justify-content:space-between;font-size:11.5px;padding:2.5px 0">
+        <span style="color:var(--text3)">${_NOMR[k]||k}</span><span>${F(Math.abs(v))}</span></div>`).join('')
+        : '<div style="font-size:11.5px;color:var(--text3)">Sin movimientos cargados.</div>'}
+    </div>`;
 
   cont.innerHTML = `
     <div class="card" style="margin-bottom:14px">
@@ -8489,10 +8681,11 @@ async function renderRepCliente() {
         ${props.length} propiedades · ${bancos.length} cuentas · ${pes.length} posiciones de PE · ${autos.length} autos
         ${esH ? ' · el bloque se reparte ÷3 entre FC, FCC y YAC' : ''}</p>
       <div class="form-row ${compartido ? 'cols-3' : 'cols-2'}" style="margin:0">
-        ${kpi('Patrimonio', F(TOT), 'var(--gold)',
-              prev ? `${dif >= 0 ? '+' : ''}${F(dif)} vs ${Y-1} · ${pc(difPct)}` : '')}
+        ${/* v186 — el resultado salio de este renglon: un numero suelto sin nada
+              que lo explicara. Ahora vive abajo, desglosado y con los años. */''}
+        ${kpi('Patrimonio', F(TOT), 'var(--gold)', 'al cierre de ' + Y)}
         ${compartido ? kpi('Tu parte (÷3)', F(TOT/3), 'var(--esp)', 'FC · FCC · YAC') : ''}
-        ${kpi('Renta neta ' + Y, F(neta), neta >= 0 ? 'var(--esp)' : 'var(--usa)',
+        ${kpi('Renta neta ' + Y, F(neta), CV(neta),
               yieldPct != null ? `yield ${pc(yieldPct)} sobre las propiedades` : '')}
       </div>
       ${esH && Y < 2026 ? `<p style="font-size:11px;color:var(--gold);margin:12px 0 0">
@@ -8500,73 +8693,110 @@ async function renderRepCliente() {
         así que el bloque vale lo que dice arriba pero no se dividía.</p>` : ''}
     </div>
 
+    <div class="card" style="margin-bottom:14px">
+      <div class="section-title" style="font-size:13px;margin:0 0 4px">Cómo llegó hasta acá</div>
+      <p style="font-size:11px;color:var(--text3);margin:0 0 12px">El patrimonio al cierre de cada año y cuánto se movió contra el anterior.</p>
+      <div class="table-wrap"><table style="font-size:12px">
+        <thead><tr><th>Año</th><th class="num">Propiedades</th><th class="num">Cuentas</th><th class="num">Private equity</th><th class="num">Autos</th><th class="num">Total</th><th class="num">Variación</th></tr></thead>
+        <tbody>${_serie.map((d,i) => `<tr${i===_serie.length-1?` style="${_TOT}"`:''}>
+          <td${i===_serie.length-1?'':' class="bold"'}>${d.y}</td>
+          <td class="num" style="color:var(--text3)">${F(d.prop)}</td>
+          <td class="num" style="color:var(--text3)">${F(d.banco)}</td>
+          <td class="num" style="color:var(--text3)">${F(d.pe)}</td>
+          <td class="num" style="color:var(--text3)">${F(d.autos)}</td>
+          <td class="num" style="font-weight:600">${F(d.tot)}</td>
+          <td class="num" style="color:${(d.dif==null||Math.abs(d.dif)<0.5)?'var(--text3)':CV(d.dif)};font-weight:${(d.dif==null||Math.abs(d.dif)<0.5)?400:600}">${d.dif==null?'—':SG(d.dif)}</td>
+        </tr>`).join('')}</tbody>
+      </table></div>
+      <div style="margin-top:14px">
+        <div style="font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--text3);font-weight:700;margin-bottom:6px">Variación año a año</div>
+        ${offBarras(_serie.filter(d => d.dif != null).map(d => ({ lbl:d.y, v:d.dif })))}
+      </div>
+      ${(() => {
+        const ult = _serie[_serie.length-1], ant = _serie[_serie.length-2];
+        if (!ult || !ant) return '';
+        const partes = [['propiedades','prop'],['las cuentas','banco'],['private equity','pe'],['autos','autos']]
+          .map(([n,k]) => ({ n, d: ult[k] - ant[k] })).filter(x => Math.abs(x.d) > 0.5)
+          .sort((a,b) => Math.abs(b.d) - Math.abs(a.d));
+        if (!partes.length) return '';
+        return `<p style="font-size:12px;color:var(--text2,var(--text));margin:14px 0 0;padding-top:10px;border-top:1px solid var(--border);line-height:1.6">
+          En ${ult.y} el patrimonio ${ult.dif>=0?'subió':'bajó'} <b>${F(Math.abs(ult.dif))}</b> contra ${ant.y}
+          (${pc(ant.tot ? ult.dif/ant.tot*100 : null)}). Se explica así:
+          ${partes.map(x => `<b style="color:${CV(x.d)}">${SG(x.d)}</b> en ${x.n}`).join(', ')}.</p>`;
+      })()}
+    </div>
+
+    <div class="card" style="margin-bottom:14px">
+      <div class="section-title" style="font-size:13px;margin:0 0 4px">Invertido y actual</div>
+      <p style="font-size:11px;color:var(--text3);margin:0 0 12px">Lo que se puso contra lo que vale hoy, por tipo de activo.</p>
+      <div class="table-wrap"><table style="font-size:12px">
+        <thead><tr><th>Tipo</th><th class="num">Invertido</th><th class="num">Actual</th><th class="num">Variación</th><th class="num">%</th></tr></thead>
+        <tbody>${_INV.map(x => { const d = x.act - x.inv; return `<tr>
+          <td class="bold">${x.n}${x.flojo?'<span style="color:var(--gold);font-size:10px;display:block">faltan aportes cargados</span>':''}</td>
+          <td class="num" style="color:var(--text3)">${x.inv>0.5?F(x.inv):'—'}</td>
+          <td class="num">${F(x.act)}</td>
+          <td class="num" style="color:${x.inv>0.5?CV(d):'var(--text3)'};font-weight:600">${x.inv>0.5?SG(d):'—'}</td>
+          <td class="num" style="color:${x.inv>0.5?CV(d):'var(--text3)'}">${x.inv>0.5?pc(d/x.inv*100):'—'}</td></tr>`; }).join('')}
+          ${(() => { const ti=_INV.reduce((a,x)=>a+(x.inv>0.5?x.inv:0),0), ta=_INV.reduce((a,x)=>a+(x.inv>0.5?x.act:0),0), d=ta-ti;
+            return ti>0.5 ? `<tr style="${_TOT}"><td>Total comparable</td><td class="num">${F(ti)}</td><td class="num">${F(ta)}</td>
+              <td class="num" style="color:${CV(d)}">${SG(d)}</td><td class="num" style="color:${CV(d)}">${pc(d/ti*100)}</td></tr>` : ''; })()}
+        </tbody>
+      </table></div>
+      <p style="font-size:11px;color:var(--text3);margin:10px 0 0">
+        En propiedades y autos el invertido es el valor de compra; en private equity, el capital aportado;
+        en las cuentas, los aportes netos de retiros. Las filas sin invertido cargado quedan fuera del total comparable.</p>
+    </div>
+
     <div class="form-row cols-2" style="margin:0 0 14px">
       <div class="card" style="margin:0">
         <div class="section-title" style="font-size:13px;margin:0 0 10px">Por tipo de activo</div>
-        ${barra(porTipo, TOT) || '<p style="font-size:12px;color:var(--text3)">Sin activos en ' + Y + '.</p>'}
+        ${porTipo.length ? apilada(porTipo, TOT) : ''}
+        ${porTipo.length ? conDonut(barra(porTipo, TOT), porTipo) : '<p style="font-size:12px;color:var(--text3)">Sin activos en ' + Y + '.</p>'}
         ${lectura ? `<p style="font-size:11px;color:var(--text3);margin:10px 0 0;padding-top:8px;border-top:1px solid var(--border)">${lectura}</p>` : ''}
       </div>
       <div class="card" style="margin:0">
-        <div class="section-title" style="font-size:13px;margin:0 0 10px">Por país <span style="font-weight:400;color:var(--text3);font-size:11px">· propiedades y autos</span></div>
-        ${barra(paises, totPais) || '<p style="font-size:12px;color:var(--text3)">—</p>'}
+        <div class="section-title" style="font-size:13px;margin:0 0 10px">Por país <span style="font-weight:400;color:var(--text3);font-size:11px">· todo el patrimonio</span></div>
+        ${paises.length ? apilada(paises, totPais) : ''}
+        ${paises.length ? conDonut(barra(paises, totPais), paises) : '<p style="font-size:12px;color:var(--text3)">—</p>'}
       </div>
+    </div>
+
+    <div class="form-row cols-3" style="margin:0 0 14px">
+      ${_bl('Cuentas', filasBk, _bkOper.length && _bkInv.length ? `${_bkInv.length} de inversión · ${_bkOper.length} operativas` : '')}
+      ${_bl('Private equity', filasPE, '')}
+      ${_bl('Autos', filasAu, '')}
     </div>
 
     <div class="card" style="margin-bottom:14px">
       <div class="section-title" style="font-size:13px;margin:0 0 10px">Qué rinde · ${Y}</div>
-      <div class="form-row cols-4" style="margin:0 0 12px">
-        ${kpi('Renta bruta', F(renta))}
+      <div class="form-row cols-4" style="margin:0 0 14px">
+        ${kpi('Ingresos', F(renta), 'var(--esp)')}
         ${kpi('Gastos', F(-gastos), 'var(--usa)', gastosAuto ? `+ ${F(gastosAuto)} de autos` : '')}
         ${kpi('Impuestos', F(-imp), 'var(--usa)')}
-        ${kpi('Promedio mensual', F(neta/12), neta >= 0 ? 'var(--esp)' : 'var(--usa)',
+        ${kpi('Promedio mensual', F(neta/12), CV(neta),
               compartido ? `${F(neta/12/3)} cada uno` : (Y === new Date().getFullYear() ? 'año en curso' : ''))}
+      </div>
+      <div class="form-row cols-3" style="margin:0 0 12px">
+        ${_desgHTML('Ingresos', dIn, renta, false)}
+        ${_desgHTML('Gastos', dGa, gastos, true)}
+        ${_desgHTML('Impuestos', dIm, imp, true)}
       </div>
       <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:12px;padding-top:10px;border-top:1px solid var(--border)">
         <span><b style="color:var(--esp)">${alquiladas.length}</b> alquiladas</span>
         <span><b style="color:${vacias.length ? 'var(--usa)' : 'var(--esp)'}">${vacias.length}</b> sin contrato vigente</span>
         ${vacias.length ? `<span style="color:var(--text3)">— ${F(valVacias)} de valor sin generar renta</span>` : ''}
       </div>
-    </div>
-
-    <div class="card" style="margin-bottom:14px">
-      <div class="section-title" style="font-size:13px;margin:0 0 10px">Propiedad por propiedad <span style="font-weight:400;color:var(--text3);font-size:11px">· ordenadas por rendimiento</span></div>
-      <div class="table-wrap"><table style="font-size:12px">
-        <thead><tr><th></th><th>Propiedad</th><th>País</th><th class="num">Valor</th><th class="num">Renta neta</th><th class="num">Yield</th></tr></thead>
-        <tbody>${detalle.map(x => `<tr${x.ocupada ? '' : ' style="opacity:0.7"'}>
-          <td style="text-align:center">${x.ocupada
-            ? '<span style="color:var(--esp)" title="Con contrato vigente">●</span>'
-            : '<span style="color:var(--usa)" title="Sin contrato vigente">○</span>'}</td>
-          <td class="bold">${x.p.nombre}</td>
-          <td style="color:var(--text3);font-size:11px">${x.p.pais||'—'}</td>
-          <td class="num">${F(x.val)}</td>
-          <td class="num" style="color:${x.neta >= 0 ? 'var(--esp)' : 'var(--usa)'}">${F(x.neta)}</td>
-          <td class="num" style="font-weight:600;color:${(x.yld ?? 0) >= 0 ? 'var(--esp)' : 'var(--usa)'}">${pc(x.yld)}</td>
-        </tr>`).join('') || '<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:18px">Sin propiedades.</td></tr>'}
-        </tbody></table></div>
-      <p style="font-size:11px;color:var(--text3);margin:10px 0 0">● con contrato vigente · ○ sin contrato. El yield es la renta neta del año sobre el valor del activo.</p>
+      <p style="font-size:11px;color:var(--text3);margin:10px 0 0">
+        Los desgloses salen de los rubros cargados mes a mes, convertidos a dólares con el tipo de cambio de cada mes.
+        Pueden no llegar al total si un año se cargó como cifra anual y no rubro por rubro.</p>
     </div>
 
     <div class="card">
-      <div class="section-title" style="font-size:13px;margin:0 0 10px">Qué mirar ahora</div>
-      ${vencen.length ? `<div style="margin-bottom:12px">
-        <div style="font-size:12px;font-weight:600;margin-bottom:6px">Contratos que vencen en los próximos 120 días</div>
-        ${vencen.map(c => `<div style="font-size:12px;padding:4px 0;border-bottom:1px solid var(--border)">
-          <b>${idProp[c.propiedad_id].nombre}</b>
-          <span style="color:var(--text3)">${c.inquilino ? '· ' + c.inquilino : ''} · vence ${new Date(c.fecha_fin+'T00:00:00').toLocaleDateString('es-AR')}</span></div>`).join('')}
-      </div>` : ''}
-      ${peAbierto.length ? `<div style="margin-bottom:12px">
-        <div style="font-size:12px;font-weight:600;margin-bottom:6px">Capital de private equity sin recuperar</div>
-        ${peAbierto.map(x => `<div style="font-size:12px;padding:4px 0;border-bottom:1px solid var(--border)">
-          <b>${x.p.nombre}</b> <span style="color:var(--text3)">· puesto ${F(x.c.aportado||0)} · devuelto ${F(x.c.distribuido||0)} ·
-          <span style="color:var(--gold)">falta ${F(x.sinRecuperar)}</span>
-          (${x.c.aportado ? ((x.c.distribuido||0)/x.c.aportado*100).toFixed(0) : 0}% recuperado)</span></div>`).join('')}
-      </div>` : ''}
-      ${vacias.length ? `<div>
-        <div style="font-size:12px;font-weight:600;margin-bottom:6px">Sin contrato vigente</div>
-        <div style="font-size:12px;color:var(--text3)">${vacias.map(p => p.nombre).join(' · ')}</div>
-      </div>` : ''}
-      ${(!vencen.length && !peAbierto.length && !vacias.length)
-        ? '<p style="font-size:12px;color:var(--esp);margin:0">Nada pendiente: todo alquilado, sin vencimientos cerca y sin capital de PE abierto.</p>' : ''}
+      <div class="section-title" style="font-size:13px;margin:0 0 10px">Propiedad por propiedad <span style="font-weight:400;color:var(--text3);font-size:11px">· ordenadas por rendimiento dentro de cada grupo</span></div>
+      <div class="table-wrap"><table style="font-size:12px">
+        <thead><tr><th></th><th>Propiedad</th><th>País</th><th class="num">Valor</th><th class="num">Renta neta</th><th class="num">Yield</th></tr></thead>
+        <tbody>${filasDet}</tbody></table></div>
+      <p style="font-size:11px;color:var(--text3);margin:10px 0 0">● con contrato vigente · ○ sin contrato. El yield es la renta neta del año sobre el valor del activo.</p>
     </div>`;
 }
 
@@ -9915,33 +10145,8 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
     <div style="font-size:20px;font-weight:700;color:${c||'var(--text)'}">${v}</div>
     <div style="font-size:10.5px;color:var(--text3);margin-top:5px">${s||''}</div></div>`;
 
-  /* Donut SVG inline, no Chart.js: el informe se imprime abriendo una ventana
-     nueva con este mismo HTML, y un <canvas> no se copia — llegaria en blanco.
-     Un SVG viaja como cualquier otro nodo e imprime nitido a cualquier escala. */
-  const DONUT_COL = ['#a87316','#0e9c8d','#2f6dbd','#c85043'];
-  const donut = (items, size=136, hole=0.58) => {
-    const tot = items.reduce((a,x)=>a+x.v,0) || 1;
-    const r = size/2-2, cx = size/2, cy = size/2, ri = r*hole;
-    let a0 = -Math.PI/2, out = '';
-    items.forEach((it,i) => {
-      const frac = it.v/tot; if (frac <= 0) return;
-      const a1 = a0 + frac*2*Math.PI, c = DONUT_COL[i%4];
-      if (frac > 0.9999) {   // un gajo de 100% no se dibuja con un arco: va como anillo
-        out += `<circle cx="${cx}" cy="${cy}" r="${((r+ri)/2).toFixed(2)}" fill="none" stroke="${c}" stroke-width="${(r-ri).toFixed(2)}"/>`;
-      } else {
-        const L = frac > 0.5 ? 1 : 0;
-        const x0=cx+r*Math.cos(a0),  y0=cy+r*Math.sin(a0);
-        const x1=cx+r*Math.cos(a1),  y1=cy+r*Math.sin(a1);
-        const i1=cx+ri*Math.cos(a1), j1=cy+ri*Math.sin(a1);
-        const i0=cx+ri*Math.cos(a0), j0=cy+ri*Math.sin(a0);
-        out += `<path d="M ${x0.toFixed(2)} ${y0.toFixed(2)} A ${r.toFixed(2)} ${r.toFixed(2)} 0 ${L} 1 ${x1.toFixed(2)} ${y1.toFixed(2)} `
-             + `L ${i1.toFixed(2)} ${j1.toFixed(2)} A ${ri.toFixed(2)} ${ri.toFixed(2)} 0 ${L} 0 ${i0.toFixed(2)} ${j0.toFixed(2)} Z" `
-             + `fill="${c}" stroke="var(--bg2,#fff)" stroke-width="2" stroke-linejoin="round"/>`;
-      }
-      a0 = a1;
-    });
-    return `<svg viewBox="0 0 ${size} ${size}" width="${size}" height="${size}" role="img" style="flex-shrink:0">${out}</svg>`;
-  };
+  const DONUT_COL = OFF_CAT;   // v186 — el donut vive en offDonut(), global
+  const donut = offDonut;
 
   const TIPOS = [
     { n:'Propiedades',    v:vProps,    d:null },
@@ -10013,10 +10218,11 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
      Las reglas viven por activo + rubro; una excepcion del mes le gana a la
      regla. Solo se mira lo que tiene importe: un rubro en cero no se linkea. */
   const _RUB_IN  = ['renta','otro_ingreso'];
-  const _RUB_OUT = ['gas','luz','cable','telefono','expensas','jardinero','limpieza','mantenimiento',
-                    'deposito','comision','seguros','administracion','otros_gastos','arba_abl',
-                    'municipalidad_tigre','property_tax','tributo_domiciliario','impuesto_primarias',
-                    'contribucion_inmobiliaria','saneamiento','ascensor','otros_impuestos'];
+  const _RUB_GAS = ['gas','luz','cable','telefono','expensas','jardinero','limpieza','mantenimiento',
+                    'deposito','comision','seguros','administracion','otros_gastos'];
+  const _RUB_IMP = ['arba_abl','municipalidad_tigre','property_tax','tributo_domiciliario',
+                    'impuesto_primarias','contribucion_inmobiliaria','saneamiento','ascensor','otros_impuestos'];
+  const _RUB_OUT = _RUB_GAS.concat(_RUB_IMP);
   const _rgs = rgR.data||[], _exs = exR.data||[];
   const _cuentaDe = (nro, rubro, mes) => {
     const e = _exs.find(x => x.categoria==='propiedades' && x.activo_nro===nro && x.rubro===rubro && x.mes===mes);
@@ -10030,7 +10236,10 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
     const p = _propById[m.propiedad_id]; if (!p || p.nro == null) return;
     const sh = share(p);
     const add = (rubro, campo, esIn) => {
-      const v = Math.abs(Number(m[campo]) || 0); if (v < 0.005) return;
+      // v186 — los rubros estan en moneda nativa: sin convertir, 150.000 pesos
+      // de expensas entraban al informe como 150.000 dolares.
+      const v = Math.abs(rubroPropUSD(m, campo, esIn ? 'moneda_renta' : (_RUB_IMP.includes(campo) ? 'moneda_impuestos' : 'moneda_gastos')));
+      if (v < 0.005) return;
       const cid = _cuentaDe(p.nro, rubro, m.mes); if (!cid) return;
       const c = _porCuenta[cid] = _porCuenta[cid] || {};
       const d = c[p.id] = c[p.id] || { cobro:0, pago:0 };
@@ -15714,7 +15923,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260911-185';
+const APP_VERSION = '20260911-186';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
