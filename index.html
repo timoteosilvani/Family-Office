@@ -3643,16 +3643,20 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
 
       <div id="page-reportes" class="page">
         <div class="tabs">
-          <button class="tab-btn active" onclick="switchTab('rep','patrimonial',this)">Patrimonial</button>
+          <!-- v184 — Periodicos responde "como cerro el periodo"; Patrimonial,
+               "que hay hoy, de que esta hecho y de donde vino". Los id de los
+               contenedores (rep-patrimonial / rep-porcliente) NO se renombran:
+               los usan switchTab, los exportadores de PDF y el CSS. -->
+          <button class="tab-btn active" onclick="switchTab('rep','patrimonial',this)">Periódicos</button>
           <button class="tab-btn" onclick="switchTab('rep','sociedades',this);renderRepSoc()">Sociedades</button>
-          <button class="tab-btn" onclick="switchTab('rep','porcliente',this);renderRepCliente()">Por cliente</button>
+          <button class="tab-btn" onclick="switchTab('rep','porcliente',this);renderRepCliente()">Patrimonial</button>
         </div>
 
         <div id="rep-porcliente" class="tab-content">
           <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:16px;margin-bottom:18px">
             <div>
-              <div class="section-title" style="margin-bottom:4px">Reporte por cliente</div>
-              <p style="color:var(--text3);font-size:13px;margin:0;max-width:660px">El patrimonio de un cliente como bloque propio: cu&aacute;nto vale, de qu&eacute; est&aacute; hecho, cu&aacute;nto rinde y qu&eacute; conviene mirar.</p>
+              <div class="section-title" style="margin-bottom:4px">Reporte patrimonial</div>
+              <p style="color:var(--text3);font-size:13px;margin:0;max-width:660px">La foto del patrimonio de un cliente: cu&aacute;nto vale hoy, de qu&eacute; est&aacute; hecho, de d&oacute;nde vino y cu&aacute;nto rinde.</p>
             </div>
             <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
               <div><label class="fld">Cliente</label>
@@ -3668,8 +3672,8 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
         <div id="rep-patrimonial" class="tab-content active" style="display:block">
         <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:16px;margin-bottom:20px">
           <div>
-            <div class="section-title" style="margin-bottom:4px">Informe Patrimonial</div>
-            <p style="color:var(--text3);font-size:13px;margin:0">Informe semestral por cliente, generado en vivo desde los datos cargados.</p>
+            <div class="section-title" style="margin-bottom:4px">Informes periódicos</div>
+            <p style="color:var(--text3);font-size:13px;margin:0">C&oacute;mo cerr&oacute; el per&iacute;odo: mensual, semestral o anual, generado en vivo desde los datos cargados.</p>
           </div>
           <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
             <div><label class="fld">Cliente</label><select class="fld" id="rep-cliente" style="min-width:150px" onchange="generarReporte()"></select></div>
@@ -8140,7 +8144,7 @@ async function exportarReportePDF() {
   return _exportarPDF({
     contId: 'rep-contenido',
     cliNom: cli.selectedIndex >= 0 ? cli.options[cli.selectedIndex].text : '',
-    titulo: (window._repTitulo||'').indexOf('Mensual') >= 0 ? 'Informe Mensual' : 'Informe Patrimonial',
+    titulo: (window._repTitulo||'').indexOf('Mensual') >= 0 ? 'Informe Mensual' : 'Informe Periódico',
     subtitulo: window._repTitulo || 'Informe',
     vacio: 'Generá el informe primero',
   });
@@ -8568,12 +8572,14 @@ async function renderRepCliente() {
 
 async function exportarRepClientePDF() {
   const c = document.getElementById('rc-cliente'), y = document.getElementById('rc-anio');
-  const nom = c && c.selectedIndex >= 0 ? c.options[c.selectedIndex].text : '';
+  /* v184 — el subtitulo se arma como `${cliNom} · ${subtitulo}`, y los dos
+     arrancaban con el nombre del cliente: salia "FCC · F.C. Cocci · FCC ·
+     F.C. Cocci · Ejercicio 2026". Ahora va solo el codigo del cliente. */
   return _exportarPDF({
     contId: 'rc-contenido',
-    cliNom: nom,
-    titulo: 'Reporte por cliente',
-    subtitulo: nom + ' · Ejercicio ' + (y ? y.value : ''),
+    cliNom: c ? c.value : '',
+    titulo: 'Reporte patrimonial',
+    subtitulo: 'Patrimonio ' + (y ? y.value : ''),
     vacio: 'Esperá a que cargue el reporte',
   });
 }
@@ -8686,6 +8692,14 @@ function repPeriodoOpts(){
   else if(tipo==='semestral'){ years.forEach(y=>{ o+=`<option value="S-${y}-1">${y} · Semestre 1 (ene-jun)</option><option value="S-${y}-2">${y} · Semestre 2 (jul-dic)</option>`; }); }
   else { years.forEach(y=>{ for(let m=1;m<=12;m++) o+=`<option value="M-${y}-${m}">${y} · ${mn[m-1]}</option>`; }); }
   per.innerHTML=o;
+  /* v184 — arranca en el periodo en curso y no en "enero de 2026", que era el
+     primero de la lista. Si el periodo de hoy no esta entre las opciones (un
+     año fuera de `years`), queda el primero, que es el comportamiento viejo. */
+  const _h = new Date(), _y = _h.getFullYear(), _m = _h.getMonth() + 1;
+  const _quiero = tipo === 'anual'     ? 'A-' + _y
+                : tipo === 'semestral' ? 'S-' + _y + '-' + (_m <= 6 ? 1 : 2)
+                :                        'M-' + _y + '-' + _m;
+  if (Array.from(per.options).some(o => o.value === _quiero)) per.value = _quiero;
 }
 function repTipoChange(){ repPeriodoOpts(); generarReporte(); }
 
@@ -9841,7 +9855,17 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
   // v181 — antes decía 'valor_2026' fijo: un informe de 2025 mostraba valores de 2026.
   const _vY = 'valor_' + anio;
   const sumV=(arr,f)=>arr.reduce((a,r)=>a+(Number(r[f])||0)*share(r),0);
-  const vProps = sumV(props,_vY), vPE = sumV(pe,_vY), vAutos = sumV(autos,_vY);
+  /* v184 — EL PE SE VALUA CON peCalc, NO CON LA COLUMNA.
+     Este informe leia `private_equity.valor_<anio>` y era el unico de los tres
+     que lo hacia: el semestral y el reporte por cliente usan peCalc. Resultado:
+     el mensual de junio de FC cerraba en 10.806.961 y el semestral, con la
+     MISMA fecha de corte, en 10.580.545. La columna es un valor suelto que
+     nadie recalcula; peCalc aplica el criterio (prestamo = capital vivo +
+     interes devengado · inversion = a costo hasta el cierre · participacion =
+     valuacion del año, o a costo). La columna sigue sirviendo de ultimo
+     recurso, pero eso ahora lo decide peCalc adentro y no cada informe. */
+  const vProps = sumV(props,_vY), vAutos = sumV(autos,_vY);
+  const vPE = pe.reduce((a,p) => { let t = 0; try { t = peCalc(p, anio).tenencia || 0; } catch(e) {} return a + t*share(p); }, 0);
   const patFijo = vProps + vPE + vAutos;
   const patTotal = patFijo + bancosMes, patPrev = patFijo + bancosPrev;
   const varMes = patTotal - patPrev, varPct = patPrev ? (varMes/patPrev*100) : 0;
@@ -10465,7 +10489,7 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
     </style>
     <div class="rep-doc">
     <div class="rep-head">
-      <div><div style="font-size:16px;font-weight:700">${cliNom}</div><div style="font-size:11px;opacity:.75">Informe Patrimonial · ${PER_LBL} · Cifras en USD</div></div>
+      <div><div style="font-size:16px;font-weight:700">${cliNom}</div><div style="font-size:11px;opacity:.75">Informe ${PER_LBL} · Cifras en USD</div></div>
       <div style="font-size:11px;opacity:.7;text-align:right">al ${FECHA_CIERRE}</div>
     </div>
     <div class="rep-kpis">
@@ -10952,6 +10976,20 @@ function peCalc(p, anio, hist) {
               aCosto: false, nota: '', metLbl: '', metVal: null };
 
   if (tipo === 'prestamo') {
+    /* v184 — INCOBRABLE. Un prestamo dado a perdida no es lo mismo que uno en
+       mora: el que esta en mora deja de devengar interes pero el capital sigue
+       siendo un activo; el incobrable ya no vale nada y la perdida se reconoce.
+       Se resuelve aca y no pasando la posicion a `inversion` para no esconder
+       un prestamo perdido adentro de las inversiones: el dia que quieras saber
+       cuantos prestamos se dieron a perdida, siguen siendo prestamos. */
+    if (p.incobrable === true) {
+      R.tenencia = 0; R.capRiesgo = 0;
+      R.resReal  = distribuido - aportado;      // la perdida, neta de lo cobrado
+      R.nota     = 'incobrable · dado a pérdida';
+      R.metLbl   = 'capital devuelto';
+      R.metVal   = aportado > 0 ? (distribuido / aportado * 100) : null;
+      return R;
+    }
     const tasa = (Number(p.tasa) || 0) / 100;
     const mora = p.en_mora === true;
     let cap = 0, intPend = 0, intDevAnio = 0, extraAnio = 0;
@@ -10997,6 +11035,23 @@ function peCalc(p, anio, hist) {
                            : 'a costo, sin revaluar';
     R.metLbl = 'rendimiento del año';
     R.metVal = aportado > 0 ? (distAnio / aportado * 100) : null;
+  }
+
+  /* v184 — FALLBACK A LA COLUMNA. Una posicion sin NINGUN dato historico
+     (ni movimientos_pe, ni PE_HIST_DATA) daba tenencia 0 y desaparecia del
+     informe semestral y del reporte por cliente aunque estuviera cargada y
+     con valor: asi se perdia TGA FINANCIAL, 100.000 que la app no mostraba
+     en ningun lado y que nadie iba a extrañar porque no habia fila vacia.
+     Si no sabemos como se compone la posicion, vale lo que dice la columna.
+     Esto NO toca ninguna posicion con historia: ahi manda peCalc. */
+  if (aportado === 0 && R.tenencia === 0) {
+    const vCol = Number(p['valor_' + anio]) || 0;
+    if (vCol > 0) {
+      R.tenencia  = vCol;
+      R.capRiesgo = vCol;
+      R.aCosto    = true;
+      R.nota      = 'sin movimientos cargados · valor de la ficha';
+    }
   }
   return R;
 }
@@ -15505,7 +15560,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260911-183';
+const APP_VERSION = '20260911-184';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
