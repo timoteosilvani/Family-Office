@@ -5066,6 +5066,25 @@ function offBarrasVal(items, fmtV, h) {
   return `<svg viewBox="0 0 ${W} ${h}" width="100%" height="${h}" preserveAspectRatio="none" role="img">${out}</svg>`;
 }
 
+/* ═══ TARJETAS EN TABLA  (v191) ═══════════════════════════════════════════
+   Las tarjetas de private equity estaban en un `display:grid`. Chrome NO
+   propaga `break-inside:avoid` a traves de un grid de varias filas: el cuadro
+   de PE se partia entre dos hojas aunque midiera 619px y la pagina util sea
+   1047. El de Bancos, que es una tabla, nunca se partio — esa fue la pista.
+   Envolver las tarjetas en una tabla de 3 columnas las pagina igual de bien
+   y el `break-inside:avoid` del `.card` vuelve a cumplirse. */
+function offTarjetas(cards, porFila) {
+  if (!cards.length) return '';
+  const N = porFila || 3, filas = [];
+  for (let i = 0; i < cards.length; i += N) {
+    const g = cards.slice(i, i + N);
+    filas.push('<tr>' + g.map(c =>
+        `<td style="width:${(100/N).toFixed(1)}%;vertical-align:top;padding:0 5px 9px 0;border:0">${c}</td>`).join('') +
+      '<td style="border:0"></td>'.repeat(N - g.length) + '</tr>');
+  }
+  return `<table style="width:100%;border-collapse:separate;border-spacing:0"><tbody>${filas.join('')}</tbody></table>`;
+}
+
 // Convierte un valor a USD usando el TC del mes del movimiento.
 function convUSD(val, moneda, anio, mes) {
   val = parseFloat(val) || 0;
@@ -8836,13 +8855,13 @@ async function renderRepCliente() {
   const _peHTML = !_peTodas.length ? '' : `
     ${_peVivas.length ? `<div class="card" style="margin-bottom:14px">
       <div class="section-title" style="font-size:13px;margin:0 0 12px">Private equity · ${_peVivas.length}</div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:11px">${_peVivas.map(_peTarjeta).join('')}</div>
+      ${offTarjetas(_peVivas.map(_peTarjeta))}
       ${_peResumen(_peVivas, 'Total private equity', false)}
     </div>` : ''}
     ${_peFin.length ? `<div class="card" style="margin-bottom:14px">
       <div class="section-title" style="font-size:13px;margin:0 0 4px">Private equity finalizado · ${_peFin.length}</div>
       <p style="font-size:11px;color:var(--text3);margin:0 0 12px">Posiciones terminadas. No valen nada hoy y no suman al patrimonio.</p>
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:11px">${_peFin.map(_peTarjeta).join('')}</div>
+      ${offTarjetas(_peFin.map(_peTarjeta))}
       ${_peResumen(_peFin, 'Total finalizado', true)}
     </div>` : ''}`;
 
@@ -9115,6 +9134,8 @@ async function _exportarPDF(opt) {
        de los numeros, que sigue legible) y con eso el cuadro entra entero. */
     .tbl-compacta td,.tbl-compacta th{padding:2.5px 6px;line-height:1.25;}
     .tbl-compacta td{font-size:10.5px;} .tbl-compacta th{font-size:9px;}
+    /* v191 — el margen del ultimo cuadro empujaba una hoja en blanco al final. */
+    body > *:last-child,.card:last-child{margin-bottom:0!important;}
     /* v189 — POR QUE UN CUADRO SEGUIA PARTIENDOSE.
        break-inside:avoid solo se cumple si el elemento ENTRA en una pagina.
        El cuadro de Bancos de un cliente con 14 cuentas mide mas que una hoja,
@@ -10837,7 +10858,7 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
   const _peHTML = !_peTodas.length ? '' : `
     <div class="card" style="margin-bottom:16px">
       <div class="section-title" style="margin-bottom:12px">Private equity · ${_peVivas.length}</div>
-      ${_peVivas.length ? `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:11px">${_peVivas.map(_peTarjeta).join('')}</div>
+      ${_peVivas.length ? `${offTarjetas(_peVivas.map(_peTarjeta))}
       ${_peResumen(_peVivas, 'Total private equity', false)}` : '<p style="font-size:12px;color:var(--text3)">Sin posiciones activas.</p>'}
       <p style="font-size:11px;color:var(--text3);margin:12px 0 0">
         La valuación es la plata efectivamente puesta menos lo devuelto, salvo que haya una
@@ -10848,7 +10869,7 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
       <p style="font-size:11px;color:var(--text3);margin:0 0 12px">
         Posiciones terminadas. No valen nada hoy y no suman al patrimonio: se muestran para que
         quede el resultado de cada una.</p>
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:11px">${_peFin.map(_peTarjeta).join('')}</div>
+      ${offTarjetas(_peFin.map(_peTarjeta))}
       ${_peResumen(_peFin, 'Total finalizado', true)}
     </div>` : ''}`;
 
@@ -11254,6 +11275,7 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
       .rep-doc .rep-h2{font-size:15px!important;font-weight:800;color:var(--navy);margin:16px 0 6px!important;letter-spacing:-.3px;padding-bottom:3px;border-bottom:2px solid var(--navy);}
       .rep-doc .pgbreak{page-break-before:always;break-before:page;}
       .rep-doc .card{page-break-inside:avoid;break-inside:avoid;}
+      .rep-doc > *:last-child,.rep-doc .card:last-child{margin-bottom:0!important;}
       .rep-doc .tbl-compacta td,.rep-doc .tbl-compacta th{padding:2.5px 6px;line-height:1.25;}
       .rep-doc .tbl-compacta td{font-size:10.5px;} .rep-doc .tbl-compacta th{font-size:9px;}
       .rep-doc .section-title{page-break-after:avoid;break-after:avoid;}
@@ -16389,7 +16411,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260911-190';
+const APP_VERSION = '20260911-191';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
