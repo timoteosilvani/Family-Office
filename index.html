@@ -8773,14 +8773,14 @@ async function renderRepCliente() {
     <div class="card" style="margin-bottom:14px">
       <div class="section-title" style="font-size:13px;margin:0 0 12px">Bancos</div>
       ${_bkInv.length ? `<div style="font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--text3);font-weight:700;margin:2px 0 8px">Cuentas de inversión</div>
-        <div class="table-wrap" style="margin-bottom:${_bkOper.length?'18px':'0'}"><table style="font-size:12px;table-layout:fixed">${_COLGB}
+        <div class="table-wrap" style="margin-bottom:${_bkOper.length?'18px':'0'}"><table class="tbl-compacta" style="table-layout:fixed">${_COLGB}
           <thead><tr><th>Cuenta</th><th class="num">Saldo al 1/1</th><th class="num">Al cierre de ${Y}</th><th class="num">Variación</th></tr></thead>
           <tbody>${_tablaBk(_bkInv)}</tbody></table></div>` : ''}
       ${_bkOper.length ? `<div style="font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--text3);font-weight:700;margin:2px 0 8px">Cuentas operativas</div>
-        <div class="table-wrap"><table style="font-size:12px;table-layout:fixed">${_COLGB}
+        <div class="table-wrap"><table class="tbl-compacta" style="table-layout:fixed">${_COLGB}
           <thead><tr><th>Cuenta</th><th class="num">Saldo al 1/1</th><th class="num">Al cierre de ${Y}</th><th class="num">Variación</th></tr></thead>
           <tbody>${_tablaBk(_bkOper)}</tbody></table></div>` : ''}
-      <div class="table-wrap" style="margin-top:16px"><table style="font-size:12px;table-layout:fixed">${_COLGB}<tbody>
+      <div class="table-wrap" style="margin-top:12px"><table class="tbl-compacta" style="table-layout:fixed">${_COLGB}<tbody>
         ${(() => { const ti = _bkDat.reduce((s,x)=>s+x.i,0) - _bkDat.reduce((s,x)=>s+x.credI,0);
                    const tcash = _bkDat.reduce((s,x)=>s+x.c,0), tf = tcash - _crTot;
           return `<tr style="background:var(--gold-soft,#f7f0e2);border-top:2px solid var(--gold)">
@@ -8836,13 +8836,13 @@ async function renderRepCliente() {
   const _peHTML = !_peTodas.length ? '' : `
     ${_peVivas.length ? `<div class="card" style="margin-bottom:14px">
       <div class="section-title" style="font-size:13px;margin:0 0 12px">Private equity · ${_peVivas.length}</div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px">${_peVivas.map(_peTarjeta).join('')}</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:11px">${_peVivas.map(_peTarjeta).join('')}</div>
       ${_peResumen(_peVivas, 'Total private equity', false)}
     </div>` : ''}
     ${_peFin.length ? `<div class="card" style="margin-bottom:14px">
       <div class="section-title" style="font-size:13px;margin:0 0 4px">Private equity finalizado · ${_peFin.length}</div>
       <p style="font-size:11px;color:var(--text3);margin:0 0 12px">Posiciones terminadas. No valen nada hoy y no suman al patrimonio.</p>
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px">${_peFin.map(_peTarjeta).join('')}</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:11px">${_peFin.map(_peTarjeta).join('')}</div>
       ${_peResumen(_peFin, 'Total finalizado', true)}
     </div>` : ''}`;
 
@@ -8905,7 +8905,9 @@ async function renderRepCliente() {
 
     ${_serie.length > 1 ? `<div class="card" style="margin-bottom:14px">
       <div class="section-title" style="font-size:13px;margin:0 0 10px">Evolución patrimonial</div>
-      ${offBarrasVal(_serie.map(d => ({ lbl:d.y, v:d.tot })), v => '$'+fmt(Math.round(v/1000))+'k')}
+      ${/* v190 — en millones con dos decimales, pedido de Timoteo. */''}
+      ${offBarrasVal(_serie.map(d => ({ lbl:d.y, v:d.tot })),
+          v => Math.abs(v) >= 1e6 ? '$'+(v/1e6).toFixed(2)+'M' : '$'+fmt(Math.round(v/1000))+'k')}
     </div>
 
     <div class="card" style="margin-bottom:14px">
@@ -9005,7 +9007,7 @@ async function renderRepCliente() {
     ${/* v188 — de acá para abajo el orden es propiedades, bancos, PE y autos. */''}
     <div class="card" style="margin-bottom:14px">
       <div class="section-title" style="font-size:13px;margin:0 0 10px">Propiedad por propiedad <span style="font-weight:400;color:var(--text3);font-size:11px">· ordenadas por rendimiento dentro de cada grupo</span></div>
-      <div class="table-wrap"><table style="font-size:12px">
+      <div class="table-wrap"><table class="tbl-compacta">
         <thead><tr><th></th><th>Propiedad</th><th>País</th><th class="num">Valor</th><th class="num">Renta neta</th><th class="num">Yield</th></tr></thead>
         <tbody>${filasDet}</tbody></table></div>
       <p style="font-size:11px;color:var(--text3);margin:10px 0 0">● con contrato vigente · ○ sin contrato. El yield es la renta neta del año sobre el valor del activo.</p>
@@ -9105,6 +9107,14 @@ async function _exportarPDF(opt) {
        al imprimir. OJO: este CSS vive dentro de un template literal de JS,
        asi que aca NO puede haber backticks. */
     .card{page-break-inside:avoid;break-inside:avoid;}
+    /* v190 — TABLA COMPACTA. break-inside:avoid solo se cumple si el cuadro
+       ENTRA en una pagina: el de Bancos de un cliente con 14 cuentas medía
+       1206px contra 1047px utiles, asi que Chrome lo partia por mas reglas que
+       le pusieramos. La unica solucion real es que quepa. Esta clase baja el
+       padding y el interlineado de las tablas largas (no el tamaño de fuente
+       de los numeros, que sigue legible) y con eso el cuadro entra entero. */
+    .tbl-compacta td,.tbl-compacta th{padding:2.5px 6px;line-height:1.25;}
+    .tbl-compacta td{font-size:10.5px;} .tbl-compacta th{font-size:9px;}
     /* v189 — POR QUE UN CUADRO SEGUIA PARTIENDOSE.
        break-inside:avoid solo se cumple si el elemento ENTRA en una pagina.
        El cuadro de Bancos de un cliente con 14 cuentas mide mas que una hoja,
@@ -10414,7 +10424,7 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
        cuanto vale cada barra, el eje de la izquierda dice los montos. */
     const piso = min - (max - min || max*0.04) * 0.35;
     // PADT deja aire arriba para que la etiqueta mas alta del eje no se corte.
-    const PADL = 66, PADT = 10, W = 680, H = 160, padB = 20;
+    const PADL = 60, PADT = 10, W = 420, H = 150, padB = 20;
     const alto = H - padB - PADT;
     const ancho = W - PADL;
     const paso = ancho/_serieMes.length, an = Math.min(paso*0.56, 46);
@@ -10441,7 +10451,7 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
       out += `<rect x="${(cx-an/2).toFixed(1)}" y="${y.toFixed(1)}" width="${an.toFixed(1)}" height="${h.toFixed(1)}" fill="${esUlt?'#a87316':'#d8c49a'}" rx="2"/>`;
       out += `<text x="${cx.toFixed(1)}" y="${(H-6).toFixed(1)}" text-anchor="middle" font-size="10" fill="var(--text3,#888)" ${esUlt?'font-weight="700"':''}>${it.lbl}</text>`;
     });
-    return `<div class="card no-corta" style="margin-bottom:14px">
+    return `<div class="card no-corta" style="margin:0">
       <div class="section-title" style="margin-bottom:4px">Patrimonio mes a mes · ${anio}</div>
       <p style="font-size:11px;color:var(--text3);margin:0 0 8px">Cierre de cada mes del año hasta ${label}.</p>
       <svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" preserveAspectRatio="none" role="img">${out}</svg>
@@ -10458,12 +10468,9 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
   const filasTipo = TIPOS.map(t => {
     const p = patTotal ? t.v/patTotal*100 : 0;
     return `<tr>
-      <td style="font-weight:600"><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${DONUT_COL[TIPOS.indexOf(t)%4]};margin-right:7px"></span>${t.n}</td>
+      <td style="font-weight:600;white-space:nowrap"><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${DONUT_COL[TIPOS.indexOf(t)%4]};margin-right:6px"></span>${t.n}</td>
       <td class="num">${$m(t.v)}</td>
       <td class="num" style="color:var(--text3)">${p.toFixed(1)}%</td>
-      <td style="width:34%;padding-right:14px">
-        <div style="height:6px;background:var(--bg3);border-radius:3px;overflow:hidden">
-          <div style="height:100%;width:${Math.max(p,0.4).toFixed(1)}%;background:${DONUT_COL[TIPOS.indexOf(t)%4]};border-radius:3px"></div></div></td>
       <td class="num" style="color:${t.d==null?'var(--text3)':col(t.d)};font-weight:${t.d==null?400:600}">
         ${t.d==null ? '—' : sg(t.d)+$m(Math.abs(t.d)).slice(1)}</td>
     </tr>`; }).join('');
@@ -10708,14 +10715,14 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
       <div class="section-title" style="margin-bottom:12px">Cuentas de banco</div>
       ${_inv.length ? `
         <div style="font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--text3);font-weight:700;margin:2px 0 8px">Cuentas de inversión</div>
-        <div class="table-wrap" style="margin-bottom:${_oper.length?'20px':'0'}"><table style="table-layout:fixed">
+        <div class="table-wrap" style="margin-bottom:${_oper.length?'14px':'0'}"><table class="tbl-compacta" style="table-layout:fixed">
           ${_COLG(['Aportes netos','Rendimiento'])}
           <thead><tr>${[..._hdrBase,'Aportes netos','Rendimiento'].map((h,i)=>`<th${i?' class="num"':''}>${h}</th>`).join('')}</tr></thead>
           <tbody>${_tablaCuentas(_inv, _colsInv, _detCap).join('')}</tbody>
         </table></div>` : ''}
       ${_oper.length ? `
         <div style="font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--text3);font-weight:700;margin:2px 0 8px">Cuentas operativas</div>
-        <div class="table-wrap"><table style="table-layout:fixed">
+        <div class="table-wrap"><table class="tbl-compacta" style="table-layout:fixed">
           ${_COLG(['Cobrado','Pagado','Gastos personales'])}
           <thead><tr>${[..._hdrBase,'Cobrado','Pagado','Gastos personales'].map((h,i)=>`<th${i?' class="num"':''}>${h}</th>`).join('')}</tr></thead>
           <tbody>${_tablaCuentas(_oper, _colsOper, _detProp).join('')}</tbody>
@@ -10727,7 +10734,7 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
         const ti = _bDat.reduce((s,x)=>s+x.i,0)     - _bDat.reduce((s,x)=>s+x.credI,0);
         const ta = _bDat.reduce((s,x)=>s+x.a,0)     - _bDat.reduce((s,x)=>s+x.credA,0);
         const tcash = _bDat.reduce((s,x)=>s+x.c,0), tc = _bDat.reduce((s,x)=>s+x.cred,0);
-        return `<div class="table-wrap" style="margin-top:18px"><table style="table-layout:fixed">
+        return `<div class="table-wrap" style="margin-top:12px"><table class="tbl-compacta" style="table-layout:fixed">
           ${_COLG(['',''])}
           <tbody>
             <tr style="background:var(--gold-soft,#f7f0e2);border-top:2px solid var(--gold)">
@@ -10830,7 +10837,7 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
   const _peHTML = !_peTodas.length ? '' : `
     <div class="card" style="margin-bottom:16px">
       <div class="section-title" style="margin-bottom:12px">Private equity · ${_peVivas.length}</div>
-      ${_peVivas.length ? `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px">${_peVivas.map(_peTarjeta).join('')}</div>
+      ${_peVivas.length ? `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:11px">${_peVivas.map(_peTarjeta).join('')}</div>
       ${_peResumen(_peVivas, 'Total private equity', false)}` : '<p style="font-size:12px;color:var(--text3)">Sin posiciones activas.</p>'}
       <p style="font-size:11px;color:var(--text3);margin:12px 0 0">
         La valuación es la plata efectivamente puesta menos lo devuelto, salvo que haya una
@@ -10841,7 +10848,7 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
       <p style="font-size:11px;color:var(--text3);margin:0 0 12px">
         Posiciones terminadas. No valen nada hoy y no suman al patrimonio: se muestran para que
         quede el resultado de cada una.</p>
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px">${_peFin.map(_peTarjeta).join('')}</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:11px">${_peFin.map(_peTarjeta).join('')}</div>
       ${_peResumen(_peFin, 'Total finalizado', true)}
     </div>` : ''}`;
 
@@ -10894,26 +10901,34 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
       ${kpi('Renta neta del mes', $m(netaMes), 'Propiedades', col(netaMes))}
     </div>
 
+    ${/* v190 — el grafico y la composicion van LADO A LADO. Apilados, "El mes
+          en breve" no llegaba a entrar en la primera hoja; asi sobran ~270px
+          y la foto del mes queda completa en la pagina 1. En pantalla angosta
+          la grilla se apila sola. */''}
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:12px;margin-bottom:12px;align-items:start">
     ${_barrasMes}
 
-    <div class="card no-corta" style="margin-bottom:14px">
+    <div class="card no-corta" style="margin:0">
       <div class="section-title" style="margin-bottom:10px">Por tipo de activo · ${label}</div>
-      <div style="display:flex;align-items:center;gap:22px;flex-wrap:wrap">
-      <div class="table-wrap" style="flex:1;min-width:300px"><table>
-        <thead><tr><th>Tipo</th><th class="num">Valor</th><th class="num">%</th><th></th><th class="num">Var. del mes</th></tr></thead>
+      ${/* v190 — el donut va DEBAJO de la tabla y centrado: a media pagina el
+            flex no le dejaba lugar y se montaba encima de las columnas. */''}
+      <div>
+      <div class="table-wrap"><table class="tbl-compacta">
+        <thead><tr><th>Tipo</th><th class="num">Valor</th><th class="num">%</th><th class="num">Var. mes</th></tr></thead>
         <tbody>${filasTipo}</tbody>
         <tfoot><tr style="border-top:2px solid var(--border2)">
           <td style="font-weight:700">Total</td>
           <td class="num" style="font-weight:700">${$m(patTotal)}</td>
-          <td class="num" style="color:var(--text3)">100%</td><td></td>
+          <td class="num" style="color:var(--text3)">100%</td>
           <td class="num" style="font-weight:700;color:${col(varMes)}">${patPrev?sg(varMes)+$m(Math.abs(varMes)).slice(1):'—'}</td>
         </tr></tfoot>
       </table></div>
-      ${donut(TIPOS)}
+      <div style="display:flex;justify-content:center;margin-top:8px">${donut(TIPOS, 108)}</div>
       </div>
-      <p style="font-size:11px;color:var(--text3);margin:11px 0 0;padding-top:9px;border-top:1px solid var(--border)">
-        Propiedades, private equity y autos se valúan una vez al año, así que dentro del mes no se mueven:
-        la variación mensual del patrimonio es el movimiento de la caja.</p>
+      <p style="font-size:10.5px;color:var(--text3);margin:9px 0 0;padding-top:8px;border-top:1px solid var(--border)">
+        Propiedades, private equity y autos se valúan una vez al año: dentro del mes no se mueven, así que la
+        variación mensual del patrimonio es el movimiento de la caja.</p>
+    </div>
     </div>
 
     <div class="card no-corta" style="margin-bottom:16px">
@@ -11239,6 +11254,8 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
       .rep-doc .rep-h2{font-size:15px!important;font-weight:800;color:var(--navy);margin:16px 0 6px!important;letter-spacing:-.3px;padding-bottom:3px;border-bottom:2px solid var(--navy);}
       .rep-doc .pgbreak{page-break-before:always;break-before:page;}
       .rep-doc .card{page-break-inside:avoid;break-inside:avoid;}
+      .rep-doc .tbl-compacta td,.rep-doc .tbl-compacta th{padding:2.5px 6px;line-height:1.25;}
+      .rep-doc .tbl-compacta td{font-size:10.5px;} .rep-doc .tbl-compacta th{font-size:9px;}
       .rep-doc .section-title{page-break-after:avoid;break-after:avoid;}
       .rep-doc thead{display:table-header-group;page-break-after:avoid;break-after:avoid;}
       .rep-doc tr,.rep-doc .pe-box{page-break-inside:avoid;break-inside:avoid;}
@@ -16372,7 +16389,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260911-189';
+const APP_VERSION = '20260911-190';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
