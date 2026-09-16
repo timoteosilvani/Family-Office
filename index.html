@@ -3802,15 +3802,17 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
       <div id="page-chequeo" class="page">
         <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:16px;margin-bottom:18px">
           <div>
-            <div class="section-title" style="margin-bottom:4px">Chequeo de consistencia</div>
-            <p style="color:var(--text3);font-size:13px;margin:0;max-width:640px">Cada control calcula el mismo total por dos caminos que no comparten código. Si los dos dan igual, ese número es confiable. Si no, la diferencia aparece acá y no dentro de tres semanas.</p>
+            <!-- v192 — el titulo y la bajada cambian con la sub-solapa: el texto
+                 de consistencia interna no describe lo que hacen las otras dos. -->
+            <div class="section-title" id="chq-titulo" style="margin-bottom:4px">Chequeo de consistencia</div>
+            <p id="chq-bajada" style="color:var(--text3);font-size:13px;margin:0;max-width:640px">Cada control calcula el mismo total por dos caminos que no comparten código. Si los dos dan igual, ese número es confiable. Si no, la diferencia aparece acá y no dentro de tres semanas.</p>
           </div>
           <div><label class="fld">Año</label><select class="fld" id="chq-anio" style="width:auto" onchange="chqAnioSet(this.value)"></select></div>
         </div>
         <div class="tabs">
-          <button class="tab-btn active" onclick="switchTab('chq','consistencia',this)">Consistencia interna</button>
-          <button class="tab-btn" onclick="switchTab('chq','completo',this);renderChqCompleto()">Contra el COMPLETO</button>
-          <button class="tab-btn" onclick="switchTab('chq','cierre',this);renderChqCierre()">Cierre mensual</button>
+          <button class="tab-btn active" onclick="switchTab('chq','consistencia',this);chqTexto('consistencia')">Consistencia interna</button>
+          <button class="tab-btn" onclick="switchTab('chq','completo',this);chqTexto('completo');renderChqCompleto()">Contra el COMPLETO</button>
+          <button class="tab-btn" onclick="switchTab('chq','cierre',this);chqTexto('cierre');renderChqCierre()">Cierre mensual</button>
         </div>
         <div id="chq-consistencia" class="tab-content active" style="display:block">
           <div id="chq-contenido"><div class="loader"><div class="spinner"></div></div></div>
@@ -6456,10 +6458,12 @@ async function loadPEEvolucion() {
     if (titFiltro) filtered = filtered.filter(p => p.titular === titFiltro);
     if (peId) filtered = filtered.filter(p => p.id === peId);
 
-    // KPIs
-    const totUtil = movs.reduce((a,m) => a+(m.utilidad||0), 0);
-    const totAporte = movs.reduce((a,m) => a+(m.aporte_capital||0), 0);
-    const totGastos = movs.reduce((a,m) => a+(m.gastos||0)+(m.impuestos||0), 0);
+    // KPIs — v193: sólo las posiciones que pasan el filtro y suman (MFL no suma)
+    const _peSum = new Set(soloSumables(filtered).map(p => p.id));
+    const movsSum = movs.filter(m => _peSum.has(m.pe_id));
+    const totUtil = movsSum.reduce((a,m) => a+(m.utilidad||0), 0);
+    const totAporte = movsSum.reduce((a,m) => a+(m.aporte_capital||0), 0);
+    const totGastos = movsSum.reduce((a,m) => a+(m.gastos||0)+(m.impuestos||0), 0);
     const totNeto = totUtil - totAporte - totGastos;
     const ge = id => document.getElementById(id);
     if (ge('pe-ev-utilidad')) ge('pe-ev-utilidad').textContent = '$' + fmt(totUtil);
@@ -9763,6 +9767,25 @@ async function renderChqCompleto() {
         cargados de ese mes, en dólares. MFL queda afuera de los dos lados.
         Una diferencia positiva significa que <b>el COMPLETO tiene más</b>: falta cargar algo en la app.</p>
     </div>`;
+}
+
+/* v192 — cada sub-solapa de Chequeo contesta una pregunta distinta y la
+   bajada tiene que decir cual. Antes el encabezado hablaba siempre de la
+   consistencia interna, incluso parado en "Contra el COMPLETO", donde la app
+   no calcula nada por dos caminos sino que compara contra un archivo. */
+const CHQ_TXT = {
+  consistencia: ['Chequeo de consistencia',
+    'Cada control calcula el mismo total por dos caminos que no comparten código. Si los dos dan igual, ese número es confiable. Si no, la diferencia aparece acá y no dentro de tres semanas.'],
+  completo: ['Contra el COMPLETO',
+    'Compara el COMPLETO con lo que hay cargado en la app, rubro por rubro y mes por mes. <b>No carga ni modifica nada</b>: sólo marca dónde no coinciden, para que vayas a cargarlo donde corresponde. El archivo se lee en tu navegador y no se sube a ningún lado.'],
+  cierre: ['Cierre mensual',
+    'Dos preguntas sobre un mes: si quedó <b>completo</b> —qué rubros venían apareciendo y este mes faltan— y si <b>cuadra</b> contra el COMPLETO. El archivo es opcional: sin él igual corre el control de completitud.'],
+};
+function chqTexto(cual) {
+  const t = CHQ_TXT[cual] || CHQ_TXT.consistencia;
+  const eT = document.getElementById('chq-titulo'), eB = document.getElementById('chq-bajada');
+  if (eT) eT.textContent = t[0];
+  if (eB) eB.innerHTML = t[1];
 }
 
 async function loadChequeo() {
@@ -14328,10 +14351,13 @@ async function filtrarAnual2() {
   const GR=[0,0,0,0,0,0,0,0,0,0,0,0], GG=[0,0,0,0,0,0,0,0,0,0,0,0], GI=[0,0,0,0,0,0,0,0,0,0,0,0], GN=[0,0,0,0,0,0,0,0,0,0,0,0];
   let nProps = 0;
   Object.values(byProp).sort((a,b) => (a.prop.nro||99)-(b.prop.nro||99)).forEach(({ prop, movs: mv }) => {
-    nProps++;
-    for (let k=1;k<=12;k++){ const m=mv[k]; if(!m) continue;
-      GR[k-1]+=(m.total_renta_usd||0); GG[k-1]+=(m.total_gastos_usd||0);
-      GI[k-1]+=(m.total_impuestos_usd||0); GN[k-1]+=(m.neto_usd||0); }
+    // v193: MFL se ve en su tarjeta pero NO suma al consolidado
+    if (sumaTit(prop)) {
+      nProps++;
+      for (let k=1;k<=12;k++){ const m=mv[k]; if(!m) continue;
+        GR[k-1]+=(m.total_renta_usd||0); GG[k-1]+=(m.total_gastos_usd||0);
+        GI[k-1]+=(m.total_impuestos_usd||0); GN[k-1]+=(m.neto_usd||0); }
+    }
     const totR = Object.values(mv).reduce((a,m)=>a+(m.total_renta_usd||0),0);
     const totG = Object.values(mv).reduce((a,m)=>a+(m.total_gastos_usd||0),0);
     const totI = Object.values(mv).reduce((a,m)=>a+(m.total_impuestos_usd||0),0);
@@ -14391,7 +14417,7 @@ async function filtrarAnual2() {
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:8px">
       <div>
         <span class="bold" style="color:var(--gold)">CONSOLIDADO · ${anio}</span>
-        <span style="color:var(--text3);font-size:11px;margin-left:8px">${nProps} propiedad${nProps===1?'':'es'} · todo en USD</span>
+        <span style="color:var(--text3);font-size:11px;margin-left:8px">${nProps} propiedad${nProps===1?'':'es'} · todo en USD</span>${notaSinMFL(Object.values(byProp).map(x=>x.prop))}
       </div>
       <div style="font-size:12px">Neto del año: <span class="bold ${netoG>=0?'positive':'negative'}">$${fmt(netoG)}</span></div>
     </div>
@@ -14437,7 +14463,21 @@ async function loadComparativoAnual() {
   if (res) res.innerHTML = '<div class="loader"><div class="spinner"></div></div>';
   const { data, error } = await aplicarFiltroTit(sb.from('resumen_anual_prop').select('*'));
   if (error) { if(res) res.innerHTML = `<div class="card" style="color:var(--text3);text-align:center;padding:32px">Corré resumen_anual_prop.sql primero</div>`; return; }
-  _compData = data || [];
+  // v193: resumen_anual_prop es una tabla fija (foto). El año en curso se calcula de los movimientos,
+  // igual que la Vista Global, para que los cuatro totales de propiedades den lo mismo.
+  const Y = new Date().getFullYear();
+  const [{ data: pr }, { data: mv }] = await Promise.all([
+    aplicarFiltroTit(sb.from('propiedades').select('id,nro,nombre,pais,titular')),
+    sb.from('movimientos_propiedades').select('propiedad_id,total_renta_usd,total_gastos_usd,total_impuestos_usd,neto_usd').eq('anio', Y).limit(5000),
+  ]);
+  const live = {};
+  (mv || []).forEach(m => {
+    const r = live[m.propiedad_id] || (live[m.propiedad_id] = { renta_usd:0, gastos_usd:0, impuestos_usd:0, neto_usd:0 });
+    r.renta_usd += Number(m.total_renta_usd)||0; r.gastos_usd += Number(m.total_gastos_usd)||0;
+    r.impuestos_usd += Number(m.total_impuestos_usd)||0; r.neto_usd += Number(m.neto_usd)||0;
+  });
+  const liveRows = (pr || []).filter(p => live[p.id]).map(p => ({ nro:p.nro, nombre:p.nombre, pais:p.pais, titular:p.titular, anio:Y, ...live[p.id] }));
+  _compData = (data || []).filter(r => r.anio !== Y).concat(liveRows);
   renderComparativoAnual();
 }
 
@@ -14548,7 +14588,8 @@ async function verGastosTabla() {
     const _secUSD = (concepts, sk) => [1,2,3,4,5,6,7,8,9,10,11,12].map(m => { const mm=byMes[m]; if(!mm) return 0; return concepts.reduce((s,[,f]) => s + convUSD(parseFloat(mm[f])||0, _mFor(mm,f,sk), anio, m), 0); });
     const _rU=_secUSD(RENTAS,'renta'), _gU=_secUSD(GASTOS,'gastos'), _iU=_secUSD(IMPUESTOS,'impuestos');
     const _nU=_rU.map((v,i)=>v-_gU[i]-_iU[i]);
-    for (let i=0;i<12;i++){ CR[i]+=_rU[i]; CG[i]+=_gU[i]; CI[i]+=_iU[i]; }
+    // v193: MFL se ve en su tarjeta pero NO suma al consolidado (regla de toda la app)
+    if (sumaTit(prop)) for (let i=0;i<12;i++){ CR[i]+=_rU[i]; CG[i]+=_gU[i]; CI[i]+=_iU[i]; }
     const renderSection = (label, concepts, color, usdArr) => {
       const active = concepts.filter(([,f]) => Object.values(byMes).some(m => m[f] && parseFloat(m[f]) > 0));
       if (active.length === 0) return '';
@@ -14613,7 +14654,7 @@ async function verGastosTabla() {
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
       <div>
         <span class="bold" style="color:var(--gold)">CONSOLIDADO · ${anio}</span>
-        <span style="color:var(--text3);font-size:11px;margin-left:8px">${props.length} propiedad${props.length===1?'':'es'}${propFiltro||paisFiltro||titFiltro?' (con los filtros aplicados)':''} · todo en USD</span>
+        <span style="color:var(--text3);font-size:11px;margin-left:8px">${soloSumables(props).length} propiedad${soloSumables(props).length===1?'':'es'}${propFiltro||paisFiltro||titFiltro?' (con los filtros aplicados)':''} · todo en USD</span>${notaSinMFL(props)}
       </div>
       <div style="font-size:12px">Neto del año: <span class="bold ${netoTot>=0?'positive':'negative'}">$${fmt(netoTot)}</span></div>
     </div>
@@ -15378,14 +15419,14 @@ async function loadBancosEvolucion() {
 
   // ===== CUADRO CONSOLIDADO (depende SOLO de Evolucion) =====
   const cons = {}; MM.forEach(m => cons[m] = {inv:0,cash:0,sub:0,cred:0,neto:0});
-  active.forEach(b => {
+  soloSumables(active).forEach(b => {   // v193: MFL se ve abajo pero no suma
     const mv = movMap[b.id] || {};
     MM.forEach(m => { if (!mv[m]) return; const u = bancoMovUSD(mv[m]);
       cons[m].inv+=u.inv; cons[m].cash+=u.cash; cons[m].sub+=u.sub; cons[m].cred+=u.cred; cons[m].neto+=u.neto; });
   });
   const cC = (v,cls) => `<td class="num ${cls||''}" style="font-size:11px">${v?'$'+fmt(v):'—'}</td>`;
   let html = `<div class="card" style="margin-bottom:16px;border:1px solid var(--gold)">
-    <div class="bold" style="color:var(--gold);margin-bottom:8px">Consolidado mensual — Evolución (suma de todos los bancos)</div>
+    <div class="bold" style="color:var(--gold);margin-bottom:8px">Consolidado mensual — Evolución (suma de todos los bancos)${notaSinMFL(active)}</div>
     <p style="color:var(--text3);font-size:11px;margin-bottom:10px">Depende solo de Evolución. El NETO, en el último mes cargado, debe coincidir con el TOTAL de Información.</p>
     <div class="table-wrap"><table style="font-size:11px"><thead><tr><th>Concepto</th>${MM.map(m=>`<th class="num">${meses[m]}</th>`).join('')}</tr></thead><tbody>
       <tr><td>Inv. Account</td>${MM.map(m=>cC(cons[m].inv)).join('')}</tr>
@@ -16411,7 +16452,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260911-191';
+const APP_VERSION = '20260916-193';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
