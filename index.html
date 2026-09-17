@@ -7834,19 +7834,37 @@ function lkExcepcion(cat, nro, rubro, anio, mes) {
 }
 // Resuelta = apunta a una cuenta O es efectivo. CASH no tiene cuenta_id y aun
 // asi es una respuesta valida a "de donde sale / a donde entra".
+// v196 — dos modos más, además de cuenta y CASH:
+//   NETO → "Descontado de la renta": el broker deposita la renta ya neta de ese gasto.
+//          No es un pago de ninguna cuenta; se resta de la renta de la misma propiedad y mes.
+//   POSP → "Posponer": no se muestra como pendiente mientras el rubro no tenga importe.
+const lkEsCash = r => !!(r && (r.referencia === 'CASH' || r.medio === 'Efectivo'));
+const lkEsNeto = r => !!(r && r.referencia === 'NETO');
+const lkEsPosp = r => !!(r && r.referencia === 'POSPUESTO');
 function lkResuelta(r) {
-  return !!(r && (r.cuenta_id || r.medio === 'Efectivo' || r.referencia === 'CASH'));
+  return !!(r && (r.cuenta_id || lkEsCash(r) || lkEsNeto(r)));
+}
+// Valores especiales del select → campos de la regla/excepción
+function lkValorARegla(val, medioCuenta) {
+  if (val === '__CASH__') return { cuenta_id: null, medio: 'Efectivo', referencia: 'CASH' };
+  if (val === '__NETO__') return { cuenta_id: null, medio: 'Descontado de la renta', referencia: 'NETO' };
+  if (val === '__POSP__') return { cuenta_id: null, medio: 'Pospuesto', referencia: 'POSPUESTO' };
+  return { cuenta_id: val || null, medio: medioCuenta, referencia: null };
 }
 function lkTxtCuenta(r) {
   if (!r) return '<span style="color:var(--usa)">sin asignar</span>';
-  if (r.referencia === 'CASH' || r.medio === 'Efectivo') return 'CASH / efectivo';
+  if (lkEsCash(r)) return 'CASH / efectivo';
+  if (lkEsNeto(r)) return '<span style="color:var(--gold)">Descontado de la renta</span>';
+  if (lkEsPosp(r)) return '<span style="color:var(--text3)">Pospuesto</span>';
   const b = _lkBancos.find(x => x.id === r.cuenta_id);
   return b ? b.nombre : '<span style="color:var(--usa)">sin asignar</span>';
 }
-function lkOpts(sel) {
+function lkOpts(sel, esProp) {
   return '<option value="">— elegir cuenta —</option>' +
     _lkBancos.map(b => `<option value="${b.id}"${sel && sel.cuenta_id===b.id?' selected':''}>${b.nombre} (${b.titular})</option>`).join('') +
-    `<option value="__CASH__"${sel && (sel.referencia==='CASH'||sel.medio==='Efectivo')?' selected':''}>CASH / efectivo</option>`;
+    `<option value="__CASH__"${lkEsCash(sel)?' selected':''}>CASH / efectivo</option>` +
+    (esProp || lkEsNeto(sel) ? `<option value="__NETO__"${lkEsNeto(sel)?' selected':''}>Descontado de la renta</option>` : '') +
+    `<option value="__POSP__"${lkEsPosp(sel)?' selected':''}>Posponer (mientras no tenga importe)</option>`;
 }
 
 async function loadLinkeo() {
@@ -7960,6 +7978,8 @@ async function loadLinkeo() {
                   || ((ordenRubro[a.rubro] ?? 99) - (ordenRubro[b.rubro] ?? 99))
                   || (a.mes - b.mes));
 
+    // v196 — un pospuesto sin importe en el período no se muestra; con importe vuelve como pendiente
+    for (let i = filas.length - 1; i >= 0; i--) if (filas[i].soloRecurrente && lkEsPosp(filas[i].efectiva)) filas.splice(i, 1);
     const sinResolver = filas.filter(x => !lkResuelta(x.efectiva));
     pendRubros += sinResolver.length;
     pendMonto  += sinResolver.reduce((s,x)=>s+x.monto,0);
@@ -8023,10 +8043,10 @@ async function loadLinkeo() {
                   <td>${mesSel
                     ? `<select class="fld" style="padding:2px 6px;font-size:11px;width:auto;max-width:200px"
                          onchange="guardarExcepcion('${t.key}',${x.act.nro},'${x.rubro}',${anio},${mesSel},this.value)">
-                         <option value="">— usa la regla —</option>${lkOpts(x.exc)}</select>
+                         <option value="">— usa la regla —</option>${lkOpts(x.exc, t.key === 'propiedad' && !LK_COBRO.has(x.rubro))}</select>
                        ${x.exc ? `<span onclick="borrarExcepcion('${x.exc.id}')" title="Quitar la excepción y volver a la regla" style="cursor:pointer;color:var(--usa);margin-left:6px">✕</span>` : ''}`
                     : `<select class="fld" style="padding:2px 6px;font-size:11px;width:auto;max-width:200px"
-                         onchange="guardarReglaRubro('${t.key}',${x.act.nro},'${x.rubro}',this.value)">${lkOpts(x.regla)}</select>`}
+                         onchange="guardarReglaRubro('${t.key}',${x.act.nro},'${x.rubro}',this.value)">${lkOpts(x.regla, t.key === 'propiedad' && !LK_COBRO.has(x.rubro))}</select>`}
                   </td></tr>`;
               }).join('')}
               </tbody></table>
@@ -8057,6 +8077,7 @@ async function loadLinkeo() {
      aunque las reglas estén a medio completar.
    ═══════════════════════════════════════════════════════════════════════ */
 const LK_COBRO = new Set(['renta', 'otro_ingreso', 'utilidad']);
+LK_NOM.renta_neta = 'Renta neta';
 const LK_IMP_PROP = new Set((LK_TIPOS.find(t => t.key === 'propiedad').grupos.find(g => g.g === 'Impuestos') || { campos: [] }).campos);
 
 // Rubro en moneda nativa: { v, mon }
@@ -8109,14 +8130,37 @@ async function cmLineas(anio, mes) {
         const exc = lkExcepcion(t.key, a.nro, c, anio, mes);
         const reg = lkRegla(t.key, a.nro, c);
         const ef = exc || reg;
-        let cuenta = null;
-        if (ef && (ef.referencia === 'CASH' || ef.medio === 'Efectivo')) cuenta = '__CASH__';
-        else if (ef && ef.cuenta_id) cuenta = ef.cuenta_id;
-        lineas.push({ cuenta, t, act: a, rubro: c, grupo: gr.g, dir: LK_COBRO.has(c) ? 'cobro' : 'pago',
+        let cuenta = null, neto = false;
+        const aCuenta = r => lkEsCash(r) ? '__CASH__' : (r && r.cuenta_id ? r.cuenta_id : null);
+        if (lkEsNeto(ef) && t.key === 'propiedad') {
+          neto = true;   // va a la cuenta donde se cobra la renta de esa propiedad
+          cuenta = aCuenta(lkExcepcion(t.key, a.nro, 'renta', anio, mes) || lkRegla(t.key, a.nro, 'renta'));
+        } else cuenta = aCuenta(ef);
+        lineas.push({ cuenta, neto, t, act: a, rubro: c, grupo: gr.g, dir: LK_COBRO.has(c) ? 'cobro' : 'pago',
                       usd: Math.abs(usd), v: n.v, mon: n.mon, origen: exc ? 'Excepción' : (reg ? 'Regla' : '') });
       }));
     });
   }
+  // v196 — RENTA NETA: la renta y los gastos "descontados de la renta" de una misma
+  // propiedad y cuenta se juntan en una sola línea de cobro, como la deposita el broker.
+  const grupos = {};
+  lineas.forEach(l => { if (l.neto && l.cuenta) (grupos[l.cuenta + '|' + l.act.id] = grupos[l.cuenta + '|' + l.act.id] || []).push(l); });
+  Object.entries(grupos).forEach(([k, gs]) => {
+    const [cta, aid] = k.split('|');
+    const renta = lineas.find(l => l.cuenta === cta && l.act.id === aid && l.rubro === 'renta' && l.t.key === 'propiedad');
+    const tk = gs[0].t, act = gs[0].act;
+    const bruto = renta ? renta.usd : 0;
+    const desc = gs.reduce((s, l) => s + l.usd, 0);
+    const comp = [{ lbl: 'Renta', usd: bruto, v: renta ? renta.v : 0, mon: renta ? renta.mon : 'USD' }]
+      .concat(gs.map(l => ({ lbl: LK_NOM[l.rubro] || l.rubro, usd: -l.usd, v: -l.v, mon: l.mon })));
+    const neta = bruto - desc;
+    const quitar = new Set(gs.concat(renta ? [renta] : []));
+    for (let i = lineas.length - 1; i >= 0; i--) if (quitar.has(lineas[i])) lineas.splice(i, 1);
+    lineas.push({ cuenta: cta, t: tk, act, rubro: 'renta_neta', grupo: 'Renta', dir: 'cobro', usd: neta, v: neta, mon: 'USD',
+                  comp, origen: renta ? renta.origen : '', firmado: true });
+  });
+  // los "descontados" cuya renta no tiene cuenta quedan sin cuenta (cartel)
+
   // transferencias del mes (por fecha)
   const pre = anio + '-' + String(mes).padStart(2, '0');
   const trs = (trR.data || []).filter(r => String(r.fecha || '').slice(0, 7) === pre);
@@ -8166,11 +8210,16 @@ async function loadCuentasMov() {
   const cuenta = selC.value; _cmPref('cuenta', cuenta);
 
   const $ = v => '$' + fmt(v);
+  // v196 — equivalente en pesos con el TC del mes (los rubros en pesos dan su importe exacto:
+  // se pasaron a USD con este mismo TC)
+  const tcA = (tcFor(anio, mes) || {}).ars_usd || 0;
+  const ars = (v, sg) => tcA ? `<div style="font-size:10px;color:var(--text3);font-weight:400">${sg || ''}AR$ ${fmt(Math.abs(v) * tcA)}</div>` : '';
+  const sgn = v => v < 0 ? '-' : '';
   const sin = lineas.filter(l => !l.cuenta);
   const sinUSD = sin.reduce((s, l) => s + l.usd, 0);
-  const kpi = (lbl, val, col) => `<div style="border:1px solid var(--border);border-radius:8px;padding:14px;text-align:center">
+  const kpi = (lbl, val, col, usdArs) => `<div style="border:1px solid var(--border);border-radius:8px;padding:14px;text-align:center">
       <div style="font-size:10px;letter-spacing:1px;color:var(--text3);text-transform:uppercase;margin-bottom:6px">${lbl}</div>
-      <div style="font-size:22px;font-weight:300;color:${col}">${val}</div></div>`;
+      <div style="font-size:22px;font-weight:300;color:${col}">${val}</div>${usdArs != null ? ars(usdArs, sgn(usdArs)).replace('font-size:10px', 'font-size:11px;margin-top:3px') : ''}</div>`;
   const cartelSin = sin.length ? `<div class="card" style="border-color:var(--gold);margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
       <div style="font-size:12px"><b style="color:var(--gold)">${sin.length} rubro${sin.length === 1 ? '' : 's'} sin cuenta asignada</b>
         en ${LK_MESNOM[mes-1]} ${anio} · ${$(sinUSD)} que todavía no se atribuyen a ninguna cuenta.</div>
@@ -8191,8 +8240,8 @@ async function loadCuentasMov() {
       .sort((a, b) => (a.tit.localeCompare(b.tit)) || a.nom.localeCompare(b.nom));
     const tot = filas.reduce((s, f) => ({ cob: s.cob + f.cob, pag: s.pag + f.pag }), { cob: 0, pag: 0 });
     document.getElementById('cm-kpis').innerHTML =
-      kpi('Cobros linkeados', $(tot.cob), 'var(--esp)') + kpi('Pagos linkeados', $(tot.pag), 'var(--usa)') +
-      kpi('Cuentas con movimiento', filas.length, 'var(--text)') + kpi('Sin cuenta', sin.length ? $(sinUSD) : '0', sin.length ? 'var(--gold)' : 'var(--esp)');
+      kpi('Cobros linkeados', $(tot.cob), 'var(--esp)', tot.cob) + kpi('Pagos linkeados', $(tot.pag), 'var(--usa)', tot.pag) +
+      kpi('Cuentas con movimiento', filas.length, 'var(--text)') + kpi('Sin cuenta', sin.length ? $(sinUSD) : '0', sin.length ? 'var(--gold)' : 'var(--esp)', sin.length ? sinUSD : null);
     cont.innerHTML = cartelSin + `<div class="card">
       <div class="section-title" style="font-size:13px;margin:0 0 10px">${LK_MESNOM[mes-1]} ${anio} — movimiento por cuenta
         <span style="font-weight:400;color:var(--text3);font-size:11px">· clic en una cuenta para ver el detalle</span></div>
@@ -8200,12 +8249,18 @@ async function loadCuentasMov() {
         <thead><tr><th>Cuenta</th><th>Titular</th><th class="num">Rubros</th><th class="num">Cobros</th><th class="num">Pagos</th><th class="num">Transf. netas</th><th class="num">Movimiento esperado</th></tr></thead>
         <tbody>${filas.map(f => `<tr style="cursor:pointer" onclick="document.getElementById('cm-cuenta').value='${f.k}';loadCuentasMov()">
           <td><b>${f.nom}</b></td><td style="color:var(--text3)">${f.tit}</td><td class="num">${f.n}</td>
-          <td class="num" style="color:var(--esp)">${f.cob ? $(f.cob) : '—'}</td>
-          <td class="num" style="color:var(--usa)">${f.pag ? '-' + $(f.pag) : '—'}</td>
-          <td class="num">${f.tr ? (f.tr < 0 ? '-' : '+') + $(Math.abs(f.tr)) : '—'}</td>
-          <td class="num" style="font-weight:600;color:${f.esp < 0 ? 'var(--usa)' : 'var(--esp)'}">${f.esp < 0 ? '-' : ''}${$(Math.abs(f.esp))}</td></tr>`).join('')}
-        </tbody></table></div>` : `<p style="font-size:13px;color:var(--text3)">Ningún movimiento de ${LK_MESNOM[mes-1]} tiene cuenta asignada todavía.</p>`}
-      <p style="font-size:11px;color:var(--text3);margin:10px 0 0">En dólares, con el TC del mes. <b>Movimiento esperado</b> = cobros − pagos ± transferencias:
+          <td class="num" style="color:var(--esp)">${f.cob ? sgn(f.cob) + $(Math.abs(f.cob)) + ars(f.cob, sgn(f.cob)) : '—'}</td>
+          <td class="num" style="color:var(--usa)">${f.pag ? '-' + $(f.pag) + ars(f.pag, '-') : '—'}</td>
+          <td class="num">${f.tr ? (f.tr < 0 ? '-' : '+') + $(Math.abs(f.tr)) + ars(f.tr, f.tr < 0 ? '-' : '+') : '—'}</td>
+          <td class="num" style="font-weight:600;color:${f.esp < 0 ? 'var(--usa)' : 'var(--esp)'}">${sgn(f.esp)}${$(Math.abs(f.esp))}${ars(f.esp, sgn(f.esp))}</td></tr>`).join('')}
+        </tbody>
+        <tfoot><tr style="font-weight:600"><td colspan="3">Total</td>
+          <td class="num" style="color:var(--esp)">${$(tot.cob)}${ars(tot.cob)}</td>
+          <td class="num" style="color:var(--usa)">-${$(tot.pag)}${ars(tot.pag, '-')}</td>
+          <td class="num">${(() => { const t = filas.reduce((s, f) => s + f.tr, 0); return sgn(t) + $(Math.abs(t)) + ars(t, sgn(t)); })()}</td>
+          <td class="num">${(() => { const t = filas.reduce((s, f) => s + f.esp, 0); return sgn(t) + $(Math.abs(t)) + ars(t, sgn(t)); })()}</td></tr></tfoot>
+        </table></div>` : `<p style="font-size:13px;color:var(--text3)">Ningún movimiento de ${LK_MESNOM[mes-1]} tiene cuenta asignada todavía.</p>`}
+      <p style="font-size:11px;color:var(--text3);margin:10px 0 0">En dólares y, abajo, en pesos, con el TC del mes${tcA ? ' (' + fmt(tcA) + ')' : ''}. <b>Movimiento esperado</b> = cobros − pagos ± transferencias:
         lo que debería haber cambiado la cuenta si solo se movió por lo cargado. MFL queda afuera.</p></div>`;
     return;
   }
@@ -8218,9 +8273,9 @@ async function loadCuentasMov() {
   const tr = cuenta === '__CASH__' ? 0 : trNeto(cuenta);
   const esp = sCob - sPag + tr;
   document.getElementById('cm-kpis').innerHTML =
-    kpi('Cobros', $(sCob), 'var(--esp)') + kpi('Pagos', sPag ? '-' + $(sPag) : '$0', 'var(--usa)') +
-    kpi('Transferencias netas', (tr < 0 ? '-' : '') + $(Math.abs(tr)), 'var(--text)') +
-    kpi('Movimiento esperado', (esp < 0 ? '-' : '') + $(Math.abs(esp)), esp < 0 ? 'var(--usa)' : 'var(--esp)');
+    kpi('Cobros', sgn(sCob) + $(Math.abs(sCob)), 'var(--esp)', sCob) + kpi('Pagos', sPag ? '-' + $(sPag) : '$0', 'var(--usa)', -sPag) +
+    kpi('Transferencias netas', sgn(tr) + $(Math.abs(tr)), 'var(--text)', tr) +
+    kpi('Movimiento esperado', sgn(esp) + $(Math.abs(esp)), esp < 0 ? 'var(--usa)' : 'var(--esp)', esp);
 
   const orden = (a, b) => (LK_TIPOS.indexOf(a.t) - LK_TIPOS.indexOf(b.t)) || ((a.act.nro ?? 9999) - (b.act.nro ?? 9999)) || a.rubro.localeCompare(b.rubro);
   const tabla = (titulo, arr, col, signo) => `<div class="card" style="margin-bottom:14px">
@@ -8231,12 +8286,14 @@ async function loadCuentasMov() {
       <tbody>${arr.slice().sort(orden).map(l => `<tr>
         <td style="color:var(--text3)">${l.t.label}</td>
         <td>${l.act.nro ?? '—'} · ${l.act.nombre} <span style="color:var(--text3);font-size:10px">${l.act.titular || ''}</span></td>
-        <td>${LK_NOM[l.rubro] || l.rubro}</td>
+        <td>${LK_NOM[l.rubro] || l.rubro}${l.comp ? `<div style="font-size:10px;color:var(--text3)">${l.comp.map((c, i) =>
+            (i ? (c.usd < 0 ? ' − ' : ' + ') : '') + c.lbl + ' ' + $(Math.abs(c.usd)) + (c.mon !== 'USD' ? ' (' + fmt(Math.abs(c.v)) + ' ' + c.mon + ')' : '')).join('')}</div>` : ''}</td>
         <td class="num" style="color:var(--text3)">${l.mon !== 'USD' ? fmt(l.v) + ' ' + l.mon : ''}</td>
-        <td class="num" style="color:${col}">${signo}${$(l.usd)}</td>
+        <td class="num" style="color:${col}">${l.usd < 0 ? (signo === '+' ? '-' : '+') : signo}${$(Math.abs(l.usd))}</td>
         <td style="font-size:11px;color:var(--text3)">${l.origen}</td></tr>`).join('')}
       </tbody>
-      <tfoot><tr><td colspan="4" style="font-weight:600">Total</td><td class="num" style="font-weight:600;color:${col}">${signo}${$(arr.reduce((s, l) => s + l.usd, 0))}</td><td></td></tr></tfoot>
+      <tfoot><tr><td colspan="4" style="font-weight:600">Total</td><td class="num" style="font-weight:600;color:${col}">${(() => { const t = arr.reduce((s, l) => s + l.usd, 0);
+        const sg = t < 0 ? (signo === '+' ? '-' : '+') : signo; return sg + $(Math.abs(t)) + ars(t, sg); })()}</td><td></td></tr></tfoot>
       </table></div>` : `<p style="font-size:12px;color:var(--text3);margin:0">Nada en ${LK_MESNOM[mes-1]}.</p>`}</div>`;
   const nomB = id => (bNom[id] || {}).nombre || '—';
   const tablaTr = cuenta === '__CASH__' ? '' : `<div class="card" style="margin-bottom:14px">
@@ -8249,7 +8306,7 @@ async function loadCuentasMov() {
         return `<tr><td>${r.fecha}</td><td style="color:${out ? 'var(--usa)' : 'var(--esp)'};font-weight:700">${out ? '&#8599;' : '&#8600;'}</td>
           <td>${otra}${r.concepto ? ` · <span style="color:var(--text3);font-size:11px">${r.concepto}</span>` : ''}</td>
           <td class="num" style="color:var(--text3)">${r.moneda && r.moneda !== 'USD' ? fmt(r.monto) + ' ' + r.moneda : ''}</td>
-          <td class="num" style="color:${out ? 'var(--usa)' : 'var(--esp)'}">${out ? '-' : '+'}${$(Number(r.monto_usd) || 0)}</td></tr>`;
+          <td class="num" style="color:${out ? 'var(--usa)' : 'var(--esp)'}">${out ? '-' : '+'}${$(Number(r.monto_usd) || 0)}${ars(Number(r.monto_usd) || 0, out ? '-' : '+')}</td></tr>`;
       }).join('')}</tbody></table></div>` : `<p style="font-size:12px;color:var(--text3);margin:0">Sin transferencias en ${LK_MESNOM[mes-1]}.</p>`}</div>`;
   const nomCuenta = cuenta === '__CASH__' ? 'CASH / efectivo' : nomB(cuenta) + ' · ' + ((bNom[cuenta] || {}).titular || '');
   cont.innerHTML = cartelSin +
@@ -8257,7 +8314,8 @@ async function loadCuentasMov() {
       · <b style="color:var(--text)">${nomCuenta}</b> · ${LK_MESNOM[mes-1]} ${anio}</div>` +
     tabla('Cobros', cob, 'var(--esp)', '+') + tabla('Pagos', pag, 'var(--usa)', '-') + tablaTr +
     `<p style="font-size:11px;color:var(--text3);margin:0">Importe en la moneda original; USD con el TC del mes. <b>Según</b> dice si la cuenta sale de la
-      regla fija o de una excepción de ese mes. La conciliación contra el saldo real del banco es la etapa siguiente.</p>`;
+      regla fija o de una excepción de ese mes. <b>Renta neta</b> = renta menos los gastos que el broker descuenta antes de depositar.
+      Abajo de cada total, el equivalente en pesos con el TC del mes. La conciliación contra el saldo real del banco es la etapa siguiente.</p>`;
 }
 
 function cmIrALinkeo(anio, mes) {
@@ -8283,12 +8341,9 @@ function lkToggle(id) {
 
 // ── REGLA FIJA: se guarda por activo + rubro y vale de LK_DESDE en adelante
 async function guardarReglaRubro(cat, nro, rubro, val) {
-  const esCash = val === '__CASH__';
   const { error } = await sb.from('reglas_pago').upsert({
     categoria: cat, activo_nro: nro, rubro,
-    cuenta_id : esCash ? null : (val || null),
-    medio     : esCash ? 'Efectivo' : 'Asignado desde la app',
-    referencia: esCash ? 'CASH' : null,
+    ...lkValorARegla(val, 'Asignado desde la app'),
     desde_anio: LK_DESDE.anio, desde_mes: LK_DESDE.mes,
     updated_at: new Date().toISOString(),
   }, { onConflict: 'categoria,activo_nro,rubro' });
@@ -8303,12 +8358,9 @@ async function guardarExcepcion(cat, nro, rubro, anio, mes, val) {
     const e = lkExcepcion(cat, nro, rubro, anio, mes);
     return e ? borrarExcepcion(e.id) : loadLinkeo();
   }
-  const esCash = val === '__CASH__';
   const { error } = await sb.from('excepciones_pago').upsert({
     categoria: cat, activo_nro: nro, rubro, anio, mes,
-    cuenta_id : esCash ? null : val,
-    medio     : esCash ? 'Efectivo' : 'Excepción del mes',
-    referencia: esCash ? 'CASH' : null,
+    ...lkValorARegla(val, 'Excepción del mes'),
     updated_at: new Date().toISOString(),
   }, { onConflict: 'categoria,activo_nro,rubro,anio,mes' });
   if (error) return toast('Error: ' + error.message, 'error');
@@ -8331,7 +8383,8 @@ function renderLinkeoReglas() {
     const k = { propiedades:'propiedad', autos:'auto', sociedades:'sociedad', private_equity:'pe' }[cat] || cat;
     return _lkCat[k+'|'+nro] || '';
   };
-  const catLbl = { propiedades:'Propiedades', autos:'Autos', sociedades:'Sociedades', private_equity:'Private Equity' };
+  const catLbl = { propiedades:'Propiedades', autos:'Autos', sociedades:'Sociedades', private_equity:'Private Equity',
+                   propiedad:'Propiedades', auto:'Autos', sociedad:'Sociedades', pe:'Private Equity' };
   // v178 — las reglas de activos de MFL no se listan (ya no se pagan). Siguen en
   // la base: si alguna vez vuelven, están. `_lkCat` sólo tiene los no-MFL, porque
   // loadLinkeo() lo llena con soloSumables().
@@ -8355,7 +8408,7 @@ function renderLinkeoReglas() {
             <td style="font-size:11px">${lkTxtCuenta(r)}</td>
             <td style="color:var(--text3);font-size:11px">${LK_MESNOM[(r.desde_mes||LK_DESDE.mes)-1]} ${r.desde_anio||LK_DESDE.anio}</td>
             <td><select class="fld" style="padding:2px 6px;font-size:11px;width:auto;max-width:200px"
-                  onchange="guardarReglaRubro('${{propiedades:'propiedad',autos:'auto',sociedades:'sociedad',private_equity:'pe'}[r.categoria]||r.categoria}',${r.activo_nro},'${r.rubro}',this.value)">${lkOpts(r)}</select></td>
+                  onchange="guardarReglaRubro('${{propiedades:'propiedad',autos:'auto',sociedades:'sociedad',private_equity:'pe'}[r.categoria]||r.categoria}',${r.activo_nro},'${r.rubro}',this.value)">${lkOpts(r, (r.categoria === 'propiedad' || r.categoria === 'propiedades') && !LK_COBRO.has(r.rubro))}</select></td>
           </tr>`).join('') : '<tr><td colspan="6" style="color:var(--text3);text-align:center;padding:18px">Todavía no hay reglas.</td></tr>'}
         </tbody></table></div>
     </div>
@@ -10850,7 +10903,9 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
     const e = _exs.find(x => _esProp(x.categoria) && x.activo_nro===nro && x.rubro===rubro && x.mes===mes);
     const r = e || _rgs.find(x => _esProp(x.categoria) && x.activo_nro===nro && x.rubro===rubro)
                 || _rgs.find(x => _esProp(x.categoria) && x.activo_nro===nro && x.rubro==='*');
-    return r && r.cuenta_id ? r.cuenta_id : null;     // efectivo / CASH no toca ninguna cuenta
+    // v196 — descontado de la renta: sale de la cuenta donde se cobra la renta
+    if (r && r.referencia === 'NETO' && rubro !== 'renta') return _cuentaDe(nro, 'renta', mes);
+    return r && r.cuenta_id ? r.cuenta_id : null;     // efectivo / CASH / pospuesto no tocan ninguna cuenta
   };
   const _porCuenta = {};   // cuenta_id -> { propId -> {cobro, pago} }
   const _propById = {}; props.forEach(p => _propById[p.id] = p);
@@ -16739,7 +16794,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260917-195';
+const APP_VERSION = '20260917-196';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
