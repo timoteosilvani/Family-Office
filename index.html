@@ -913,7 +913,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
 
       <div class="nav-item" onclick="navTo('tarjetas')" data-page="tarjetas">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
-        Tarjetas
+        Cuentas y tarjetas
       </div>
 
       <div class="nav-section-label nav-mas">Más</div>
@@ -3362,14 +3362,25 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
         </div>
       </div>
 
-      <!-- ======== TARJETAS ======== -->
+      <!-- ======== CUENTAS Y TARJETAS (v195) ======== -->
       <div id="page-tarjetas" class="page">
         <div class="tabs">
-          <button class="tab-btn active" onclick="switchTab('tar','info',this)">Información</button>
-          <button class="tab-btn" onclick="switchTab('tar','carga',this)">Carga</button>
+          <button class="tab-btn active" onclick="switchTab('tar','cuentas',this);loadCuentasMov()">Cuentas</button>
+          <button class="tab-btn" onclick="switchTab('tar','info',this);loadTarjetas()">Tarjetas</button>
         </div>
 
-        <div id="tar-info" class="tab-content active">
+        <div id="tar-cuentas" class="tab-content active">
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px">
+            <div class="section-title" style="margin:0">Movimientos por cuenta</div>
+            <select class="fld" id="cm-cuenta" style="width:auto;max-width:280px" onchange="loadCuentasMov()"></select>
+            <select class="fld" id="cm-anio" style="width:auto" onchange="loadCuentasMov()"></select>
+            <select class="fld" id="cm-mes" style="width:auto" onchange="loadCuentasMov()"></select>
+          </div>
+          <div id="cm-kpis" class="grid-4" style="margin-bottom:14px"></div>
+          <div id="cm-result"><div class="loader"><div class="spinner"></div></div></div>
+        </div>
+
+        <div id="tar-info" class="tab-content">
           <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">
             <div class="section-title" style="margin:0">Tarjetas — Resumen en USD</div>
             <select class="fld" id="tar-anio" style="width:auto" onchange="loadTarjetas()">
@@ -3378,10 +3389,8 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
             </select>
           </div>
           <div id="tar-info-result"><div class="loader"><div class="spinner"></div></div></div>
-        </div>
 
-        <div id="tar-carga" class="tab-content">
-          <div class="section-title" style="margin-bottom:12px">Carga de Tarjetas</div>
+          <div class="section-title" style="margin:22px 0 12px">Carga de Tarjetas</div>
           <div class="card" style="margin-bottom:14px">
             <div class="form-row cols-3" style="margin-bottom:12px">
               <div><label class="fld">Tarjeta</label>
@@ -4609,7 +4618,7 @@ const pagesMeta = {
   gastos: { title: 'Gastos por Propiedad', subtitle: 'Vista mensual y anual de rentas, gastos e impuestos' },
   alertas: { title: 'Alertas', subtitle: 'Vencimientos, renovaciones y avisos importantes' },
   sociedades: { title: 'Sociedades', subtitle: 'Gastos y movimientos de las sociedades' },
-  tarjetas: { title: 'Tarjetas', subtitle: 'Gastos por tarjeta y cliente' },
+  tarjetas: { title: 'Cuentas y tarjetas', subtitle: 'Qué pagó y cobró cada cuenta · gastos por tarjeta y cliente' },
   reportes: { title: 'Reportes', subtitle: 'Informes y consolidados' },
   estados: { title: 'Estados Financieros', subtitle: 'Balance, resultado, consumo y cambios en el patrimonio' },
 };
@@ -4873,8 +4882,9 @@ async function loadPage(page, skipInit) {
       it('sociedades');
       break;
     case 'tarjetas':
-      await loadTarjetas();
       it('tarjetas');
+      loadTarjetas().catch(e => console.warn('loadTarjetas:', e.message));   // llena la subsolapa Tarjetas (info + select de carga)
+      await loadCuentasMov();
       break;
   }
 }
@@ -7811,12 +7821,16 @@ function lkMesSel()  { return parseInt(document.getElementById('lk-mes')?.value)
 function lkVigente(anio, mes) {
   return anio > LK_DESDE.anio || (anio === LK_DESDE.anio && mes >= LK_DESDE.mes);
 }
+// v195 — la app guarda la categoría con la clave corta ('propiedad'); filas viejas
+// pueden tener el nombre de tabla ('propiedades'). Se aceptan las dos.
+const LK_CAT_ALIAS = { propiedad:'propiedades', auto:'autos', sociedad:'sociedades', pe:'private_equity' };
+const lkCatEs = (x, cat) => x === cat || x === LK_CAT_ALIAS[cat];
 function lkRegla(cat, nro, rubro) {
-  return _lkReglas.find(r => r.categoria===cat && r.activo_nro===nro && r.rubro===rubro)
-      || _lkReglas.find(r => r.categoria===cat && r.activo_nro===nro && r.rubro==='*');
+  return _lkReglas.find(r => lkCatEs(r.categoria, cat) && r.activo_nro===nro && r.rubro===rubro)
+      || _lkReglas.find(r => lkCatEs(r.categoria, cat) && r.activo_nro===nro && r.rubro==='*');
 }
 function lkExcepcion(cat, nro, rubro, anio, mes) {
-  return _lkExc.find(e => e.categoria===cat && e.activo_nro===nro && e.rubro===rubro && e.anio===anio && e.mes===mes);
+  return _lkExc.find(e => lkCatEs(e.categoria, cat) && e.activo_nro===nro && e.rubro===rubro && e.anio===anio && e.mes===mes);
 }
 // Resuelta = apunta a una cuenta O es efectivo. CASH no tiene cuenta_id y aun
 // asi es una respuesta valida a "de donde sale / a donde entra".
@@ -7911,7 +7925,9 @@ async function loadLinkeo() {
       const a = porId[m[t.fk]]; if (!a) return;
       const enVigencia = lkVigente(Number(m.anio), Number(m.mes));
       t.grupos.forEach(gr => gr.campos.forEach(c => {
-        const v = Number(m[c])||0; if (!v) return;
+        if (!(Number(m[c])||0)) return;
+        // v195 — en USD: los rubros de propiedades y autos están en moneda nativa
+        const v = lkMontoUSD(t, m, c);
         // recurrencia: se cuenta sobre TODO el año, dentro y fuera de la vigencia
         if (!mesSel) {
           const rk = a.id+'|'+c;
@@ -8021,6 +8037,240 @@ async function loadLinkeo() {
     }).join('');
 
   renderLinkeoReglas();
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   CUENTAS Y TARJETAS → CUENTAS  (v195)
+   ───────────────────────────────────────────────────────────────────────
+   Etapa B del linkeo: qué pagó y qué cobró cada cuenta en un mes, según la
+   regla fija o la excepción del mes (la excepción manda), más las
+   transferencias que salen o entran. Solo lectura: no escribe nada.
+
+   · Los rubros de propiedades y autos están en MONEDA NATIVA: se muestran en
+     su moneda y se convierten a USD con el TC del mes (rubroPropUSD /
+     convUSD), igual que el resto de la app. Sociedades y PE ya son USD.
+   · MFL queda afuera (soloSumables), mismo criterio que el Linkeo.
+   · Cobro = renta, otro ingreso, utilidad. Todo lo demás es pago.
+   · Vigencia: desde LK_DESDE (julio 2026).
+   · Lo que no tiene cuenta se cuenta aparte, para que la pantalla sirva
+     aunque las reglas estén a medio completar.
+   ═══════════════════════════════════════════════════════════════════════ */
+const LK_COBRO = new Set(['renta', 'otro_ingreso', 'utilidad']);
+const LK_IMP_PROP = new Set((LK_TIPOS.find(t => t.key === 'propiedad').grupos.find(g => g.g === 'Impuestos') || { campos: [] }).campos);
+
+// Rubro en moneda nativa: { v, mon }
+function lkNativo(t, m, c) {
+  const v = Number(m[c]) || 0;
+  if (t.key === 'propiedad') {
+    const sec = LK_COBRO.has(c) ? 'moneda_renta' : (LK_IMP_PROP.has(c) ? 'moneda_impuestos' : 'moneda_gastos');
+    return { v, mon: m['moneda_' + c] || m[sec] || m.moneda || 'USD', sec };
+  }
+  if (t.key === 'auto') {
+    const d = m.detalle || {};
+    const k = c === 'otros_gastos' ? (d.otros_gastos ? 'otros_gastos' : 'otros') : c;
+    return { v, mon: (d[k] && d[k].moneda) || m.moneda || 'USD' };
+  }
+  return { v, mon: 'USD' };
+}
+function lkMontoUSD(t, m, c) {
+  const n = lkNativo(t, m, c);
+  if (t.key === 'propiedad') return rubroPropUSD(m, c, n.sec);
+  return convUSD(n.v, n.mon, m.anio, m.mes);
+}
+
+function _cmPref(k, v) {
+  try { if (v === undefined) return localStorage.getItem('cm_' + k); localStorage.setItem('cm_' + k, v); } catch (e) { return null; }
+}
+
+// Junta las líneas del mes: [{ cuenta:'<id>'|'__CASH__'|null, t, act, rubro, grupo, dir, usd, v, mon, origen }]
+async function cmLineas(anio, mes) {
+  const [{ data: bcs }, { data: rgs }, excR, trR] = await Promise.all([
+    sb.from('bancos').select('id,nro,nombre,titular,activo').order('nro'),
+    sb.from('reglas_pago').select('*').then(r => r, () => ({ data: [] })),
+    sb.from('excepciones_pago').select('*').eq('anio', anio).then(r => r, () => ({ data: [] })),
+    sb.from('transferencias_bancos').select('*').then(r => r, () => ({ data: [] })),
+  ]);
+  _lkBancos = (bcs || []).filter(b => b.activo !== false);
+  _lkReglas = rgs || [];
+  _lkExc = excR.data || [];
+  const lineas = [];
+  for (const t of LK_TIPOS) {
+    const [{ data: cat }, movR] = await Promise.all([
+      sb.from(t.cat).select('id,nro,nombre,titular'),
+      sb.from(t.tabla).select('*').eq('anio', anio).eq('mes', mes).limit(5000).then(r => r, () => ({ data: [] })),
+    ]);
+    const porId = {}; soloSumables(cat || []).forEach(c => porId[c.id] = c);
+    (movR.data || []).forEach(m => {
+      const a = porId[m[t.fk]]; if (!a) return;
+      t.grupos.forEach(gr => gr.campos.forEach(c => {
+        const n = lkNativo(t, m, c); if (!n.v) return;
+        const usd = lkMontoUSD(t, m, c);
+        const exc = lkExcepcion(t.key, a.nro, c, anio, mes);
+        const reg = lkRegla(t.key, a.nro, c);
+        const ef = exc || reg;
+        let cuenta = null;
+        if (ef && (ef.referencia === 'CASH' || ef.medio === 'Efectivo')) cuenta = '__CASH__';
+        else if (ef && ef.cuenta_id) cuenta = ef.cuenta_id;
+        lineas.push({ cuenta, t, act: a, rubro: c, grupo: gr.g, dir: LK_COBRO.has(c) ? 'cobro' : 'pago',
+                      usd: Math.abs(usd), v: n.v, mon: n.mon, origen: exc ? 'Excepción' : (reg ? 'Regla' : '') });
+      }));
+    });
+  }
+  // transferencias del mes (por fecha)
+  const pre = anio + '-' + String(mes).padStart(2, '0');
+  const trs = (trR.data || []).filter(r => String(r.fecha || '').slice(0, 7) === pre);
+  return { lineas, trs, bancos: bcs || [] };
+}
+
+async function loadCuentasMov() {
+  const selC = document.getElementById('cm-cuenta'), selA = document.getElementById('cm-anio'), selM = document.getElementById('cm-mes');
+  const cont = document.getElementById('cm-result'); if (!cont || !selA) return;
+  if (!selA.options.length) {
+    const hoy = new Date();
+    const años = []; for (let y = Math.max(hoy.getFullYear(), LK_DESDE.anio); y >= LK_DESDE.anio; y--) años.push(y);
+    selA.innerHTML = años.map(y => `<option value="${y}">${y}</option>`).join('');
+    const pa = parseInt(_cmPref('anio')); if (años.includes(pa)) selA.value = pa;
+  }
+  const anio = parseInt(selA.value);
+  const mesesOk = LK_MESNOM.map((n, i) => i + 1).filter(m => lkVigente(anio, m));
+  if (!selM.options.length || selM.dataset.anio !== String(anio)) {
+    const prev = parseInt(selM.value) || parseInt(_cmPref('mes')) || 0;
+    // por defecto: el último mes con movimientos de propiedades cargados
+    let ult = 0;
+    try {
+      const { data } = await sb.from('movimientos_propiedades').select('mes').eq('anio', anio).order('mes', { ascending: false }).limit(1);
+      ult = data && data[0] ? data[0].mes : 0;
+    } catch (e) {}
+    selM.innerHTML = mesesOk.map(m => `<option value="${m}">${LK_MESNOM[m-1]}</option>`).join('');
+    selM.dataset.anio = String(anio);
+    const def = mesesOk.includes(prev) ? prev : (mesesOk.includes(ult) ? ult : mesesOk[mesesOk.length - 1]);
+    if (def) selM.value = def;
+  }
+  if (!mesesOk.length) { cont.innerHTML = `<div class="card" style="font-size:13px;color:var(--text3)">El linkeo rige desde <b>${LK_MESNOM[LK_DESDE.mes-1]} ${LK_DESDE.anio}</b>.</div>`; return; }
+  const mes = parseInt(selM.value);
+  _cmPref('anio', anio); _cmPref('mes', mes);
+  cont.innerHTML = '<div class="loader"><div class="spinner"></div></div>';
+  document.getElementById('cm-kpis').innerHTML = '';
+
+  const { lineas, trs, bancos } = await cmLineas(anio, mes);
+  const bNom = {}; bancos.forEach(b => bNom[b.id] = b);
+
+  // selector de cuenta: resumen + cuentas activas agrupadas por titular + CASH
+  const guard = selC.value || _cmPref('cuenta') || '';
+  const porTit = {}; _lkBancos.forEach(b => (porTit[b.titular || '—'] = porTit[b.titular || '—'] || []).push(b));
+  selC.innerHTML = '<option value="">Todas las cuentas (resumen)</option>' +
+    Object.keys(porTit).sort().map(ti => `<optgroup label="${ti}">${porTit[ti].map(b => `<option value="${b.id}">${b.nombre}</option>`).join('')}</optgroup>`).join('') +
+    '<option value="__CASH__">CASH / efectivo</option>';
+  selC.value = guard; if (selC.value !== guard) selC.value = '';
+  const cuenta = selC.value; _cmPref('cuenta', cuenta);
+
+  const $ = v => '$' + fmt(v);
+  const sin = lineas.filter(l => !l.cuenta);
+  const sinUSD = sin.reduce((s, l) => s + l.usd, 0);
+  const kpi = (lbl, val, col) => `<div style="border:1px solid var(--border);border-radius:8px;padding:14px;text-align:center">
+      <div style="font-size:10px;letter-spacing:1px;color:var(--text3);text-transform:uppercase;margin-bottom:6px">${lbl}</div>
+      <div style="font-size:22px;font-weight:300;color:${col}">${val}</div></div>`;
+  const cartelSin = sin.length ? `<div class="card" style="border-color:var(--gold);margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+      <div style="font-size:12px"><b style="color:var(--gold)">${sin.length} rubro${sin.length === 1 ? '' : 's'} sin cuenta asignada</b>
+        en ${LK_MESNOM[mes-1]} ${anio} · ${$(sinUSD)} que todavía no se atribuyen a ninguna cuenta.</div>
+      <button class="btn-secondary" style="padding:4px 12px;font-size:11px" onclick="cmIrALinkeo(${anio},${mes})">Ir a Linkeo</button></div>` : '';
+
+  const trNeto = id => trs.reduce((s, r) => s + (r.banco_destino_id === id ? (Number(r.monto_usd) || 0) : 0)
+                                        - (r.banco_origen_id === id ? (Number(r.monto_usd) || 0) : 0), 0);
+
+  if (!cuenta) {
+    // ── RESUMEN: una fila por cuenta con movimiento ──
+    const res = {};
+    const fila = k => res[k] = res[k] || { k, cob: 0, pag: 0, n: 0, tr: 0 };
+    lineas.filter(l => l.cuenta).forEach(l => { const f = fila(l.cuenta); f[l.dir === 'cobro' ? 'cob' : 'pag'] += l.usd; f.n++; });
+    trs.forEach(r => { [r.banco_origen_id, r.banco_destino_id].forEach(id => { if (id) fila(id); }); });
+    Object.values(res).forEach(f => { if (f.k !== '__CASH__') f.tr = trNeto(f.k); });
+    const filas = Object.values(res).map(f => ({ ...f, esp: f.cob - f.pag + f.tr,
+        nom: f.k === '__CASH__' ? 'CASH / efectivo' : ((bNom[f.k] || {}).nombre || '—'), tit: f.k === '__CASH__' ? '' : ((bNom[f.k] || {}).titular || '') }))
+      .sort((a, b) => (a.tit.localeCompare(b.tit)) || a.nom.localeCompare(b.nom));
+    const tot = filas.reduce((s, f) => ({ cob: s.cob + f.cob, pag: s.pag + f.pag }), { cob: 0, pag: 0 });
+    document.getElementById('cm-kpis').innerHTML =
+      kpi('Cobros linkeados', $(tot.cob), 'var(--esp)') + kpi('Pagos linkeados', $(tot.pag), 'var(--usa)') +
+      kpi('Cuentas con movimiento', filas.length, 'var(--text)') + kpi('Sin cuenta', sin.length ? $(sinUSD) : '0', sin.length ? 'var(--gold)' : 'var(--esp)');
+    cont.innerHTML = cartelSin + `<div class="card">
+      <div class="section-title" style="font-size:13px;margin:0 0 10px">${LK_MESNOM[mes-1]} ${anio} — movimiento por cuenta
+        <span style="font-weight:400;color:var(--text3);font-size:11px">· clic en una cuenta para ver el detalle</span></div>
+      ${filas.length ? `<div class="table-wrap"><table style="font-size:12px">
+        <thead><tr><th>Cuenta</th><th>Titular</th><th class="num">Rubros</th><th class="num">Cobros</th><th class="num">Pagos</th><th class="num">Transf. netas</th><th class="num">Movimiento esperado</th></tr></thead>
+        <tbody>${filas.map(f => `<tr style="cursor:pointer" onclick="document.getElementById('cm-cuenta').value='${f.k}';loadCuentasMov()">
+          <td><b>${f.nom}</b></td><td style="color:var(--text3)">${f.tit}</td><td class="num">${f.n}</td>
+          <td class="num" style="color:var(--esp)">${f.cob ? $(f.cob) : '—'}</td>
+          <td class="num" style="color:var(--usa)">${f.pag ? '-' + $(f.pag) : '—'}</td>
+          <td class="num">${f.tr ? (f.tr < 0 ? '-' : '+') + $(Math.abs(f.tr)) : '—'}</td>
+          <td class="num" style="font-weight:600;color:${f.esp < 0 ? 'var(--usa)' : 'var(--esp)'}">${f.esp < 0 ? '-' : ''}${$(Math.abs(f.esp))}</td></tr>`).join('')}
+        </tbody></table></div>` : `<p style="font-size:13px;color:var(--text3)">Ningún movimiento de ${LK_MESNOM[mes-1]} tiene cuenta asignada todavía.</p>`}
+      <p style="font-size:11px;color:var(--text3);margin:10px 0 0">En dólares, con el TC del mes. <b>Movimiento esperado</b> = cobros − pagos ± transferencias:
+        lo que debería haber cambiado la cuenta si solo se movió por lo cargado. MFL queda afuera.</p></div>`;
+    return;
+  }
+
+  // ── DETALLE DE UNA CUENTA ──
+  const mias = lineas.filter(l => l.cuenta === cuenta);
+  const cob = mias.filter(l => l.dir === 'cobro'), pag = mias.filter(l => l.dir === 'pago');
+  const sCob = cob.reduce((s, l) => s + l.usd, 0), sPag = pag.reduce((s, l) => s + l.usd, 0);
+  const misTr = cuenta === '__CASH__' ? [] : trs.filter(r => r.banco_origen_id === cuenta || r.banco_destino_id === cuenta);
+  const tr = cuenta === '__CASH__' ? 0 : trNeto(cuenta);
+  const esp = sCob - sPag + tr;
+  document.getElementById('cm-kpis').innerHTML =
+    kpi('Cobros', $(sCob), 'var(--esp)') + kpi('Pagos', sPag ? '-' + $(sPag) : '$0', 'var(--usa)') +
+    kpi('Transferencias netas', (tr < 0 ? '-' : '') + $(Math.abs(tr)), 'var(--text)') +
+    kpi('Movimiento esperado', (esp < 0 ? '-' : '') + $(Math.abs(esp)), esp < 0 ? 'var(--usa)' : 'var(--esp)');
+
+  const orden = (a, b) => (LK_TIPOS.indexOf(a.t) - LK_TIPOS.indexOf(b.t)) || ((a.act.nro ?? 9999) - (b.act.nro ?? 9999)) || a.rubro.localeCompare(b.rubro);
+  const tabla = (titulo, arr, col, signo) => `<div class="card" style="margin-bottom:14px">
+    <div class="section-title" style="font-size:13px;margin:0 0 10px">${titulo}
+      <span style="font-weight:400;color:var(--text3);font-size:11px">(${arr.length})</span></div>
+    ${arr.length ? `<div class="table-wrap"><table style="font-size:12px">
+      <thead><tr><th>Tipo</th><th>Activo</th><th>Rubro</th><th class="num">Importe</th><th class="num">USD</th><th>Según</th></tr></thead>
+      <tbody>${arr.slice().sort(orden).map(l => `<tr>
+        <td style="color:var(--text3)">${l.t.label}</td>
+        <td>${l.act.nro ?? '—'} · ${l.act.nombre} <span style="color:var(--text3);font-size:10px">${l.act.titular || ''}</span></td>
+        <td>${LK_NOM[l.rubro] || l.rubro}</td>
+        <td class="num" style="color:var(--text3)">${l.mon !== 'USD' ? fmt(l.v) + ' ' + l.mon : ''}</td>
+        <td class="num" style="color:${col}">${signo}${$(l.usd)}</td>
+        <td style="font-size:11px;color:var(--text3)">${l.origen}</td></tr>`).join('')}
+      </tbody>
+      <tfoot><tr><td colspan="4" style="font-weight:600">Total</td><td class="num" style="font-weight:600;color:${col}">${signo}${$(arr.reduce((s, l) => s + l.usd, 0))}</td><td></td></tr></tfoot>
+      </table></div>` : `<p style="font-size:12px;color:var(--text3);margin:0">Nada en ${LK_MESNOM[mes-1]}.</p>`}</div>`;
+  const nomB = id => (bNom[id] || {}).nombre || '—';
+  const tablaTr = cuenta === '__CASH__' ? '' : `<div class="card" style="margin-bottom:14px">
+    <div class="section-title" style="font-size:13px;margin:0 0 10px">Transferencias <span style="font-weight:400;color:var(--text3);font-size:11px">(${misTr.length})</span></div>
+    ${misTr.length ? `<div class="table-wrap"><table style="font-size:12px">
+      <thead><tr><th>Fecha</th><th></th><th>Contraparte</th><th class="num">Importe</th><th class="num">USD</th></tr></thead>
+      <tbody>${misTr.slice().sort((a, b) => String(a.fecha).localeCompare(String(b.fecha))).map(r => {
+        const out = r.banco_origen_id === cuenta;
+        const otra = out ? (r.banco_destino_id ? nomB(r.banco_destino_id) : (r.destino_externo || 'Cuenta ajena')) : nomB(r.banco_origen_id);
+        return `<tr><td>${r.fecha}</td><td style="color:${out ? 'var(--usa)' : 'var(--esp)'};font-weight:700">${out ? '&#8599;' : '&#8600;'}</td>
+          <td>${otra}${r.concepto ? ` · <span style="color:var(--text3);font-size:11px">${r.concepto}</span>` : ''}</td>
+          <td class="num" style="color:var(--text3)">${r.moneda && r.moneda !== 'USD' ? fmt(r.monto) + ' ' + r.moneda : ''}</td>
+          <td class="num" style="color:${out ? 'var(--usa)' : 'var(--esp)'}">${out ? '-' : '+'}${$(Number(r.monto_usd) || 0)}</td></tr>`;
+      }).join('')}</tbody></table></div>` : `<p style="font-size:12px;color:var(--text3);margin:0">Sin transferencias en ${LK_MESNOM[mes-1]}.</p>`}</div>`;
+  const nomCuenta = cuenta === '__CASH__' ? 'CASH / efectivo' : nomB(cuenta) + ' · ' + ((bNom[cuenta] || {}).titular || '');
+  cont.innerHTML = cartelSin +
+    `<div style="font-size:12px;color:var(--text3);margin-bottom:10px"><span style="cursor:pointer;color:var(--gold)" onclick="document.getElementById('cm-cuenta').value='';loadCuentasMov()">← Todas las cuentas</span>
+      · <b style="color:var(--text)">${nomCuenta}</b> · ${LK_MESNOM[mes-1]} ${anio}</div>` +
+    tabla('Cobros', cob, 'var(--esp)', '+') + tabla('Pagos', pag, 'var(--usa)', '-') + tablaTr +
+    `<p style="font-size:11px;color:var(--text3);margin:0">Importe en la moneda original; USD con el TC del mes. <b>Según</b> dice si la cuenta sale de la
+      regla fija o de una excepción de ese mes. La conciliación contra el saldo real del banco es la etapa siguiente.</p>`;
+}
+
+function cmIrALinkeo(anio, mes) {
+  navTo('bancos');
+  setTimeout(() => {
+    const btn = [...document.querySelectorAll('#page-bancos .tab-btn')].find(b => /linkeo/i.test(b.getAttribute('onclick') || ''));
+    const a = document.getElementById('lk-anio'), m = document.getElementById('lk-mes');
+    switchTab('banco', 'linkeo', btn);
+    loadLinkeo().then(() => {
+      if (a) a.value = anio; if (m) m.value = mes;
+      loadLinkeo();
+    });
+  }, 300);
 }
 
 function lkToggle(id) {
@@ -10595,9 +10845,11 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
   const _RUB_OUT = _RUB_GAS.concat(_RUB_IMP);
   const _rgs = rgR.data||[], _exs = exR.data||[];
   const _cuentaDe = (nro, rubro, mes) => {
-    const e = _exs.find(x => x.categoria==='propiedades' && x.activo_nro===nro && x.rubro===rubro && x.mes===mes);
-    const r = e || _rgs.find(x => x.categoria==='propiedades' && x.activo_nro===nro && x.rubro===rubro)
-                || _rgs.find(x => x.categoria==='propiedades' && x.activo_nro===nro && x.rubro==='*');
+    // v195 — la app guarda 'propiedad'; antes se buscaba sólo 'propiedades' y no matcheaba nunca
+    const _esProp = c => c === 'propiedad' || c === 'propiedades';
+    const e = _exs.find(x => _esProp(x.categoria) && x.activo_nro===nro && x.rubro===rubro && x.mes===mes);
+    const r = e || _rgs.find(x => _esProp(x.categoria) && x.activo_nro===nro && x.rubro===rubro)
+                || _rgs.find(x => _esProp(x.categoria) && x.activo_nro===nro && x.rubro==='*');
     return r && r.cuenta_id ? r.cuenta_id : null;     // efectivo / CASH no toca ninguna cuenta
   };
   const _porCuenta = {};   // cuenta_id -> { propId -> {cobro, pago} }
@@ -16487,7 +16739,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260917-194';
+const APP_VERSION = '20260917-195';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
