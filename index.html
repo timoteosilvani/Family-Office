@@ -9704,6 +9704,14 @@ async function chqArchivo(input, destino) {
   }
 }
 
+/* v194 — "Revisar hasta": el COMPLETO suele tener meses empezados que todavía
+   no se cierran. Sólo se revisan los meses <= hasta. Por defecto, el último mes con
+   movimientos cargados en la app; si elegís otro, se recuerda por año. */
+function _chqHastaGet(Y) { try { return parseInt(localStorage.getItem('chq_hasta_' + Y)) || 0; } catch (e) { return 0; } }
+function _chqHastaSet(Y, v) {
+  try { v = parseInt(v) || 0; if (v) localStorage.setItem('chq_hasta_' + Y, v); else localStorage.removeItem('chq_hasta_' + Y); } catch (e) {}
+  window._chqHastaMem = window._chqHastaMem || {}; window._chqHastaMem[Y] = parseInt(v) || 0;
+}
 async function renderChqCompleto() {
   const cont = document.getElementById('chqc-contenido'); if (!cont) return;
   if (!_cmp) {
@@ -9724,7 +9732,17 @@ async function renderChqCompleto() {
     n + (Math.abs((_cmp.meses[m][c.k] || 0) - (app[m][c.k] || 0)) > TOL ? 1 : 0), 0);
   const hayDato = m => claves.some(c => Math.abs(_cmp.meses[m][c.k] || 0) > 0.005 || Math.abs(app[m][c.k] || 0) > 0.005);
 
-  const conDato = []; for (let m = 1; m <= 12; m++) if (hayDato(m)) conDato.push(m);
+  const hayApp = m => claves.some(c => Math.abs(app[m][c.k] || 0) > 0.005);
+  let ultApp = 0; for (let m = 1; m <= 12; m++) if (hayApp(m)) ultApp = m;
+  const elegido = (window._chqHastaMem && Y in window._chqHastaMem) ? window._chqHastaMem[Y] : _chqHastaGet(Y);
+  const hasta = elegido || ultApp || 12;
+  const conDato = []; for (let m = 1; m <= hasta; m++) if (hayDato(m)) conDato.push(m);
+  const fuera = []; for (let m = hasta + 1; m <= 12; m++) if (hayDato(m)) fuera.push(LK_MESNOM[m-1]);
+  const selHasta = `<label style="font-size:11px;color:var(--text3);margin-right:10px">Revisar hasta
+    <select onchange="_chqHastaSet(${Y},this.value);renderChqCompleto()" style="font-size:11px;padding:3px 6px;margin-left:4px">
+      <option value="0"${elegido ? '' : ' selected'}>Último cargado en la app${ultApp ? ' (' + LK_MESNOM[ultApp-1] + ')' : ''}</option>
+      ${LK_MESNOM.map((n, i) => `<option value="${i+1}"${elegido === i+1 ? ' selected' : ''}>${n}</option>`).join('')}
+    </select></label>`;
   if (!window._chqMes || !conDato.includes(window._chqMes)) window._chqMes = conDato.length ? conDato[conDato.length - 1] : 1;
   const M = window._chqMes;
 
@@ -9742,11 +9760,12 @@ async function renderChqCompleto() {
       <div style="font-size:14px;font-weight:600;color:${totDif?'var(--usa)':'var(--esp)'}">
         ${totDif ? totDif + ' diferencia' + (totDif===1?'':'s') + ' entre el COMPLETO y la app' : 'El COMPLETO y la app dicen lo mismo'}</div>
       <div style="font-size:11px;color:var(--text3);margin-top:3px">
-        ${_cmp.archivo} · ejercicio ${Y} · ${conDato.length} mes${conDato.length===1?'':'es'} con dato
+        ${_cmp.archivo} · ejercicio ${Y} · revisado hasta ${LK_MESNOM[hasta-1]} · ${conDato.length} mes${conDato.length===1?'':'es'} con dato
+        ${fuera.length ? ' · fuera de la revisión: ' + fuera.join(', ') : ''}
         ${_cmp.faltan.length ? ' · <span style="color:var(--gold)">no encontré: ' + _cmp.faltan.join(', ') + '</span>' : ''}</div>
     </div>
 
-    <div style="margin-bottom:12px">${chips}</div>
+    <div style="margin-bottom:12px;display:flex;flex-wrap:wrap;align-items:center">${selHasta}<span>${chips}</span></div>
 
     <div class="card">
       <div class="section-title" style="font-size:13px;margin:0 0 10px">${LK_MESNOM[M-1]} ${Y}</div>
@@ -13367,6 +13386,22 @@ async function guardarHistEdit(){
     return;
   }
 
+  /* v194 — PROPIEDADES: mismo bug que tenía autos (v174). hidratarActivosHist()
+     reescribe PROP_HIST_DATA con propiedades.valor_<año>, así que el override se
+     perdía al recargar. `propiedades.nro` es único: se escribe en la tabla. */
+  if (cat === 'prop' && anio >= 2017 && anio <= 2026) {
+    const upd = {}; upd['valor_' + anio] = valor;
+    const { data: dP, error: eP } = await sb.from('propiedades').update(upd).eq('nro', nro).select('id');
+    if (eP) return toast('Error: ' + eP.message, 'error');
+    if (!dP || !dP.length) return toast('No encontré la propiedad #' + nro + ' en la base', 'error');
+    try { await sb.from('historico_overrides').delete().match({categoria:'prop', nro, anio, campo}); } catch(e){}
+    aplicarOverride(cat, nro, anio, campo, valor);
+    toast('Guardado ✓ (recalcula patrimonio)','success');
+    closeModal('modal-hist-edit');
+    renderHistorialProps('all');
+    return;
+  }
+
   const {error}=await sb.from('historico_overrides').upsert({categoria:cat,nro,anio,campo,valor},{onConflict:'categoria,nro,anio,campo'});
   if(error)return toast('Error: '+error.message,'error');
   aplicarOverride(cat,nro,anio,campo,valor);
@@ -16452,7 +16487,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260916-193';
+const APP_VERSION = '20260917-194';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
