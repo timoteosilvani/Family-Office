@@ -7194,7 +7194,7 @@ async function verFichaPropiedad(id) {
       @page { size:A4 portrait; margin:10mm; }
       body { font-family:'DM Sans',sans-serif; background:#fff; color:#111; max-width:680px; margin:0 auto; padding:22px; position:relative; }
       .header { border-bottom:3px solid ${colPais[prop.pais]||'#333'}; padding-bottom:10px; margin-bottom:14px; }
-      h1 { font-family:'DM Serif Display',serif; font-size:22px; color:#111; margin:0 0 2px; }
+      h1 { font-family:'DM Serif Display',serif; font-size:27px; color:#111; margin:0 0 2px; }
       .sub { font-size:10px; color:#111; font-weight:600; letter-spacing:1.5px; text-transform:uppercase; }
       .grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px 14px; margin-bottom:12px; }
       .field { }
@@ -7210,8 +7210,8 @@ async function verFichaPropiedad(id) {
     </style></head><body>
     <button class="print-btn" onclick="window.print()">⬇ Guardar PDF</button>
     <div style="text-align:center;margin-bottom:10px">
-      <img src="${OFFIDA_LOGO}" style="height:52px;width:auto">
-      <div style="font-family:'DM Serif Display',serif;font-size:19px;letter-spacing:4px;color:#c9a84c;margin-top:1px">OFFIDA</div>
+      <img src="${OFFIDA_LOGO}" style="height:74px;width:auto">
+      <div style="font-family:'DM Serif Display',serif;font-size:25px;letter-spacing:5px;color:#A8842F;margin-top:1px">OFFIDA</div>
     </div>
     <div class="header">
       <div class="sub">${prop.pais} · ${prop.titular} · ${prop.tipo === 'R' ? 'Renta' : 'No Renta'}</div>
@@ -7249,9 +7249,6 @@ async function verFichaPropiedad(id) {
       </div>
     </div>
     ${svHtml}
-    <div style="margin-top:14px;font-size:9px;color:#666;text-align:center">
-      Family Office · Generado el ${new Date().toLocaleDateString('es-AR')}
-    </div>
   </body></html>`);
   win.document.close();
 }
@@ -12744,28 +12741,29 @@ async function verFichaAuto(id) {
     <title>Ficha - ${auto.nombre}</title>
     <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
     <style>
-      body { font-family:'DM Sans',sans-serif; background:#fff; color:#111; max-width:680px; margin:0 auto; padding:40px; position:relative; }
-      .header { border-bottom:3px solid ${col}; padding-bottom:20px; margin-bottom:28px; }
-      h1 { font-family:'DM Serif Display',serif; font-size:28px; color:#111; margin:0 0 4px; }
-      .sub { font-size:12px; color:#888; letter-spacing:1.5px; text-transform:uppercase; }
+      @page { size:A4 portrait; margin:10mm; }
+      body { font-family:'DM Sans',sans-serif; background:#fff; color:#111; max-width:680px; margin:0 auto; padding:28px; position:relative; }
+      .header { border-bottom:3px solid ${col}; padding-bottom:12px; margin-bottom:18px; }
+      h1 { font-family:'DM Serif Display',serif; font-size:27px; color:#111; margin:0 0 2px; }
+      .sub { font-size:10px; color:#111; font-weight:600; letter-spacing:1.5px; text-transform:uppercase; }
       .grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:20px; }
-      .field label { font-size:10px; color:#888; letter-spacing:1px; text-transform:uppercase; font-weight:600; display:block; margin-bottom:3px; }
-      .field p { font-size:15px; color:#111; margin:0; }
+      .field label { font-size:8.5px; color:#111; letter-spacing:.9px; text-transform:uppercase; font-weight:700; display:block; margin-bottom:2px; }
+      .field p { font-size:14px; color:#111; font-weight:500; margin:0; }
       .section { font-size:11px; letter-spacing:2px; text-transform:uppercase; font-weight:700; color:${col}; margin:24px 0 12px; }
       .vals { display:grid; grid-template-columns:repeat(5,1fr); gap:8px; }
       .val-item { background:#f8f8f8; border-radius:6px; padding:10px; text-align:center; }
-      .val-item span { display:block; font-size:9px; color:#999; margin-bottom:4px; }
-      .val-item strong { font-size:13px; }
+      .val-item span { display:block; font-size:9px; color:#111; font-weight:700; letter-spacing:.6px; margin-bottom:3px; }
+      .val-item strong { font-size:13px; color:#111; }
       table { width:100%; border-collapse:collapse; font-size:12px; }
-      th { text-align:left; color:#888; font-size:10px; text-transform:uppercase; letter-spacing:1px; padding:6px 8px; }
+      th { text-align:left; color:#111; font-weight:700; font-size:9px; text-transform:uppercase; letter-spacing:1px; padding:5px 8px; }
       td { padding:6px 8px; border-top:1px solid #eee; }
       .print-btn { background:${col}; color:#fff; border:none; padding:10px 24px; border-radius:6px; cursor:pointer; font-size:13px; position:absolute; top:32px; right:32px; }
       @media print { .print-btn { display:none; } }
     </style></head><body>
     <button class="print-btn" onclick="window.print()">⬇ Guardar PDF</button>
     <div style="text-align:center;margin-bottom:18px">
-      <img src="${OFFIDA_LOGO}" style="height:82px;width:auto">
-      <div style="font-family:'DM Serif Display',serif;font-size:26px;letter-spacing:4px;color:#c9a84c;margin-top:2px">OFFIDA</div>
+      <img src="${OFFIDA_LOGO}" style="height:74px;width:auto">
+      <div style="font-family:'DM Serif Display',serif;font-size:25px;letter-spacing:5px;color:#A8842F;margin-top:1px">OFFIDA</div>
     </div>
     <div class="header">
       <div class="sub">${auto.pais} · ${auto.titular} · Vehículo</div>
@@ -12786,15 +12784,12 @@ async function verFichaAuto(id) {
     ${gastoAnios.length ? `<div class="section">Gastos por año (USD)</div>
     <table><thead><tr><th>Año</th><th>Total</th></tr></thead><tbody>
       ${gastoAnios.map(y=>`<tr><td>${y}</td><td>$${fmt(gastosByAnio[y])}</td></tr>`).join('')}
-    </tbody></table>` : '<div class="section">Gastos</div><p style="font-size:12px;color:#888">Sin gastos cargados.</p>'}
+    </tbody></table>` : '<div class="section">Gastos</div><p style="font-size:12px;color:#444">Sin gastos cargados.</p>'}
     <div class="section">Patente / Seguros</div>
     <table><tbody>
-      <tr><td style="color:#888;width:40%">Patente</td><td>${patente?`Día ${patente.dia_mes||'—'} · N° ${patente.num_cliente||'—'} · ${patente.metodo_pago||'—'}`:'No cargada'}</td></tr>
-      <tr><td style="color:#888">Seguro</td><td style="color:#c0392b">Próximo a cargar</td></tr>
+      <tr><td style="color:#111;font-weight:600;width:40%">Patente</td><td>${patente?`Día ${patente.dia_mes||'—'} · N° ${patente.num_cliente||'—'} · ${patente.metodo_pago||'—'}`:'No cargada'}</td></tr>
+      <tr><td style="color:#111;font-weight:600">Seguro</td><td style="color:#c0392b">Próximo a cargar</td></tr>
     </tbody></table>
-    <div style="margin-top:40px;font-size:10px;color:#ccc;text-align:center">
-      Family Office · Generado el ${new Date().toLocaleDateString('es-AR')}
-    </div>
   </body></html>`);
   win.document.close();
 }
@@ -16012,6 +16007,136 @@ async function loadSociedades() {
   renderSociedades('all');
 }
 
+
+/* ═══ FICHA DE SOCIEDAD — UNA SOLA HOJA  (v199) ════════════════════════════
+   Mismo formato que la ficha de propiedad. Lleva lo que se necesita para
+   entender la sociedad de un vistazo:
+     · identificación (N°, cliente, país, estado, de quién cuelga)
+     · estructura: sociedad madre y sociedades que cuelgan de ella
+     · activos que tiene abajo, con su valor, y el total
+     · movimientos por año (aportes, impuestos, otros gastos)
+   Los importes son USD. El saldo de una cuenta es el último mes cargado del
+   año en curso (mismo criterio que Bancos → Evolución).                     */
+async function verFichaSociedad(id, ev) {
+  if (ev) ev.stopPropagation();
+  const soc = (window._sociedadesCache || socsData || []).find(x => x.id === id);
+  if (!soc) return toast('No encontré la sociedad', 'error');
+  const anio = new Date().getFullYear();
+  const todas = (window._sociedadesCache || socsData || []);
+  const madre = todas.find(x => x.id === soc.sociedad_madre_id);
+  const hijas = todas.filter(x => x.sociedad_madre_id === soc.id);
+
+  let props = [], bancos = [], autos = [], pes = [], movs = [], movB = [];
+  try {
+    const [rp, rb, ra, re, rm] = await Promise.all([
+      sb.from('propiedades').select('nro,nombre,titular,pais,valor_' + anio + ',activa,vendida').eq('sociedad_id', id),
+      sb.from('bancos').select('id,nro,nombre,titular,activo').eq('sociedad_id', id),
+      sb.from('autos').select('nro,nombre,titular,valor_' + anio + ',activo,vendido').eq('sociedad_id', id),
+      sb.from('private_equity').select('nro,nombre,titular,activo').eq('sociedad_id', id).then(r=>r,()=>({data:[]})),
+      sb.from('movimientos_sociedades').select('anio,aportes,impuestos,otros_gastos').eq('sociedad_id', id),
+    ]);
+    props = (rp.data||[]).filter(x => x.activa !== false && x.vendida !== true);
+    bancos = (rb.data||[]).filter(x => x.activo !== false);
+    autos = (ra.data||[]).filter(x => x.activo !== false && x.vendido !== true);
+    pes = (re.data||[]).filter(x => x.activo !== false);
+    movs = rm.data || [];
+    if (bancos.length) {
+      const { data } = await sb.from('movimientos_bancos').select('*').eq('anio', anio).in('banco_id', bancos.map(b => b.id));
+      movB = data || [];
+    }
+  } catch(e) { console.warn('ficha sociedad:', e.message); }
+
+  const ultB = latestMovByBanco(movB);
+  const saldoB = b => { const m = ultB[b.id]; return m ? bancoMovUSD(m).neto : 0; };
+  const vProps = props.reduce((a,p) => a + (Number(p['valor_' + anio]) || 0), 0);
+  const vAutos = autos.reduce((a,x) => a + (Number(x['valor_' + anio]) || 0), 0);
+  const vBancos = bancos.reduce((a,b) => a + saldoB(b), 0);
+  const totalActivos = vProps + vBancos + vAutos;
+
+  const porAnio = {};
+  movs.forEach(m => { const e = porAnio[m.anio] = porAnio[m.anio] || { ap:0, im:0, og:0 };
+    e.ap += Number(m.aportes)||0; e.im += Number(m.impuestos)||0; e.og += Number(m.otros_gastos)||0; });
+  const anios = Object.keys(porAnio).map(Number).sort((a,b) => a - b).slice(-6);
+
+  const colPais = { ARG:'#2980b9', USA:'#c0392b', URU:'#d4a017', ESP:'#27ae60', PAR:'#8e44ad', PY:'#8e44ad' };
+  const col = colPais[soc.pais] || '#333';
+  const F = v => '$' + fmt(v);
+  // lista de activos: se corta a 18 para que entre en la hoja
+  const filas = [
+    ...props.map(x => ['Propiedad', x.nro, x.nombre, x.titular, Number(x['valor_' + anio]) || 0]),
+    ...bancos.map(x => ['Cuenta', x.nro, x.nombre, x.titular, saldoB(x)]),
+    ...autos.map(x => ['Vehículo', x.nro, x.nombre, x.titular, Number(x['valor_' + anio]) || 0]),
+    ...pes.map(x => ['Private equity', x.nro, x.nombre, x.titular, null]),
+  ];
+  const MAX = 18, visibles = filas.slice(0, MAX), resto = filas.length - visibles.length;
+
+  const win = window.open('', '_blank');
+  win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <title>Ficha - ${soc.nombre}</title>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <style>
+      @page { size:A4 portrait; margin:10mm; }
+      body { font-family:'DM Sans',sans-serif; background:#fff; color:#111; max-width:680px; margin:0 auto; padding:22px; position:relative; }
+      .header { border-bottom:3px solid ${col}; padding-bottom:10px; margin-bottom:14px; }
+      h1 { font-family:'DM Serif Display',serif; font-size:27px; color:#111; margin:0 0 2px; }
+      .sub { font-size:10px; color:#111; font-weight:600; letter-spacing:1.5px; text-transform:uppercase; }
+      .grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px 14px; margin-bottom:12px; }
+      .field label { font-size:8.5px; color:#111; letter-spacing:.9px; text-transform:uppercase; font-weight:700; display:block; margin-bottom:2px; }
+      .field p { font-size:13px; color:#111; font-weight:500; margin:0; }
+      .section { font-size:10px; letter-spacing:2px; text-transform:uppercase; font-weight:700; color:${col}; margin:14px 0 7px; }
+      .vals { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; }
+      .val-item { background:#f8f8f8; border-radius:6px; padding:7px; text-align:center; }
+      .val-item span { display:block; font-size:9px; color:#111; font-weight:700; letter-spacing:.6px; margin-bottom:3px; }
+      .val-item strong { font-size:13px; color:#111; }
+      table { width:100%; border-collapse:collapse; font-size:10.5px; }
+      th { text-align:left; color:#111; font-weight:700; font-size:8px; text-transform:uppercase; letter-spacing:.8px; padding:3px 5px; }
+      td { padding:3px 5px; border-top:1px solid #eee; }
+      .num { text-align:right; white-space:nowrap; }
+      .print-btn { background:${col}; color:#fff; border:none; padding:10px 24px; border-radius:6px; cursor:pointer; font-size:13px; position:absolute; top:24px; right:24px; }
+      @media print { .print-btn { display:none; } }
+    </style></head><body>
+    <button class="print-btn" onclick="window.print()">⬇ Guardar PDF</button>
+    <div style="text-align:center;margin-bottom:10px">
+      <img src="${OFFIDA_LOGO}" style="height:74px;width:auto">
+      <div style="font-family:'DM Serif Display',serif;font-size:25px;letter-spacing:5px;color:#A8842F;margin-top:1px">OFFIDA</div>
+    </div>
+    <div class="header">
+      <div class="sub">${soc.pais || '—'} · ${soc.titular || '—'} · Sociedad${soc.activa === false ? ' · Inactiva' : ''}</div>
+      <h1>${soc.nombre}</h1>
+    </div>
+    <div class="grid">
+      <div class="field"><label>N° de orden</label><p>${soc.nro ?? '—'}</p></div>
+      <div class="field"><label>Cliente</label><p>${soc.titular || '—'}</p></div>
+      <div class="field"><label>País</label><p>${soc.pais || '—'}</p></div>
+      <div class="field"><label>Sociedad madre</label><p>${madre ? madre.nombre : (soc.soc_madre || '—')}</p></div>
+      <div class="field"><label>Sociedades que cuelgan</label><p>${hijas.length || '—'}</p></div>
+      <div class="field"><label>Estado</label><p>${soc.activa === false ? 'Inactiva' : 'Activa'}</p></div>
+    </div>
+    <div class="section">Activos bajo la sociedad (USD ${anio})</div>
+    <div class="vals">
+      <div class="val-item"><span>Propiedades</span><strong>${F(vProps)}</strong></div>
+      <div class="val-item"><span>Cuentas</span><strong>${F(vBancos)}</strong></div>
+      <div class="val-item"><span>Vehículos</span><strong>${F(vAutos)}</strong></div>
+      <div class="val-item"><span>Total</span><strong>${F(totalActivos)}</strong></div>
+    </div>
+    ${visibles.length ? `<table style="margin-top:8px"><thead><tr><th>Tipo</th><th>#</th><th>Activo</th><th>Cliente</th><th class="num">Valor / saldo</th></tr></thead><tbody>
+      ${visibles.map(f => `<tr><td>${f[0]}</td><td>${f[1] ?? '—'}</td><td style="font-weight:500">${f[2]}</td><td>${f[3] || '—'}</td>
+        <td class="num">${f[4] == null ? '—' : F(f[4])}</td></tr>`).join('')}
+      ${resto > 0 ? `<tr><td colspan="5" style="color:#444">+ ${resto} activo${resto === 1 ? '' : 's'} más</td></tr>` : ''}
+    </tbody></table>` : '<p style="font-size:11px;color:#444;margin:6px 0 0">No tiene activos colgando en la app.</p>'}
+    ${hijas.length ? `<div class="section">Sociedades que cuelgan</div>
+      <p style="font-size:11px;margin:0;color:#111">${hijas.map(h => (h.nro ? h.nro + ' · ' : '') + h.nombre).join(' &nbsp;·&nbsp; ')}</p>` : ''}
+    ${anios.length ? `<div class="section">Movimientos por año (USD)</div>
+      <table><thead><tr><th>Año</th><th class="num">Aportes</th><th class="num">Impuestos</th><th class="num">Otros gastos</th><th class="num">Total</th></tr></thead><tbody>
+        ${anios.map(y => { const e = porAnio[y]; return `<tr><td style="font-weight:600">${y}</td>
+          <td class="num">${e.ap ? F(e.ap) : '—'}</td><td class="num">${e.im ? F(e.im) : '—'}</td>
+          <td class="num">${e.og ? F(e.og) : '—'}</td><td class="num" style="font-weight:600">${F(e.ap + e.im + e.og)}</td></tr>`; }).join('')}
+      </tbody></table>` : '<div class="section">Movimientos</div><p style="font-size:11px;color:#444;margin:0">Sin movimientos cargados.</p>'}
+  </body></html>`);
+  win.document.close();
+}
+
 function renderSociedades(filtro) {
   const rows = filtro === 'all' ? socsData : socsData.filter(s => s.titular === filtro);
   const colPais = { ARG:'arg', USA:'usa', URU:'uru', ESP:'esp', PAR:'par', PY:'par' };
@@ -16043,7 +16168,8 @@ function renderSociedades(filtro) {
       <td class="num bold negative">${(t.aportes+t.impuestos+t.otros)>0?'$'+fmt(t.aportes+t.impuestos+t.otros):'—'}</td>
       <td style="text-align:center;white-space:nowrap">
         <span onclick="abrirSocEdit('${s.id}',event)" title="Editar nombre, N°, cliente, país y sociedad madre" style="cursor:pointer;opacity:.5">&#9998;</span>
-        <span onclick="abrirRepSociedad('${s.id}',event)" title="Reporte de esta sociedad" style="cursor:pointer;opacity:.5;margin-left:8px">&#128196;</span></td>
+        <span onclick="abrirRepSociedad('${s.id}',event)" title="Reporte de esta sociedad" style="cursor:pointer;opacity:.5;margin-left:8px">&#128196;</span>
+        <span onclick="verFichaSociedad('${s.id}',event)" title="Ficha de una hoja (PDF)" style="cursor:pointer;opacity:.5;margin-left:8px">&#128203;</span></td>
     </tr>`;
   }).join('') || '<tr><td colspan="9" style="color:var(--text3);text-align:center">Sin datos</td></tr>';
   
@@ -16819,7 +16945,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260918-198';
+const APP_VERSION = '20260918-199';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
