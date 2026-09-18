@@ -7133,33 +7133,57 @@ async function recalcPatrimonioFromMovs(propId, anio) {
   if (rankPage?.classList.contains('active')) await loadRanking();
 }
 
-// Ficha propiedad (básica por ahora)
+/* ═══ FICHA DE PROPIEDAD — UNA SOLA HOJA  (v197) ═══════════════════════════
+   Los servicios y los N° de cliente salen de `servicios_activo` (cargados desde
+   "Pagos y vencimientos.xlsx"). Si una propiedad todavía no tiene servicios ahí,
+   se cae a las alertas, que es de donde salían antes.
+   MFL: sólo servicio y N° de cliente — sin quién paga, método ni día de pago.
+   TODO tiene que entrar en UNA página A4: de ahí los tamaños compactos, el
+   `@page` y las dos columnas de servicios cuando son más de seis. */
 async function verFichaPropiedad(id) {
   const prop = propsData.find(p => p.id === id);
   if (!prop) return;
-  // Servicios de la propiedad (alertas recurrentes / servicios) con N° de cliente
   let servicios = [];
   try {
-    const { data: sv } = await sb.from('alertas').select('*').eq('propiedad_id', id).eq('activa', true);
-    servicios = (sv||[]).filter(a => a.recurrente || a.tipo === 'Servicios' || a.servicio);
+    const { data: sv } = await sb.from('servicios_activo').select('*')
+      .eq('categoria', 'propiedad').eq('activo_nro', prop.nro).order('orden');
+    servicios = (sv || []).filter(x => x.activo !== false)
+      .map(x => ({ servicio:x.servicio, num_cliente:x.nro_cliente, quien_paga:x.quien_paga,
+                   metodo_pago:x.metodo_pago, vence:x.dia_pago }));
   } catch(e){}
+  if (!servicios.length) {
+    try {
+      const { data: sv } = await sb.from('alertas').select('*').eq('propiedad_id', id).eq('activa', true);
+      servicios = (sv||[]).filter(a => a.recurrente || a.tipo === 'Servicios' || a.servicio)
+        .map(a => ({ servicio:a.servicio || (a.descripcion||'').split(' — ')[0], num_cliente:a.num_cliente,
+                     quien_paga:a.quien_paga, metodo_pago:a.metodo_pago,
+                     vence: a.recurrente && a.dia_mes ? 'Día ' + a.dia_mes : a.fecha_vencimiento }));
+    } catch(e){}
+  }
   const win = window.open('', '_blank');
   const colPais = { ARG:'#2980b9', USA:'#c0392b', URU:'#d4a017', ESP:'#27ae60' };
-  const svHtml = servicios.length ? `
-    <div class="section">Servicios</div>
-    <table style="width:100%;border-collapse:collapse;font-size:12px">
-      <thead><tr style="text-align:left;color:#888;font-size:10px;text-transform:uppercase;letter-spacing:1px">
-        <th style="padding:6px 8px">Servicio</th><th style="padding:6px 8px">N° de cliente</th>
-        <th style="padding:6px 8px">Quién paga</th><th style="padding:6px 8px">Método</th><th style="padding:6px 8px">Vence</th>
+  const _corto = prop.titular === 'MFL';   // MFL: sólo servicio y N° de cliente
+  const _lim = v => { const t = String(v == null ? '' : v).trim(); return !t || t === '-' ? '—' : (t.length > 34 ? t.slice(0, 33) + '…' : t); };
+  const _cols = _corto ? 1 : (servicios.length > 6 ? 2 : 1);   // dos columnas para que entre en la hoja
+  const _tabla = arr => `<table style="width:100%;border-collapse:collapse;font-size:${_cols > 1 ? 9 : 10.5}px">
+      <thead><tr style="text-align:left;color:#999;font-size:8px;text-transform:uppercase;letter-spacing:.8px">
+        <th style="padding:2px 4px">Servicio</th><th style="padding:2px 4px">N° de cliente</th>
+        ${_corto ? '' : '<th style="padding:2px 4px">Paga</th><th style="padding:2px 4px">Método</th><th style="padding:2px 4px">Día</th>'}
       </tr></thead><tbody>
-      ${servicios.map(s => `<tr style="border-top:1px solid #eee">
-        <td style="padding:6px 8px">${s.servicio || (s.descripcion||'').split(' — ')[0] || '—'}</td>
-        <td style="padding:6px 8px"><strong>${s.num_cliente||'—'}</strong></td>
-        <td style="padding:6px 8px">${s.quien_paga||'—'}</td>
-        <td style="padding:6px 8px">${s.metodo_pago||'—'}</td>
-        <td style="padding:6px 8px">${s.recurrente && s.dia_mes ? 'Día '+s.dia_mes : (s.fecha_vencimiento||'—')}</td>
+      ${arr.map(s => `<tr style="border-top:1px solid #eee">
+        <td style="padding:2px 4px">${_lim(s.servicio)}</td>
+        <td style="padding:2px 4px"><strong>${_lim(s.num_cliente)}</strong></td>
+        ${_corto ? '' : `<td style="padding:2px 4px">${_lim(s.quien_paga)}</td>
+        <td style="padding:2px 4px">${_lim(s.metodo_pago)}</td>
+        <td style="padding:2px 4px;white-space:nowrap">${_lim(s.vence)}</td>`}
       </tr>`).join('')}
-    </tbody></table>` : '';
+    </tbody></table>`;
+  const _mitad = Math.ceil(servicios.length / 2);
+  const svHtml = servicios.length ? `
+    <div class="section">Servicios y números de cliente</div>
+    ${_cols > 1
+      ? `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">${_tabla(servicios.slice(0, _mitad))}${_tabla(servicios.slice(_mitad))}</div>`
+      : _tabla(servicios)}` : '';
   win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
@@ -7167,26 +7191,27 @@ async function verFichaPropiedad(id) {
     <title>Ficha - ${prop.nombre}</title>
     <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
     <style>
-      body { font-family:'DM Sans',sans-serif; background:#fff; color:#111; max-width:680px; margin:0 auto; padding:40px; position:relative; }
-      .header { border-bottom:3px solid ${colPais[prop.pais]||'#333'}; padding-bottom:20px; margin-bottom:28px; }
-      h1 { font-family:'DM Serif Display',serif; font-size:28px; color:#111; margin:0 0 4px; }
+      @page { size:A4 portrait; margin:10mm; }
+      body { font-family:'DM Sans',sans-serif; background:#fff; color:#111; max-width:680px; margin:0 auto; padding:22px; position:relative; }
+      .header { border-bottom:3px solid ${colPais[prop.pais]||'#333'}; padding-bottom:10px; margin-bottom:14px; }
+      h1 { font-family:'DM Serif Display',serif; font-size:22px; color:#111; margin:0 0 2px; }
       .sub { font-size:12px; color:#888; letter-spacing:1.5px; text-transform:uppercase; }
-      .grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:20px; }
+      .grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px 14px; margin-bottom:12px; }
       .field { }
       .field label { font-size:10px; color:#888; letter-spacing:1px; text-transform:uppercase; font-weight:600; display:block; margin-bottom:3px; }
-      .field p { font-size:15px; color:#111; margin:0; }
-      .section { font-size:11px; letter-spacing:2px; text-transform:uppercase; font-weight:700; color:${colPais[prop.pais]||'#333'}; margin:24px 0 12px; }
+      .field p { font-size:13px; color:#111; margin:0; }
+      .section { font-size:10px; letter-spacing:2px; text-transform:uppercase; font-weight:700; color:${colPais[prop.pais]||'#333'}; margin:14px 0 7px; }
       .vals { display:grid; grid-template-columns:repeat(5,1fr); gap:8px; }
-      .val-item { background:#f8f8f8; border-radius:6px; padding:10px; text-align:center; }
+      .val-item { background:#f8f8f8; border-radius:6px; padding:6px; text-align:center; }
       .val-item span { display:block; font-size:9px; color:#999; margin-bottom:4px; }
       .val-item strong { font-size:13px; }
       .print-btn { background:${colPais[prop.pais]||'#333'}; color:#fff; border:none; padding:10px 24px; border-radius:6px; cursor:pointer; font-size:13px; position:absolute; top:32px; right:32px; }
       @media print { .print-btn { display:none; } }
     </style></head><body>
     <button class="print-btn" onclick="window.print()">⬇ Guardar PDF</button>
-    <div style="text-align:center;margin-bottom:18px">
-      <img src="${OFFIDA_LOGO}" style="height:82px;width:auto">
-      <div style="font-family:'DM Serif Display',serif;font-size:26px;letter-spacing:4px;color:#c9a84c;margin-top:2px">OFFIDA</div>
+    <div style="text-align:center;margin-bottom:10px">
+      <img src="${OFFIDA_LOGO}" style="height:52px;width:auto">
+      <div style="font-family:'DM Serif Display',serif;font-size:19px;letter-spacing:4px;color:#c9a84c;margin-top:1px">OFFIDA</div>
     </div>
     <div class="header">
       <div class="sub">${prop.pais} · ${prop.titular} · ${prop.tipo === 'R' ? 'Renta' : 'No Renta'}</div>
@@ -7213,18 +7238,18 @@ async function verFichaPropiedad(id) {
         <div class="val-item"><span>${y}</span><strong>$${fmt(prop['valor_'+y])}</strong></div>`).join('')}
     </div>
     <div class="section">Rendimiento desde la Compra</div>
-    <div class="grid" style="margin-bottom:16px">
+    <div class="grid" style="grid-template-columns:1fr 1fr;margin-bottom:8px">
       <div class="field"><label>Plusvalía</label>
-        <p style="color:${(prop.valor_2026||0)-(prop.valor_compra||0)>=0?'#27ae60':'#c0392b'};font-size:18px;font-weight:500">
+        <p style="color:${(prop.valor_2026||0)-(prop.valor_compra||0)>=0?'#27ae60':'#c0392b'};font-size:16px;font-weight:500">
           $${fmt((prop.valor_2026||0)-(prop.valor_compra||0))} USD</p>
       </div>
       <div class="field"><label>Variación %</label>
-        <p style="font-size:18px;font-weight:500">
+        <p style="font-size:16px;font-weight:500">
           ${prop.valor_compra>0?(((prop.valor_2026||0)/prop.valor_compra-1)*100).toFixed(1):'—'}%</p>
       </div>
     </div>
     ${svHtml}
-    <div style="margin-top:40px;font-size:10px;color:#ccc;text-align:center">
+    <div style="margin-top:14px;font-size:9px;color:#ccc;text-align:center">
       Family Office · Generado el ${new Date().toLocaleDateString('es-AR')}
     </div>
   </body></html>`);
@@ -16794,7 +16819,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260917-196';
+const APP_VERSION = '20260918-197';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
