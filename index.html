@@ -7166,12 +7166,12 @@ async function verFichaPropiedad(id) {
   const _lim = v => { const t = String(v == null ? '' : v).trim(); return !t || t === '-' ? '—' : (t.length > 34 ? t.slice(0, 33) + '…' : t); };
   const _cols = _corto ? 1 : (servicios.length > 6 ? 2 : 1);   // dos columnas para que entre en la hoja
   const _tabla = arr => `<table style="width:100%;border-collapse:collapse;font-size:${_cols > 1 ? 9 : 10.5}px">
-      <thead><tr style="text-align:left;color:#999;font-size:8px;text-transform:uppercase;letter-spacing:.8px">
+      <thead><tr style="text-align:left;color:#111;font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:.8px">
         <th style="padding:2px 4px">Servicio</th><th style="padding:2px 4px">N° de cliente</th>
         ${_corto ? '' : '<th style="padding:2px 4px">Paga</th><th style="padding:2px 4px">Método</th><th style="padding:2px 4px">Día</th>'}
       </tr></thead><tbody>
       ${arr.map(s => `<tr style="border-top:1px solid #eee">
-        <td style="padding:2px 4px">${_lim(s.servicio)}</td>
+        <td style="padding:2px 4px;font-weight:500">${_lim(s.servicio)}</td>
         <td style="padding:2px 4px"><strong>${_lim(s.num_cliente)}</strong></td>
         ${_corto ? '' : `<td style="padding:2px 4px">${_lim(s.quien_paga)}</td>
         <td style="padding:2px 4px">${_lim(s.metodo_pago)}</td>
@@ -7195,16 +7195,16 @@ async function verFichaPropiedad(id) {
       body { font-family:'DM Sans',sans-serif; background:#fff; color:#111; max-width:680px; margin:0 auto; padding:22px; position:relative; }
       .header { border-bottom:3px solid ${colPais[prop.pais]||'#333'}; padding-bottom:10px; margin-bottom:14px; }
       h1 { font-family:'DM Serif Display',serif; font-size:22px; color:#111; margin:0 0 2px; }
-      .sub { font-size:12px; color:#888; letter-spacing:1.5px; text-transform:uppercase; }
+      .sub { font-size:10px; color:#111; font-weight:600; letter-spacing:1.5px; text-transform:uppercase; }
       .grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px 14px; margin-bottom:12px; }
       .field { }
-      .field label { font-size:10px; color:#888; letter-spacing:1px; text-transform:uppercase; font-weight:600; display:block; margin-bottom:3px; }
-      .field p { font-size:13px; color:#111; margin:0; }
+      .field label { font-size:8.5px; color:#111; letter-spacing:.9px; text-transform:uppercase; font-weight:700; display:block; margin-bottom:2px; }
+      .field p { font-size:13px; color:#111; font-weight:500; margin:0; }
       .section { font-size:10px; letter-spacing:2px; text-transform:uppercase; font-weight:700; color:${colPais[prop.pais]||'#333'}; margin:14px 0 7px; }
       .vals { display:grid; grid-template-columns:repeat(5,1fr); gap:8px; }
       .val-item { background:#f8f8f8; border-radius:6px; padding:6px; text-align:center; }
-      .val-item span { display:block; font-size:9px; color:#999; margin-bottom:4px; }
-      .val-item strong { font-size:13px; }
+      .val-item span { display:block; font-size:9px; color:#111; font-weight:700; letter-spacing:.6px; margin-bottom:3px; }
+      .val-item strong { font-size:13px; color:#111; }
       .print-btn { background:${colPais[prop.pais]||'#333'}; color:#fff; border:none; padding:10px 24px; border-radius:6px; cursor:pointer; font-size:13px; position:absolute; top:32px; right:32px; }
       @media print { .print-btn { display:none; } }
     </style></head><body>
@@ -7216,7 +7216,7 @@ async function verFichaPropiedad(id) {
     <div class="header">
       <div class="sub">${prop.pais} · ${prop.titular} · ${prop.tipo === 'R' ? 'Renta' : 'No Renta'}</div>
       <h1>${prop.nombre}</h1>
-      <p style="color:#888;font-size:13px;margin:4px 0 0">${prop.direccion||'Sin dirección registrada'}</p>
+      <p style="color:#222;font-size:12px;font-weight:500;margin:3px 0 0">${prop.direccion||'Sin dirección registrada'}</p>
     </div>
     <div class="grid">
       <div class="field"><label>Titular</label><p>${prop.titular}</p></div>
@@ -7226,7 +7226,7 @@ async function verFichaPropiedad(id) {
       <div class="field"><label>Fecha de Venta</label><p>${prop.fecha_venta||'—'}</p></div>
       <div class="field"><label>Valor de Venta</label><p>${prop.valor_venta?('USD '+fmt(prop.valor_venta)):'—'}</p></div>
       ${(prop.vendida && prop.valor_venta) ? (() => { const _lb = valorLibroProp(prop, prop.fecha_venta ? Number(String(prop.fecha_venta).slice(0,4)) : 2026); const _g = Number(prop.valor_venta) - _lb;
-        return `<div class="field"><label>Ganancia Realizada</label><p style="color:${_g>=0?'#2f9e63':'#c0605f'};font-weight:700">${_g>=0?'+':'-'}USD ${fmt(Math.abs(_g))}</p><span style="font-size:10px;color:#888">vs. valor de libro USD ${fmt(_lb)}</span></div>`; })() : ''}
+        return `<div class="field"><label>Ganancia Realizada</label><p style="color:${_g>=0?'#2f9e63':'#c0605f'};font-weight:700">${_g>=0?'+':'-'}USD ${fmt(Math.abs(_g))}</p><span style="font-size:10px;color:#444">vs. valor de libro USD ${fmt(_lb)}</span></div>`; })() : ''}
       <div class="field"><label>Inversión Adicional</label><p>USD ${fmt(prop.inversion)}</p></div>
       <div class="field"><label>Superficie</label><p>${prop.m2||'—'} m²</p></div>
       ${prop.tipo === 'R' ? `<div class="field"><label>Inquilino Actual</label><p>${prop.inquilino_actual||'—'}</p></div>
@@ -7249,7 +7249,7 @@ async function verFichaPropiedad(id) {
       </div>
     </div>
     ${svHtml}
-    <div style="margin-top:14px;font-size:9px;color:#ccc;text-align:center">
+    <div style="margin-top:14px;font-size:9px;color:#666;text-align:center">
       Family Office · Generado el ${new Date().toLocaleDateString('es-AR')}
     </div>
   </body></html>`);
@@ -16819,7 +16819,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260918-197';
+const APP_VERSION = '20260918-198';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
