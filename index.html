@@ -1807,7 +1807,8 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
           <p style="color:var(--text3);font-size:12px;margin-bottom:16px">Se registran las transferencias mayores a USD 10.000, entre cuentas propias o hacia una cuenta ajena. Una transferencia entre cuentas propias aparece en las dos: como enviada en el origen y como recibida en el destino.</p>
           <div class="card" id="tr-form-card" style="margin-bottom:20px">
             <div class="grid-2">
-              <div><label class="fld">Cuenta de origen</label><select class="fld" id="tr-origen"></select></div>
+              <div><label class="fld">Cuenta de origen</label><select class="fld" id="tr-origen" onchange="trToggleExterno()"></select></div>
+              <div id="tr-oext-wrap" style="display:none"><label class="fld">¿De dónde viene? (origen externo)</label><input class="fld" id="tr-oexterno" placeholder="Ej: Venta Colegiales / Origen no informado"></div>
               <div><label class="fld">Fecha</label><input class="fld" type="date" id="tr-fecha"></div>
               <div><label class="fld">Cuenta de destino</label><select class="fld" id="tr-destino" onchange="trToggleExterno()"></select></div>
               <div id="tr-ext-wrap" style="display:none"><label class="fld">Nombre de la cuenta ajena</label><input class="fld" id="tr-externo" placeholder="Ej: Escribania Perez"></div>
@@ -7724,6 +7725,9 @@ function trToggleExterno() {
   const wrap = document.getElementById('tr-ext-wrap');
   const esExt = document.getElementById('tr-destino')?.value === '__EXT__';
   if (wrap) wrap.style.display = esExt ? 'block' : 'none';
+  // v200 — origen externo: plata que entra de afuera (sin cuenta propia de origen)
+  const ow = document.getElementById('tr-oext-wrap');
+  if (ow) ow.style.display = document.getElementById('tr-origen')?.value === '__EXT__' ? 'block' : 'none';
 }
 
 async function loadTransferencias() {
@@ -7731,7 +7735,7 @@ async function loadTransferencias() {
   _trBancos = {}; (bcs || []).forEach(b => _trBancos[b.id] = b);
   const opts = (bcs || []).filter(b => b.activo !== false)
     .map(b => `<option value="${b.id}">${b.nombre} (${b.titular})</option>`).join('');
-  const so = document.getElementById('tr-origen'); if (so) so.innerHTML = opts;
+  const so = document.getElementById('tr-origen'); if (so) so.innerHTML = opts + '<option value="__EXT__">— Origen externo —</option>';
   const sd = document.getElementById('tr-destino');
   if (sd) sd.innerHTML = opts + '<option value="__EXT__">— Cuenta ajena —</option>';
   trToggleExterno();
@@ -7746,7 +7750,7 @@ async function loadTransferencias() {
   // Cada transferencia se indexa en su cuenta de origen y, si es interna, en la de destino.
   const byBank = {};
   rows.forEach(r => {
-    (byBank[r.banco_origen_id] = byBank[r.banco_origen_id] || []).push({ ...r, _dir: 'out' });
+    if (r.banco_origen_id) (byBank[r.banco_origen_id] = byBank[r.banco_origen_id] || []).push({ ...r, _dir: 'out' });
     if (r.banco_destino_id) (byBank[r.banco_destino_id] = byBank[r.banco_destino_id] || []).push({ ...r, _dir: 'in' });
   });
   const nom = id => (_trBancos[id] || {}).nombre || '—';
@@ -7773,7 +7777,7 @@ async function loadTransferencias() {
             <thead><tr><th>Fecha</th><th></th><th>Contraparte</th><th class="num">Monto</th><th></th></tr></thead>
             <tbody>${trs.map(t => {
               const out = t._dir === 'out';
-              const otra = out ? destinoDe(t) : nom(t.banco_origen_id);
+              const otra = out ? destinoDe(t) : (t.banco_origen_id ? nom(t.banco_origen_id) : (t.origen_externo || 'Origen externo'));
               const nativo = (t.moneda && t.moneda !== 'USD') ? ` <span style="color:var(--text3);font-size:11px">(${fmt(t.monto)} ${t.moneda})</span>` : '';
               return `<tr>
                 <td>${t.fecha}</td>
@@ -8186,7 +8190,16 @@ async function cmLineas(anio, mes) {
   // transferencias del mes (por fecha)
   const pre = anio + '-' + String(mes).padStart(2, '0');
   const trs = (trR.data || []).filter(r => String(r.fecha || '').slice(0, 7) === pre);
-  return { lineas, trs, bancos: bcs || [] };
+  // v200 — saldos: cierre del mes y del mes anterior (dic del año anterior si es enero)
+  const pAnio = mes === 1 ? anio - 1 : anio, pMes = mes === 1 ? 12 : mes - 1;
+  const [ma, mb] = await Promise.all([
+    sb.from('movimientos_bancos').select('*').eq('anio', pAnio).eq('mes', pMes).limit(2000).then(r => r, () => ({ data: [] })),
+    sb.from('movimientos_bancos').select('*').eq('anio', anio).eq('mes', mes).limit(2000).then(r => r, () => ({ data: [] })),
+  ]);
+  const movAnt = {}, movAct = {};
+  (ma.data || []).forEach(m => movAnt[m.banco_id] = m);
+  (mb.data || []).forEach(m => movAct[m.banco_id] = m);
+  return { lineas, trs, bancos: bcs || [], movAnt, movAct, pAnio, pMes };
 }
 
 async function loadCuentasMov() {
@@ -8219,85 +8232,139 @@ async function loadCuentasMov() {
   cont.innerHTML = '<div class="loader"><div class="spinner"></div></div>';
   document.getElementById('cm-kpis').innerHTML = '';
 
-  const { lineas, trs, bancos } = await cmLineas(anio, mes);
+  const { lineas, trs, bancos, movAnt, movAct, pAnio, pMes } = await cmLineas(anio, mes);
   const bNom = {}; bancos.forEach(b => bNom[b.id] = b);
 
-  // selector de cuenta: resumen + cuentas activas agrupadas por titular + CASH
-  const guard = selC.value || _cmPref('cuenta') || '';
+  /* v200 — "Todas las cuentas" tiene valor propio (__ALL__). Antes era "" y, como
+     "" es falso, se caía a la cuenta recordada: no había forma de volver al resumen. */
+  const guard = selC.value || _cmPref('cuenta') || '__ALL__';
   const porTit = {}; _lkBancos.forEach(b => (porTit[b.titular || '—'] = porTit[b.titular || '—'] || []).push(b));
-  selC.innerHTML = '<option value="">Todas las cuentas (resumen)</option>' +
+  selC.innerHTML = '<option value="__ALL__">Todas las cuentas (resumen)</option>' +
     Object.keys(porTit).sort().map(ti => `<optgroup label="${ti}">${porTit[ti].map(b => `<option value="${b.id}">${b.nombre}</option>`).join('')}</optgroup>`).join('') +
     '<option value="__CASH__">CASH / efectivo</option>';
-  selC.value = guard; if (selC.value !== guard) selC.value = '';
+  selC.value = guard; if (selC.value !== guard) selC.value = '__ALL__';
   const cuenta = selC.value; _cmPref('cuenta', cuenta);
 
-  const $ = v => '$' + fmt(v);
-  // v196 — equivalente en pesos con el TC del mes (los rubros en pesos dan su importe exacto:
-  // se pasaron a USD con este mismo TC)
+  /* v200 — MONEDA DE CADA CUENTA y SALDOS (etapa C).
+     Una cuenta es "en pesos" si sus saldos cargados sólo tienen campos en ARS; si no,
+     se trabaja en dólares (USD equivalente). Las de dólares NO muestran pesos.
+     En una cuenta en pesos todo se concilia EN PESOS: el saldo es el nativo y los
+     rubros en pesos entran por su importe exacto, así no aparece diferencia de cambio.
+     Saldo = inversión + cash − crédito, el mismo que carga el COMPLETO.            */
   const tcA = (tcFor(anio, mes) || {}).ars_usd || 0;
-  const ars = (v, sg) => tcA ? `<div style="font-size:10px;color:var(--text3);font-weight:400">${sg || ''}AR$ ${fmt(Math.abs(v) * tcA)}</div>` : '';
+  const F_ARS = ['invest_account_ars','cash_ars','credit_ars'];
+  const F_OTR = ['invest_account_usd','cash_usd','credit_usd','invest_account_uyu','cash_uyu','credit_uyu','invest_account_eur','cash_eur','credit_eur'];
+  const nz = v => Math.abs(Number(v) || 0) > 0.005;
+  const monDe = id => {
+    if (id === '__CASH__') return 'USD';
+    const rs = [movAnt[id], movAct[id]].filter(Boolean);
+    const a = rs.some(m => F_ARS.some(f => nz(m[f]))), o = rs.some(m => F_OTR.some(f => nz(m[f])));
+    return a && !o ? 'ARS' : 'USD';
+  };
+  const saldo = (m, cur) => !m ? null : (cur === 'ARS'
+    ? (Number(m.invest_account_ars) || 0) + (Number(m.cash_ars) || 0) - (Number(m.credit_ars) || 0)
+    : bancoMovUSD(m).neto);
+  // importe de una línea / transferencia en la moneda de la cuenta
+  const enCur = (l, cur) => cur !== 'ARS' ? l.usd
+    : (l.mon === 'ARS' ? Math.abs(l.v) * (l.usd < 0 ? -1 : 1) : l.usd * tcA);
+  const trEnCur = (r, cur) => cur !== 'ARS' ? (Number(r.monto_usd) || 0)
+    : (r.moneda === 'ARS' ? Number(r.monto) || 0 : (Number(r.monto_usd) || 0) * tcA);
+
+  const $ = v => '$' + fmt(v);
+  const M = (v, cur) => v == null ? '—' : (v < 0 ? '-' : '') + (cur === 'ARS' ? 'AR$ ' : '$') + fmt(Math.abs(v));
+  const Mu = (v, cur, usd) => M(v, cur) + (cur === 'ARS' && usd != null
+    ? `<div style="font-size:10px;color:var(--text3);font-weight:400">${usd < 0 ? '-' : ''}USD ${fmt(Math.abs(usd))}</div>` : '');
   const sgn = v => v < 0 ? '-' : '';
   const sin = lineas.filter(l => !l.cuenta);
   const sinUSD = sin.reduce((s, l) => s + l.usd, 0);
-  const kpi = (lbl, val, col, usdArs) => `<div style="border:1px solid var(--border);border-radius:8px;padding:14px;text-align:center">
+  const kpi = (lbl, val, col, sub) => `<div style="border:1px solid var(--border);border-radius:8px;padding:14px;text-align:center">
       <div style="font-size:10px;letter-spacing:1px;color:var(--text3);text-transform:uppercase;margin-bottom:6px">${lbl}</div>
-      <div style="font-size:22px;font-weight:300;color:${col}">${val}</div>${usdArs != null ? ars(usdArs, sgn(usdArs)).replace('font-size:10px', 'font-size:11px;margin-top:3px') : ''}</div>`;
+      <div style="font-size:22px;font-weight:300;color:${col}">${val}</div>${sub ? `<div style="font-size:11px;color:var(--text3);margin-top:3px">${sub}</div>` : ''}</div>`;
   const cartelSin = sin.length ? `<div class="card" style="border-color:var(--gold);margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
       <div style="font-size:12px"><b style="color:var(--gold)">${sin.length} rubro${sin.length === 1 ? '' : 's'} sin cuenta asignada</b>
         en ${LK_MESNOM[mes-1]} ${anio} · ${$(sinUSD)} que todavía no se atribuyen a ninguna cuenta.</div>
       <button class="btn-secondary" style="padding:4px 12px;font-size:11px" onclick="cmIrALinkeo(${anio},${mes})">Ir a Linkeo</button></div>` : '';
+  const nomB = id => (bNom[id] || {}).nombre || '—';
+  const mesAntTxt = LK_MESNOM[pMes-1] + (pAnio !== anio ? ' ' + pAnio : '');
 
-  const trNeto = id => trs.reduce((s, r) => s + (r.banco_destino_id === id ? (Number(r.monto_usd) || 0) : 0)
-                                        - (r.banco_origen_id === id ? (Number(r.monto_usd) || 0) : 0), 0);
+  // Todo lo de una cuenta, en su moneda
+  const calc = id => {
+    const cur = monDe(id);
+    const mias = lineas.filter(l => l.cuenta === id);
+    const cob = mias.filter(l => l.dir === 'cobro').reduce((s, l) => s + enCur(l, cur), 0);
+    const pag = mias.filter(l => l.dir === 'pago').reduce((s, l) => s + enCur(l, cur), 0);
+    const cobU = mias.filter(l => l.dir === 'cobro').reduce((s, l) => s + l.usd, 0);
+    const pagU = mias.filter(l => l.dir === 'pago').reduce((s, l) => s + l.usd, 0);
+    const misTr = id === '__CASH__' ? [] : trs.filter(r => r.banco_origen_id === id || r.banco_destino_id === id);
+    const tr = misTr.reduce((s, r) => s + (r.banco_destino_id === id ? 1 : -1) * trEnCur(r, cur), 0);
+    const trU = misTr.reduce((s, r) => s + (r.banco_destino_id === id ? 1 : -1) * (Number(r.monto_usd) || 0), 0);
+    const esp = cob - pag + tr;
+    const sA = id === '__CASH__' ? null : saldo(movAnt[id], cur);
+    const sF = id === '__CASH__' ? null : saldo(movAct[id], cur);
+    const dif = sA != null && sF != null ? sF - (sA + esp) : null;
+    return { id, cur, mias, misTr, n: mias.length, cob, pag, tr, esp, cobU, pagU, trU, espU: cobU - pagU + trU, sA, sF, dif,
+             nom: id === '__CASH__' ? 'CASH / efectivo' : nomB(id), tit: id === '__CASH__' ? '' : ((bNom[id] || {}).titular || '') };
+  };
 
-  if (!cuenta) {
-    // ── RESUMEN: una fila por cuenta con movimiento ──
-    const res = {};
-    const fila = k => res[k] = res[k] || { k, cob: 0, pag: 0, n: 0, tr: 0 };
-    lineas.filter(l => l.cuenta).forEach(l => { const f = fila(l.cuenta); f[l.dir === 'cobro' ? 'cob' : 'pag'] += l.usd; f.n++; });
-    trs.forEach(r => { [r.banco_origen_id, r.banco_destino_id].forEach(id => { if (id) fila(id); }); });
-    Object.values(res).forEach(f => { if (f.k !== '__CASH__') f.tr = trNeto(f.k); });
-    const filas = Object.values(res).map(f => ({ ...f, esp: f.cob - f.pag + f.tr,
-        nom: f.k === '__CASH__' ? 'CASH / efectivo' : ((bNom[f.k] || {}).nombre || '—'), tit: f.k === '__CASH__' ? '' : ((bNom[f.k] || {}).titular || '') }))
-      .sort((a, b) => (a.tit.localeCompare(b.tit)) || a.nom.localeCompare(b.nom));
-    const tot = filas.reduce((s, f) => ({ cob: s.cob + f.cob, pag: s.pag + f.pag }), { cob: 0, pag: 0 });
+  if (cuenta === '__ALL__') {
+    // ── RESUMEN: una fila por cuenta con movimiento, cada una en su moneda ──
+    const ids = new Set(lineas.filter(l => l.cuenta).map(l => l.cuenta));
+    trs.forEach(r => [r.banco_origen_id, r.banco_destino_id].forEach(id => { if (id) ids.add(id); }));
+    const filas = [...ids].map(calc).sort((a, b) => a.tit.localeCompare(b.tit) || a.nom.localeCompare(b.nom));
+    const tot = filas.reduce((s, f) => ({ cob: s.cob + f.cobU, pag: s.pag + f.pagU }), { cob: 0, pag: 0 });
+    const conDif = filas.filter(f => f.dif != null && Math.abs(f.dif) > 1);
     document.getElementById('cm-kpis').innerHTML =
-      kpi('Cobros linkeados', $(tot.cob), 'var(--esp)', tot.cob) + kpi('Pagos linkeados', $(tot.pag), 'var(--usa)', tot.pag) +
-      kpi('Cuentas con movimiento', filas.length, 'var(--text)') + kpi('Sin cuenta', sin.length ? $(sinUSD) : '0', sin.length ? 'var(--gold)' : 'var(--esp)', sin.length ? sinUSD : null);
+      kpi('Cobros linkeados', $(tot.cob), 'var(--esp)', 'USD') + kpi('Pagos linkeados', $(tot.pag), 'var(--usa)', 'USD') +
+      kpi('Cuentas con movimiento', filas.length, 'var(--text)', conDif.length ? conDif.length + ' con diferencia' : '') +
+      kpi('Sin cuenta', sin.length ? $(sinUSD) : '0', sin.length ? 'var(--gold)' : 'var(--esp)', sin.length ? sin.length + ' rubros' : '');
     cont.innerHTML = cartelSin + `<div class="card">
       <div class="section-title" style="font-size:13px;margin:0 0 10px">${LK_MESNOM[mes-1]} ${anio} — movimiento por cuenta
         <span style="font-weight:400;color:var(--text3);font-size:11px">· clic en una cuenta para ver el detalle</span></div>
       ${filas.length ? `<div class="table-wrap"><table style="font-size:12px">
-        <thead><tr><th>Cuenta</th><th>Titular</th><th class="num">Rubros</th><th class="num">Cobros</th><th class="num">Pagos</th><th class="num">Transf. netas</th><th class="num">Movimiento esperado</th></tr></thead>
-        <tbody>${filas.map(f => `<tr style="cursor:pointer" onclick="document.getElementById('cm-cuenta').value='${f.k}';loadCuentasMov()">
-          <td><b>${f.nom}</b></td><td style="color:var(--text3)">${f.tit}</td><td class="num">${f.n}</td>
-          <td class="num" style="color:var(--esp)">${f.cob ? sgn(f.cob) + $(Math.abs(f.cob)) + ars(f.cob, sgn(f.cob)) : '—'}</td>
-          <td class="num" style="color:var(--usa)">${f.pag ? '-' + $(f.pag) + ars(f.pag, '-') : '—'}</td>
-          <td class="num">${f.tr ? (f.tr < 0 ? '-' : '+') + $(Math.abs(f.tr)) + ars(f.tr, f.tr < 0 ? '-' : '+') : '—'}</td>
-          <td class="num" style="font-weight:600;color:${f.esp < 0 ? 'var(--usa)' : 'var(--esp)'}">${sgn(f.esp)}${$(Math.abs(f.esp))}${ars(f.esp, sgn(f.esp))}</td></tr>`).join('')}
-        </tbody>
-        <tfoot><tr style="font-weight:600"><td colspan="3">Total</td>
-          <td class="num" style="color:var(--esp)">${$(tot.cob)}${ars(tot.cob)}</td>
-          <td class="num" style="color:var(--usa)">-${$(tot.pag)}${ars(tot.pag, '-')}</td>
-          <td class="num">${(() => { const t = filas.reduce((s, f) => s + f.tr, 0); return sgn(t) + $(Math.abs(t)) + ars(t, sgn(t)); })()}</td>
-          <td class="num">${(() => { const t = filas.reduce((s, f) => s + f.esp, 0); return sgn(t) + $(Math.abs(t)) + ars(t, sgn(t)); })()}</td></tr></tfoot>
-        </table></div>` : `<p style="font-size:13px;color:var(--text3)">Ningún movimiento de ${LK_MESNOM[mes-1]} tiene cuenta asignada todavía.</p>`}
-      <p style="font-size:11px;color:var(--text3);margin:10px 0 0">En dólares y, abajo, en pesos, con el TC del mes${tcA ? ' (' + fmt(tcA) + ')' : ''}. <b>Movimiento esperado</b> = cobros − pagos ± transferencias:
-        lo que debería haber cambiado la cuenta si solo se movió por lo cargado. MFL queda afuera.</p></div>`;
+        <thead><tr><th>Cuenta</th><th>Titular</th><th class="num">Saldo ${mesAntTxt}</th><th class="num">Cobros</th><th class="num">Pagos</th>
+          <th class="num">Transf.</th><th class="num">Saldo ${LK_MESNOM[mes-1]}</th><th class="num">Sin explicar</th></tr></thead>
+        <tbody>${filas.map(f => `<tr style="cursor:pointer" onclick="document.getElementById('cm-cuenta').value='${f.id}';loadCuentasMov()">
+          <td><b>${f.nom}</b>${f.cur === 'ARS' ? ' <span style="font-size:9px;color:var(--text3)">ARS</span>' : ''}</td>
+          <td style="color:var(--text3)">${f.tit}</td>
+          <td class="num">${M(f.sA, f.cur)}</td>
+          <td class="num" style="color:var(--esp)">${f.cob ? M(f.cob, f.cur) : '—'}</td>
+          <td class="num" style="color:var(--usa)">${f.pag ? M(-f.pag, f.cur) : '—'}</td>
+          <td class="num">${f.tr ? (f.tr > 0 ? '+' : '') + M(f.tr, f.cur) : '—'}</td>
+          <td class="num">${M(f.sF, f.cur)}</td>
+          <td class="num" style="font-weight:600;color:${f.dif == null ? 'var(--text3)' : (Math.abs(f.dif) <= 1 ? 'var(--esp)' : 'var(--gold)')}">
+            ${f.dif == null ? '—' : (Math.abs(f.dif) <= 1 ? '0' : (f.dif > 0 ? '+' : '') + M(f.dif, f.cur))}</td></tr>`).join('')}
+        </tbody></table></div>` : `<p style="font-size:13px;color:var(--text3)">Ningún movimiento de ${LK_MESNOM[mes-1]} tiene cuenta asignada todavía.</p>`}
+      <p style="font-size:11px;color:var(--text3);margin:10px 0 0">Cada cuenta en su moneda: las marcadas <b>ARS</b> en pesos, el resto en dólares.
+        <b>Sin explicar</b> = saldo ${LK_MESNOM[mes-1]} − (saldo ${mesAntTxt} + cobros − pagos ± transferencias): lo que se movió
+        y no está cargado — gastos personales, rendimiento de la cuenta u otros. MFL queda afuera.</p></div>`;
     return;
   }
 
   // ── DETALLE DE UNA CUENTA ──
-  const mias = lineas.filter(l => l.cuenta === cuenta);
-  const cob = mias.filter(l => l.dir === 'cobro'), pag = mias.filter(l => l.dir === 'pago');
-  const sCob = cob.reduce((s, l) => s + l.usd, 0), sPag = pag.reduce((s, l) => s + l.usd, 0);
-  const misTr = cuenta === '__CASH__' ? [] : trs.filter(r => r.banco_origen_id === cuenta || r.banco_destino_id === cuenta);
-  const tr = cuenta === '__CASH__' ? 0 : trNeto(cuenta);
-  const esp = sCob - sPag + tr;
+  const C = calc(cuenta), cur = C.cur;
+  const cob = C.mias.filter(l => l.dir === 'cobro'), pag = C.mias.filter(l => l.dir === 'pago');
   document.getElementById('cm-kpis').innerHTML =
-    kpi('Cobros', sgn(sCob) + $(Math.abs(sCob)), 'var(--esp)', sCob) + kpi('Pagos', sPag ? '-' + $(sPag) : '$0', 'var(--usa)', -sPag) +
-    kpi('Transferencias netas', sgn(tr) + $(Math.abs(tr)), 'var(--text)', tr) +
-    kpi('Movimiento esperado', sgn(esp) + $(Math.abs(esp)), esp < 0 ? 'var(--usa)' : 'var(--esp)', esp);
+    kpi('Saldo ' + mesAntTxt, M(C.sA, cur), 'var(--text)') +
+    kpi('Movimiento esperado', (C.esp > 0 ? '+' : '') + M(C.esp, cur), C.esp < 0 ? 'var(--usa)' : 'var(--esp)', 'cobros − pagos ± transf.') +
+    kpi('Saldo ' + LK_MESNOM[mes-1], M(C.sF, cur), 'var(--text)') +
+    kpi('Sin explicar', C.dif == null ? '—' : (Math.abs(C.dif) <= 1 ? '0' : (C.dif > 0 ? '+' : '') + M(C.dif, cur)),
+        C.dif == null ? 'var(--text3)' : (Math.abs(C.dif) <= 1 ? 'var(--esp)' : 'var(--gold)'),
+        C.dif == null ? 'falta un saldo' : (Math.abs(C.dif) <= 1 ? 'cierra' : (C.dif < 0 ? 'gastos personales u otros' : 'ingresos no cargados o rendimiento')));
+
+  const conc = cuenta === '__CASH__' ? '' : `<div class="card" style="margin-bottom:14px">
+    <div class="section-title" style="font-size:13px;margin:0 0 10px">Conciliación del saldo · ${cur === 'ARS' ? 'en pesos' : 'en dólares'}</div>
+    <table style="font-size:12px;max-width:520px"><tbody>
+      <tr><td>Saldo al cierre de ${mesAntTxt}</td><td class="num">${M(C.sA, cur)}</td></tr>
+      <tr><td>+ Cobros</td><td class="num" style="color:var(--esp)">${M(C.cob, cur)}</td></tr>
+      <tr><td>− Pagos</td><td class="num" style="color:var(--usa)">${M(-C.pag, cur)}</td></tr>
+      <tr><td>± Transferencias</td><td class="num">${(C.tr > 0 ? '+' : '') + M(C.tr, cur)}</td></tr>
+      <tr style="border-top:1.5px solid var(--border2)"><td><b>Saldo esperado</b></td><td class="num"><b>${C.sA == null ? '—' : M(C.sA + C.esp, cur)}</b></td></tr>
+      <tr><td>Saldo real al cierre de ${LK_MESNOM[mes-1]}</td><td class="num">${M(C.sF, cur)}</td></tr>
+      <tr style="border-top:1.5px solid var(--border2)"><td><b>Sin explicar</b> <span style="font-size:10px;color:var(--text3)">gastos personales, rendimiento u otros</span></td>
+        <td class="num" style="font-weight:700;color:${C.dif == null ? 'var(--text3)' : (Math.abs(C.dif) <= 1 ? 'var(--esp)' : 'var(--gold)')}">${C.dif == null ? '—' : (C.dif > 0 ? '+' : '') + M(C.dif, cur)}</td></tr>
+    </tbody></table>
+    ${C.sA == null || C.sF == null ? `<p style="font-size:11px;color:var(--gold);margin:8px 0 0">Falta el saldo de ${C.sA == null ? mesAntTxt : LK_MESNOM[mes-1]} en Bancos → Evolución.</p>` : ''}
+  </div>`;
 
   const orden = (a, b) => (LK_TIPOS.indexOf(a.t) - LK_TIPOS.indexOf(b.t)) || ((a.act.nro ?? 9999) - (b.act.nro ?? 9999)) || a.rubro.localeCompare(b.rubro);
   const tabla = (titulo, arr, col, signo) => `<div class="card" style="margin-bottom:14px">
@@ -8314,30 +8381,31 @@ async function loadCuentasMov() {
         <td class="num" style="color:${col}">${l.usd < 0 ? (signo === '+' ? '-' : '+') : signo}${$(Math.abs(l.usd))}</td>
         <td style="font-size:11px;color:var(--text3)">${l.origen}</td></tr>`).join('')}
       </tbody>
-      <tfoot><tr><td colspan="4" style="font-weight:600">Total</td><td class="num" style="font-weight:600;color:${col}">${(() => { const t = arr.reduce((s, l) => s + l.usd, 0);
-        const sg = t < 0 ? (signo === '+' ? '-' : '+') : signo; return sg + $(Math.abs(t)) + ars(t, sg); })()}</td><td></td></tr></tfoot>
+      <tfoot><tr><td colspan="4" style="font-weight:600">Total${cur === 'ARS' ? ` <span style="font-weight:400;color:var(--text3)">· ${M(arr.reduce((s, l) => s + enCur(l, cur), 0), cur)}</span>` : ''}</td>
+        <td class="num" style="font-weight:600;color:${col}">${(() => { const t = arr.reduce((s, l) => s + l.usd, 0);
+        const sg = t < 0 ? (signo === '+' ? '-' : '+') : signo; return sg + $(Math.abs(t)); })()}</td><td></td></tr></tfoot>
       </table></div>` : `<p style="font-size:12px;color:var(--text3);margin:0">Nada en ${LK_MESNOM[mes-1]}.</p>`}</div>`;
-  const nomB = id => (bNom[id] || {}).nombre || '—';
   const tablaTr = cuenta === '__CASH__' ? '' : `<div class="card" style="margin-bottom:14px">
-    <div class="section-title" style="font-size:13px;margin:0 0 10px">Transferencias <span style="font-weight:400;color:var(--text3);font-size:11px">(${misTr.length})</span></div>
-    ${misTr.length ? `<div class="table-wrap"><table style="font-size:12px">
+    <div class="section-title" style="font-size:13px;margin:0 0 10px">Transferencias <span style="font-weight:400;color:var(--text3);font-size:11px">(${C.misTr.length})</span></div>
+    ${C.misTr.length ? `<div class="table-wrap"><table style="font-size:12px">
       <thead><tr><th>Fecha</th><th></th><th>Contraparte</th><th class="num">Importe</th><th class="num">USD</th></tr></thead>
-      <tbody>${misTr.slice().sort((a, b) => String(a.fecha).localeCompare(String(b.fecha))).map(r => {
+      <tbody>${C.misTr.slice().sort((a, b) => String(a.fecha).localeCompare(String(b.fecha))).map(r => {
         const out = r.banco_origen_id === cuenta;
-        const otra = out ? (r.banco_destino_id ? nomB(r.banco_destino_id) : (r.destino_externo || 'Cuenta ajena')) : nomB(r.banco_origen_id);
+        const otra = out ? (r.banco_destino_id ? nomB(r.banco_destino_id) : (r.destino_externo || 'Cuenta ajena'))
+                         : (r.banco_origen_id ? nomB(r.banco_origen_id) : (r.origen_externo || 'Origen externo'));
         return `<tr><td>${r.fecha}</td><td style="color:${out ? 'var(--usa)' : 'var(--esp)'};font-weight:700">${out ? '&#8599;' : '&#8600;'}</td>
           <td>${otra}${r.concepto ? ` · <span style="color:var(--text3);font-size:11px">${r.concepto}</span>` : ''}</td>
           <td class="num" style="color:var(--text3)">${r.moneda && r.moneda !== 'USD' ? fmt(r.monto) + ' ' + r.moneda : ''}</td>
-          <td class="num" style="color:${out ? 'var(--usa)' : 'var(--esp)'}">${out ? '-' : '+'}${$(Number(r.monto_usd) || 0)}${ars(Number(r.monto_usd) || 0, out ? '-' : '+')}</td></tr>`;
+          <td class="num" style="color:${out ? 'var(--usa)' : 'var(--esp)'}">${out ? '-' : '+'}${$(Number(r.monto_usd) || 0)}</td></tr>`;
       }).join('')}</tbody></table></div>` : `<p style="font-size:12px;color:var(--text3);margin:0">Sin transferencias en ${LK_MESNOM[mes-1]}.</p>`}</div>`;
   const nomCuenta = cuenta === '__CASH__' ? 'CASH / efectivo' : nomB(cuenta) + ' · ' + ((bNom[cuenta] || {}).titular || '');
   cont.innerHTML = cartelSin +
-    `<div style="font-size:12px;color:var(--text3);margin-bottom:10px"><span style="cursor:pointer;color:var(--gold)" onclick="document.getElementById('cm-cuenta').value='';loadCuentasMov()">← Todas las cuentas</span>
-      · <b style="color:var(--text)">${nomCuenta}</b> · ${LK_MESNOM[mes-1]} ${anio}</div>` +
-    tabla('Cobros', cob, 'var(--esp)', '+') + tabla('Pagos', pag, 'var(--usa)', '-') + tablaTr +
+    `<div style="font-size:12px;color:var(--text3);margin-bottom:10px"><span style="cursor:pointer;color:var(--gold)" onclick="document.getElementById('cm-cuenta').value='__ALL__';loadCuentasMov()">← Todas las cuentas</span>
+      · <b style="color:var(--text)">${nomCuenta}</b> · ${LK_MESNOM[mes-1]} ${anio}${cur === 'ARS' ? ' · cuenta en pesos' : ''}</div>` +
+    conc + tabla('Cobros', cob, 'var(--esp)', '+') + tabla('Pagos', pag, 'var(--usa)', '-') + tablaTr +
     `<p style="font-size:11px;color:var(--text3);margin:0">Importe en la moneda original; USD con el TC del mes. <b>Según</b> dice si la cuenta sale de la
       regla fija o de una excepción de ese mes. <b>Renta neta</b> = renta menos los gastos que el broker descuenta antes de depositar.
-      Abajo de cada total, el equivalente en pesos con el TC del mes. La conciliación contra el saldo real del banco es la etapa siguiente.</p>`;
+      Los saldos salen de Bancos → Evolución, que es lo mismo que carga el COMPLETO.</p>`;
 }
 
 function cmIrALinkeo(anio, mes) {
@@ -8529,7 +8597,10 @@ async function guardarTransferencia() {
   const moneda = document.getElementById('tr-moneda').value || 'USD';
   const externo = (document.getElementById('tr-externo').value || '').trim();
   const concepto = (document.getElementById('tr-concepto').value || '').trim();
+  const oExterno = (document.getElementById('tr-oexterno')?.value || '').trim();
   if (!origen || !fecha || !monto) return toast('Completá origen, fecha y monto', 'error');
+  if (origen === '__EXT__' && !oExterno) return toast('Escribí de dónde viene la plata', 'error');
+  if (origen === '__EXT__' && destSel === '__EXT__') return toast('Origen y destino no pueden ser los dos externos', 'error');
   if (destSel === '__EXT__' && !externo) return toast('Escribí el nombre de la cuenta ajena', 'error');
   if (destSel !== '__EXT__' && destSel === origen) return toast('El origen y el destino no pueden ser la misma cuenta', 'error');
 
@@ -8538,7 +8609,8 @@ async function guardarTransferencia() {
   if (montoUsd < 10000 && !confirm('Esta transferencia es de USD ' + fmt(montoUsd) + ', menor a 10.000. ¿La registrás igual?')) return;
 
   const { error } = await sb.from('transferencias_bancos').insert({
-    fecha, banco_origen_id: origen,
+    fecha, banco_origen_id: origen === '__EXT__' ? null : origen,
+    origen_externo: origen === '__EXT__' ? oExterno : null,
     banco_destino_id: destSel === '__EXT__' ? null : destSel,
     destino_externo: destSel === '__EXT__' ? externo : null,
     monto, moneda, monto_usd: montoUsd, concepto,
@@ -8546,7 +8618,7 @@ async function guardarTransferencia() {
   });
   if (error) return toast('Error: ' + error.message, 'error');
   toast('Transferencia registrada ✓', 'success');
-  ['tr-monto','tr-externo','tr-concepto'].forEach(id => { const el = document.getElementById(id); if (el) el.value = id === 'tr-monto' ? '0' : ''; });
+  ['tr-monto','tr-externo','tr-concepto','tr-oexterno'].forEach(id => { const el = document.getElementById(id); if (el) el.value = id === 'tr-monto' ? '0' : ''; });
   await loadTransferencias();
 }
 
@@ -9885,7 +9957,7 @@ async function _chqCompletitud(Y, M) {
     const s = pres[k];
     const veces = previos.filter(i => s.has(i)).length;
     if (veces < 2) return;                        // no es habitual: no se reclama
-    (s.has(objetivo) ? ok : faltan).push({ ...meta[k], veces });
+    (s.has(objetivo) ? ok : faltan).push({ ...meta[k], veces, clave: k });
   });
   faltan.sort((a, b) => (a.grupo + a.nombre).localeCompare(b.grupo + b.nombre));
   return { faltan, esperados: faltan.length + ok.length, per };
@@ -9910,6 +9982,20 @@ async function renderChqCierre() {
   try { [C, app] = await Promise.all([_chqCompletitud(Y, M), _chqAppMeses(Y)]); }
   catch (e) { cont.innerHTML = `<div class="card" style="color:var(--usa)">No se pudieron leer los datos: ${e.message}</div>`; return; }
 
+  /* v200 — "ESTÁ BIEN QUE FALTE": el tic de cada fila guarda en `completitud_ok`
+     (clave del rubro + año + mes) que ese faltante no hace falta cargarlo. Vale
+     sólo para ese mes. Lo marcado baja a un bloque aparte y no cuenta como pendiente. */
+  let _okSet = new Set(), _okTabla = true;
+  try {
+    const { data, error } = await sb.from('completitud_ok').select('clave').eq('anio', Y).eq('mes', M);
+    if (error) throw error;
+    (data || []).forEach(r => _okSet.add(r.clave));
+  } catch (e) { _okTabla = false; }
+  const _todos = C.faltan;
+  C = { ...C, faltan: _todos.filter(f => !_okSet.has(f.clave)), aceptados: _todos.filter(f => _okSet.has(f.clave)) };
+  window._chqFaltTxt = `Faltantes ${LK_MESNOM[M - 1]} ${Y}:\n` + (C.faltan.length
+    ? C.faltan.map(f => `• ${f.grupo} — ${f.nombre}: ${f.rubro}`).join('\n') : 'Nada pendiente.');
+
   // ── Conciliación (solo si hay archivo cargado y es del mismo ejercicio)
   const claves = [];
   CHQ_ANEXOS.forEach(A => A.filas.forEach(f => claves.push({ grupo:A.grupo, k:A.grupo + '|' + f.et, lbl:f.lbl })));
@@ -9918,7 +10004,7 @@ async function renderChqCierre() {
   const difs = hayArch ? claves.filter(c => Math.abs((_cmp.meses[M][c.k] || 0) - (app[M][c.k] || 0)) > TOL) : [];
 
   const F = v => (v < 0 ? '-' : '') + '$' + fmt(Math.abs(v));
-  const nPend = C.faltan.length + difs.length;
+  const nPend = C.faltan.length + difs.length;   // lo marcado "está bien que falte" no cuenta
   const perTxt = C.per.slice(0, 3).map(p => LK_MESNOM[p.m - 1] + (p.y !== Y ? ' ' + p.y : '')).join(', ');
 
   const semaforo = (titulo, estado, detalle) => `
@@ -9934,8 +10020,9 @@ async function renderChqCierre() {
                 : `${LK_MESNOM[M - 1]} ${Y} cerrado ✓`}</div>
       <div style="margin-top:8px">
         ${semaforo('Completitud', C.faltan.length,
-            C.faltan.length ? `${C.faltan.length} de ${C.esperados} rubros habituales sin cargar`
-                            : `Los ${C.esperados} rubros habituales están cargados`)}
+            (C.faltan.length ? `${C.faltan.length} de ${C.esperados} rubros habituales sin cargar`
+                             : `Los ${C.esperados} rubros habituales están cargados`)
+            + (C.aceptados.length ? ` · ${C.aceptados.length} marcado${C.aceptados.length === 1 ? '' : 's'} como "está bien que falte"` : ''))}
         ${semaforo('Conciliación contra el COMPLETO', difs.length,
             !hayArch ? 'Sin archivo — subí el COMPLETO acá arriba para correr este control'
                      : (difs.length ? `${difs.length} rubro${difs.length === 1 ? '' : 's'} no cuadra${difs.length === 1 ? '' : 'n'}`
@@ -9948,15 +10035,25 @@ async function renderChqCierre() {
       <p style="font-size:11px;color:var(--text3);margin:0 0 12px">
         Se reclama lo que apareció en <b>al menos 2 de los 3 meses anteriores</b> (${perTxt}) y este mes no está.
         Lo esporádico no se reclama. MFL, vendidos y dados de baja quedan afuera.</p>
+      <div style="display:flex;justify-content:flex-end;margin:-6px 0 8px">
+        <button class="btn-secondary" style="padding:4px 12px;font-size:11px" onclick="chqCopiarFaltantes()">Copiar lista para mensaje</button></div>
+      ${!_okTabla ? `<p style="font-size:11px;color:var(--gold);margin:0 0 8px">Para usar el tic "está bien que falte" hay que correr el SQL de <code>completitud_ok</code>.</p>` : ''}
       ${C.faltan.length ? `<div class="table-wrap"><table style="font-size:12px">
-        <thead><tr><th>Rubro</th><th>Activo</th><th>Falta</th><th class="num">Meses previos</th></tr></thead>
+        <thead><tr><th>Rubro</th><th>Activo</th><th>Falta</th><th class="num">Meses previos</th><th style="width:70px;text-align:center" title="Marcá si está bien que falte y no hay que cargarlo">OK</th></tr></thead>
         <tbody>${C.faltan.map(f => `<tr>
           <td style="font-size:11px;color:var(--gold)">${f.grupo}</td>
           <td class="bold">${f.nombre}</td>
           <td>${f.rubro}</td>
-          <td class="num" style="color:var(--text3)">${f.veces} de 3</td></tr>`).join('')}
+          <td class="num" style="color:var(--text3)">${f.veces} de 3</td>
+          <td style="text-align:center"><input type="checkbox" ${_okTabla ? '' : 'disabled'} title="Está bien que falte: no hace falta cargarlo"
+              onchange="chqMarcarOk('${f.clave}',${Y},${M},this.checked)" style="cursor:pointer;width:15px;height:15px"></td></tr>`).join('')}
         </tbody></table></div>`
         : `<p style="font-size:12px;color:var(--esp)">Nada pendiente: todo lo que se carga habitualmente está cargado.</p>`}
+      ${C.aceptados.length ? `<div style="margin-top:12px;font-size:11px;color:var(--text3)"><b>Marcados como "está bien que falte" (${C.aceptados.length})</b>
+        <table style="font-size:11px;margin-top:4px"><tbody>${C.aceptados.map(f => `<tr style="opacity:.75">
+          <td>${f.grupo}</td><td>${f.nombre}</td><td>${f.rubro}</td>
+          <td style="text-align:center"><input type="checkbox" checked title="Destildar: vuelve a pendiente"
+            onchange="chqMarcarOk('${f.clave}',${Y},${M},this.checked)" style="cursor:pointer"></td></tr>`).join('')}</tbody></table></div>` : ''}
     </div>
 
     <div class="card" style="margin-top:14px">
@@ -9982,6 +10079,22 @@ async function renderChqCierre() {
     </div>`;
 }
 
+async function chqMarcarOk(clave, anio, mes, ok) {
+  const r = ok
+    ? await sb.from('completitud_ok').upsert({ clave, anio, mes }, { onConflict: 'clave,anio,mes' })
+    : await sb.from('completitud_ok').delete().match({ clave, anio, mes });
+  if (r.error) return toast('Error: ' + r.error.message, 'error');
+  toast(ok ? 'Marcado: está bien que falte ✓' : 'Vuelve a pendiente', 'success');
+  renderChqCierre();
+}
+async function chqCopiarFaltantes() {
+  const t = window._chqFaltTxt || '';
+  try { await navigator.clipboard.writeText(t); toast('Lista copiada ✓ — pegala en el mensaje', 'success'); }
+  catch (e) {   // sin permiso de portapapeles: se muestra para copiar a mano
+    const w = window.open('', '_blank', 'width=520,height=480');
+    if (w) { w.document.write('<pre style="font:13px/1.5 sans-serif;white-space:pre-wrap;padding:16px">' + t.replace(/</g, '&lt;') + '</pre>'); w.document.close(); }
+  }
+}
 async function chqArchivo(input, destino) {
   const f = input.files && input.files[0]; if (!f) return;
   // v176 — el mismo lector sirve para las dos sub-solapas; `destino` dice cuál
@@ -16945,7 +17058,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260918-199';
+const APP_VERSION = '20260921-200';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
