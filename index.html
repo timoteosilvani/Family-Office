@@ -10406,6 +10406,42 @@ function _chqLeerDetalle(wb, XL) {
       }
     }
   }
+  /* v207 — AUTOS: bloque = país en A + nombre en B; la fila TOTAL del bloque ya está en USD. */
+  out.auto = {}; out.soc = {}; out.pe = {};
+  const _bloques = (ws, cb) => {
+    const R = XL.utils.decode_range(ws['!ref']); let cur = null, pos = 0;
+    for (let r = R.s.r + 6; r <= R.e.r; r++) {
+      const a = ws[XL.utils.encode_cell({ r, c: 0 })], b = ws[XL.utils.encode_cell({ r, c: 1 })];
+      const tb = b && b.v != null ? String(b.v).trim() : '';
+      if (a && /^[A-Za-z]{2,3}$/.test(String(a.v).trim()) && tb) { cur = tb; pos = 0; cb(cur, null, -1, r); continue; }
+      if (!cur || !tb) continue;
+      cb(cur, tb, pos++, r);
+    }
+  };
+  const wa = wb.Sheets['ANEXO - (AUTOS)'];
+  if (wa) { const c0 = _colEnero(wa, XL);
+    _bloques(wa, (cur, lbl, pos, r) => { if (lbl === null) { out.auto[cur] = out.auto[cur] || {}; return; }
+      if (lbl !== 'TOTAL') return;
+      for (let m = 1; m <= 12; m++) { const o = out.auto[cur][m] = out.auto[cur][m] || {}; o.total = (o.total || 0) + num(wa[XL.utils.encode_cell({ r, c: c0 + m - 1 })]); } }); }
+  /* SOCIEDADES: las filas se toman POR POSICIÓN dentro del bloque, igual que la cabecera
+     (que suma la 1ª fila de cada bloque, la 2ª, …): con "Dividendos" arriba (2020-2024)
+     el orden es dividendos · aportes · impuestos · otros; si no, aportes · impuestos · otros.
+     Los rótulos cambian entre bloques ("Gastos", "Impuesto", "Ingresos (Dividendo / Renta)"). */
+  const ws3 = wb.Sheets['ANEXO - (SOCIEDADES)'];
+  if (ws3) { const c0 = _colEnero(ws3, XL);
+    let conDiv = false; for (let r = 0; r < 8; r++) { const b = ws3[XL.utils.encode_cell({ r, c: 1 })]; if (b && /^dividendo/i.test(String(b.v).trim())) conDiv = true; }
+    const ORD = conDiv ? ['div','aportes','impuestos','otros'] : ['aportes','impuestos','otros'];
+    _bloques(ws3, (cur, lbl, pos, r) => { if (lbl === null) { out.soc[cur] = out.soc[cur] || {}; return; }
+      if (/^total/i.test(lbl) || pos >= ORD.length) return;
+      const k = ORD[pos];
+      for (let m = 1; m <= 12; m++) { const o = out.soc[cur][m] = out.soc[cur][m] || {}; o[k] = (o[k] || 0) + num(ws3[XL.utils.encode_cell({ r, c: c0 + m - 1 })]); } }); }
+  /* PRIVATE EQUITY: UTILIDAD / INGRESO = utilidad · APORTE DE CAPITAL / INVERSION = aporte. */
+  const w4 = wb.Sheets['ANEXO - (PRIVATE EQUITY)'];
+  if (w4) { const c0 = _colEnero(w4, XL);
+    _bloques(w4, (cur, lbl, pos, r) => { if (lbl === null) { out.pe[cur] = out.pe[cur] || {}; return; }
+      const t = _chqN(lbl); const k = /^(utilidad|ingreso)/.test(t) ? 'util' : (/^(aportedecapital|inversion)/.test(t) ? 'ap' : null);
+      if (!k) return;
+      for (let m = 1; m <= 12; m++) { const o = out.pe[cur][m] = out.pe[cur][m] || {}; o[k] = (o[k] || 0) + num(w4[XL.utils.encode_cell({ r, c: c0 + m - 1 })]); } }); }
   return out;
 }
 // Lado app, por activo y mes (una vez por año)
@@ -10414,15 +10450,22 @@ async function _chqAppDetalle(Y) {
   if (_chqDetApp.anio === Y && _chqDetApp.p) return _chqDetApp.p;
   _chqDetApp = { anio: Y, p: (async () => {
     const B = await _rsocBase();
-    const [mp, mb] = await Promise.all([
+    const [mp, mb, ma, ms, me] = await Promise.all([
       sb.from('movimientos_propiedades').select('propiedad_id,mes,total_renta_usd,total_gastos_usd,total_impuestos_usd').eq('anio', Y).limit(9000),
       sb.from('movimientos_bancos').select('*').eq('anio', Y).limit(9000),
+      sb.from('movimientos_autos').select('auto_id,mes,total_usd').eq('anio', Y).limit(9000),
+      sb.from('movimientos_sociedades').select('sociedad_id,mes,aportes,impuestos,otros_gastos').eq('anio', Y).limit(9000),
+      sb.from('movimientos_pe').select('pe_id,mes,utilidad,aporte_capital').eq('anio', Y).limit(9000),
     ]);
-    const prop = {}, banco = {};
+    const prop = {}, banco = {}, auto = {}, soc = {}, pe = {};
+    const acc = (o, id, m, k, v) => { const e = (o[id] = o[id] || {})[m] = (o[id] || {})[m] || {}; e[k] = (e[k] || 0) + (Number(v) || 0); };
+    (ma.data || []).forEach(x => acc(auto, x.auto_id, x.mes, 'total', x.total_usd));
+    (ms.data || []).forEach(x => { acc(soc, x.sociedad_id, x.mes, 'aportes', x.aportes); acc(soc, x.sociedad_id, x.mes, 'impuestos', x.impuestos); acc(soc, x.sociedad_id, x.mes, 'otros', x.otros_gastos); });
+    (me.data || []).forEach(x => { acc(pe, x.pe_id, x.mes, 'util', x.utilidad); acc(pe, x.pe_id, x.mes, 'ap', x.aporte_capital); });
     (mp.data || []).forEach(x => { const o = (prop[x.propiedad_id] = prop[x.propiedad_id] || {})[x.mes] = (prop[x.propiedad_id] || {})[x.mes] || { renta:0, gastos:0, impuestos:0 };
       o.renta += Number(x.total_renta_usd) || 0; o.gastos += Number(x.total_gastos_usd) || 0; o.impuestos += Number(x.total_impuestos_usd) || 0; });
     (mb.data || []).forEach(x => { const u = bancoMovUSD(x); (banco[x.banco_id] = banco[x.banco_id] || {})[x.mes] = { inv:u.inv, cash:u.cash, cred:u.cred }; });
-    return { B, prop, banco };
+    return { B, prop, banco, auto, soc, pe };
   })() };
   return _chqDetApp.p;
 }
@@ -10467,6 +10510,44 @@ async function _chqDiferencias(Y, M) {
   bancos.forEach(b => { if (vb.has(b.id) || b.titular === 'MFL') return; const a = (A.banco[b.id] || {})[M]; if (!a) return;
     [['inv','invest'],['cash','cash'],['cred','credit']].forEach(([f, k]) => { const av = a[f] || 0;
       if (Math.abs(av) > TOL) push('Bancos|' + k, { nom: b.nombre, nro: b.nro, c: 0, a: av, d: -av, est: 'sobra en la app · no está en el COMPLETO' }); }); });
+  /* v207 — autos, sociedades y private equity con el mismo esquema */
+  const cmp = (key, ent, cv, av) => { if (Math.abs(cv - av) > TOL) push(key, { nom: ent.nombre, nro: ent.nro, c: cv, a: av, d: cv - av, est: estado(cv, av) }); };
+  const sobrantes = (lista, vistosIds, appMap, pares) => lista.forEach(e => { if (vistosIds.has(e.id) || e.titular === 'MFL') return;
+    const a = (appMap[e.id] || {})[M]; if (!a) return;
+    pares.forEach(([f, key]) => { const av = a[f] || 0; if (Math.abs(av) > TOL) push(key, { nom: e.nombre, nro: e.nro, c: 0, a: av, d: -av, est: 'sobra en la app · no está en el COMPLETO' }); }); });
+  const nz3 = o => Object.values(o || {}).some(v => Math.abs(v || 0) > TOL);
+  // autos
+  const autos = A.B.autos || [], va = new Set();
+  Object.keys(det.auto || {}).forEach(nom => { const e = _chqMatch(nom, autos), c = (det.auto[nom] || {})[M] || {};
+    if (!e) { if (nz3(c)) res._noMatch.push('Auto "' + nom + '"'); return; }
+    va.add(e.id); if (e.titular === 'MFL') return;
+    cmp('Autos|total', e, c.total || 0, ((A.auto[e.id] || {})[M] || {}).total || 0); });
+  sobrantes(autos, va, A.auto, [['total', 'Autos|total']]);
+  // private equity (su anexo propio)
+  const pes = A.B.pe || [], vp = new Set();
+  const peMatch = nom => _chqMatch(nom, pes) || (typeof PE_ALIAS !== 'undefined' ? pes.find(x => _chqN(PE_ALIAS[_peNorm ? _peNorm(x.nombre) : ''] || '') === _chqN(nom)) : null);
+  Object.keys(det.pe || {}).forEach(nom => { const e = peMatch(nom), c = (det.pe[nom] || {})[M] || {};
+    if (!e) { if (nz3(c)) res._noMatch.push('Private equity "' + nom + '"'); return; }
+    vp.add(e.id); if (e.titular === 'MFL') return;
+    const a = (A.pe[e.id] || {})[M] || {};
+    cmp('Private equity|utilidad', e, c.util || 0, a.util || 0);
+    cmp('Private equity|aportedecapital', e, c.ap || 0, a.ap || 0); });
+  // sociedades (y, en 2020-2022, las posiciones de PE que vivían adentro)
+  const socs = A.B.socs || [], vs = new Set();
+  Object.keys(det.soc || {}).forEach(nom => { const c = (det.soc[nom] || {})[M] || {};
+    const e = _chqMatch(nom, socs);
+    if (e) { vs.add(e.id); if (e.titular === 'MFL') return; const a = (A.soc[e.id] || {})[M] || {};
+      cmp('Sociedades|aportes', e, c.aportes || 0, a.aportes || 0);
+      cmp('Sociedades|impuestos', e, c.impuestos || 0, a.impuestos || 0);
+      cmp('Sociedades|otrosgastos', e, c.otros || 0, a.otros || 0); return; }
+    const p = _cmp.peEnSoc ? peMatch(nom) : null;
+    if (p) { vp.add(p.id); if (p.titular === 'MFL') return; const a = (A.pe[p.id] || {})[M] || {};
+      cmp('Private equity|utilidad', p, c.div || 0, a.util || 0);
+      cmp('Sociedades|aportes', p, c.aportes || 0, a.ap || 0); return; }
+    if (nz3(c)) res._noMatch.push('Sociedad "' + nom + '"'); });
+  sobrantes(socs, vs, A.soc, [['aportes', 'Sociedades|aportes'], ['impuestos', 'Sociedades|impuestos'], ['otros', 'Sociedades|otrosgastos']]);
+  sobrantes(pes, vp, A.pe, _cmp.peEnSoc ? [['util', 'Private equity|utilidad'], ['ap', 'Sociedades|aportes']]
+                                         : [['util', 'Private equity|utilidad'], ['ap', 'Private equity|aportedecapital']]);
   Object.keys(res).forEach(k => { if (k !== '_noMatch') res[k].sort((x, y) => Math.abs(y.d) - Math.abs(x.d)); });
   return res;
 }
@@ -10564,7 +10645,10 @@ async function renderChqCompleto() {
     ${(() => {
       if (!D) return `<div class="card" style="margin-top:14px;font-size:12px;color:var(--text3)">Volvé a soltar el COMPLETO para ver en qué activo está cada diferencia.</div>`;
       const G = [['Propiedades|renta','Propiedades · Renta'],['Propiedades|gastos','Propiedades · Gastos'],['Propiedades|impuestos','Propiedades · Impuestos'],
-                 ['Bancos|invest','Bancos · Inversión'],['Bancos|cash','Bancos · Cash'],['Bancos|credit','Bancos · Crédito']];
+                 ['Bancos|invest','Bancos · Inversión'],['Bancos|cash','Bancos · Cash'],['Bancos|credit','Bancos · Crédito'],
+                 ['Sociedades|aportes','Sociedades · Aportes'],['Sociedades|impuestos','Sociedades · Impuestos'],['Sociedades|otrosgastos','Sociedades · Otros gastos'],
+                 ['Autos|total','Autos · Total gastos'],
+                 ['Private equity|utilidad','Private equity · Utilidad'],['Private equity|aportedecapital','Private equity · Aporte de capital']];
       const bloques = G.filter(([k]) => D[k] && D[k].length).map(([k, t]) => `
         <tr style="background:var(--bg3)"><td colspan="5" style="font-weight:600;font-size:11px;color:var(--gold)">${t}</td></tr>
         ${D[k].map(x => `<tr><td>${x.nro != null ? x.nro + ' · ' : ''}${x.nom}</td><td class="num">${Fd(x.c)}</td><td class="num">${Fd(x.a)}</td>
@@ -10573,11 +10657,11 @@ async function renderChqCompleto() {
       return `<div class="card" style="margin-top:14px">
         <div class="section-title" style="font-size:13px;margin:0 0 4px">Dónde está la diferencia · ${LK_MESNOM[M-1]} ${Y}</div>
         <p style="font-size:11px;color:var(--text3);margin:0 0 10px">Activo por activo, bloque por bloque del COMPLETO contra lo cargado en la app.
-          Por ahora propiedades y bancos. MFL queda afuera.</p>
+          Propiedades, bancos, sociedades, autos y private equity. MFL queda afuera.</p>
         ${bloques ? `<div class="table-wrap"><table style="font-size:12px">
           <thead><tr><th>Activo</th><th class="num">COMPLETO</th><th class="num">App</th><th class="num">Diferencia</th><th>Qué pasa</th></tr></thead>
           <tbody>${bloques}</tbody></table></div>`
-          : `<p style="font-size:12px;color:var(--esp);margin:0">En ${LK_MESNOM[M-1]}, propiedades y bancos coinciden activo por activo.</p>`}
+          : `<p style="font-size:12px;color:var(--esp);margin:0">En ${LK_MESNOM[M-1]} todo coincide activo por activo.</p>`}
         ${D._noMatch.length ? `<p style="font-size:11px;color:var(--gold);margin:10px 0 0"><b>No los encontré en la app</b> (nombre distinto o no cargado): ${D._noMatch.join(' · ')}</p>` : ''}
       </div>`; })()}`;
 }
@@ -17535,7 +17619,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260922-206';
+const APP_VERSION = '20260922-207';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
