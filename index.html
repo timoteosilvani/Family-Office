@@ -9572,7 +9572,7 @@ async function _exportarPDF(opt) {
   const htmlBody = clone.innerHTML;
   w.document.write(`<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>${opt.titulo} — ${cliNom}</title>
   <style>
-    :root{--navy:#0F2A43;--green:#2f9e63;--red:#c0605f;--teal:#2E9B8F;--border:#e4e7ec;--text:#1a1a1a;--text2:#444;--text3:#888;--esp:#2f9e63;--usa:#c0605f;--gold:#8a6d3b;--gold-soft:#f5efe0;--bg2:#f7f7f5;--bg:#fff;}
+    :root{--navy:#0F2A43;--green:#2f9e63;--red:#c0605f;--teal:#2E9B8F;--border:#e4e7ec;--text:#1a1a1a;--text2:#444;--text3:#888;--esp:#2f9e63;--usa:#c0605f;--gold:#A8842F;--gold-soft:#f5efe0;--bg2:#f7f7f5;--bg:#fff;}
     *{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact;} body{font-family:Helvetica,Arial,sans-serif;color:var(--text);margin:0;padding:14px;font-size:11px;line-height:1.35;}
     .card{border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:16px;page-break-inside:avoid;background:var(--bg);}
     .table-wrap{overflow:visible;} table{width:100%;border-collapse:collapse;font-size:11.5px;} th{color:var(--navy);font-size:10px;text-transform:uppercase;letter-spacing:.5px;font-weight:700;}
@@ -9620,7 +9620,7 @@ async function _exportarPDF(opt) {
     .no-corta{page-break-inside:avoid;break-inside:avoid;}
     @media print{body{padding:0;}}
   </style></head><body>
-  <div class="hdr"><div style="display:flex;align-items:center;gap:12px"><img src="${OFFIDA_LOGO}" style="height:54px;width:auto"><div><div style="font-family:Georgia,'Times New Roman',serif;font-size:22px;letter-spacing:3px;color:#8a6d3b;font-weight:700;line-height:1">OFFIDA</div><h1 style="font-size:18px;margin:3px 0 0">${opt.titulo}</h1><div style="color:var(--text3);font-size:12px">${cliNom} \u00b7 ${opt.subtitulo} \u00b7 Cifras en USD</div></div></div><div style="color:var(--text3);font-size:11px;text-align:right">Generado ${new Date().toLocaleDateString('es-AR')}</div></div>
+  <div class="hdr"><div style="display:flex;align-items:center;gap:12px"><img src="${OFFIDA_LOGO}" style="height:54px;width:auto"><div><div style="font-family:Georgia,'Times New Roman',serif;font-size:22px;letter-spacing:3px;color:#A8842F;font-weight:700;line-height:1">OFFIDA</div><h1 style="font-size:18px;margin:3px 0 0">${opt.titulo}</h1><div style="color:var(--text3);font-size:12px">${cliNom} \u00b7 ${opt.subtitulo} \u00b7 Cifras en USD</div></div></div><div style="color:var(--text3);font-size:11px;text-align:right">Generado ${new Date().toLocaleDateString('es-AR')}</div></div>
   ${htmlBody}
   </body></html>`);
   w.document.close();
@@ -9899,6 +9899,17 @@ function _colEnero(ws, XL) {
 /* v176 — Totales de la app por mes, en USD, con MFL afuera. Estaba escrito adentro
    de renderChqCompleto(); se extrajo para que el cierre mensual use EXACTAMENTE el
    mismo cálculo y los dos controles no puedan divergir. */
+/* v205 — con un COMPLETO sin anexo de PE (2020-2022) los aportes de PE están
+   sumados en los aportes de SOCIEDADES: la app hace lo mismo para comparar igual. */
+function _chqAjustePeEnSoc(app) {
+  if (!(_cmp && _cmp.peEnSoc)) return app;
+  for (let m = 1; m <= 12; m++) {
+    const a = app[m] || (app[m] = {});
+    a['Sociedades|aportes'] = (a['Sociedades|aportes'] || 0) + (a['Private equity|aportedecapital'] || 0);
+    a['Private equity|aportedecapital'] = 0;
+  }
+  return app;
+}
 async function _chqAppMeses(Y) {
   const B = await _rsocBase();
   const noMFL = new Set(soloSumables(B.props ).map(x => x.id));
@@ -10044,7 +10055,7 @@ async function renderChqCierre() {
   cont.innerHTML = '<div class="loader"><div class="spinner"></div></div>';
 
   let C, app;
-  try { [C, app] = await Promise.all([_chqCompletitud(Y, M), _chqAppMeses(Y)]); }
+  try { [C, app] = await Promise.all([_chqCompletitud(Y, M), _chqAppMeses(Y)]); if (_cmp && _cmp.anio === Y) _chqAjustePeEnSoc(app); }
   catch (e) { cont.innerHTML = `<div class="card" style="color:var(--usa)">No se pudieron leer los datos: ${e.message}</div>`; return; }
 
   /* v200 — "ESTÁ BIEN QUE FALTE": el tic de cada fila guarda en `completitud_ok`
@@ -10249,16 +10260,33 @@ async function chqArchivo(input, destino) {
 
     const meses = {}; for (let m = 1; m <= 12; m++) meses[m] = {};
     const faltan = [];
+    /* v205 — COMPLETOS VIEJOS. 2020-2022: la hoja de bancos se llama "ANEXO - (CASH)"
+       y no existe el anexo de private equity (las posiciones de PE estaban dentro de
+       SOCIEDADES: su utilidad es la fila "Dividendos" y sus aportes van sumados en
+       "Aportes"). 2023-2024: el anexo de PE rotula "INGRESO" (= utilidad) e
+       "INVERSION" (= aporte de capital). */
+    const _HOJA_ALIAS = { 'ANEXO - (BANCOS)': ['ANEXO - (BANCOS)', 'ANEXO - (CASH)'] };
+    const _ET_ALIAS = { utilidad: ['utilidad', 'ingreso'], aportedecapital: ['aportedecapital', 'inversion'] };
+    const _hoja = n => (_HOJA_ALIAS[n] || [n]).map(h => wb.Sheets[h]).find(Boolean);
+    const peEnSoc = !wb.Sheets['ANEXO - (PRIVATE EQUITY)'];
     CHQ_ANEXOS.forEach(A => {
-      const ws = wb.Sheets[A.hoja];
-      if (!ws) { faltan.push(A.hoja); return; }
+      const ws = _hoja(A.hoja);
+      if (!ws) { if (!(peEnSoc && A.grupo === 'Private equity')) faltan.push(A.hoja); return; }
       const c0 = _colEnero(ws, XL);
       const R = XL.utils.decode_range(ws['!ref']);
       // el encabezado son las primeras filas con etiqueta en la columna B
       for (let r = R.s.r; r <= Math.min(R.s.r + 8, R.e.r); r++) {
         const lc = ws[XL.utils.encode_cell({ r, c: 1 })];
         const et = _etq(lc && lc.v);
-        const def = A.filas.find(x => et && (et === x.et || et.startsWith(x.et)));
+        const def = A.filas.find(x => et && (_ET_ALIAS[x.et] || [x.et]).some(a => et === a || et.startsWith(a)));
+        if (peEnSoc && A.grupo === 'Sociedades' && et.startsWith('dividendo')) {
+          // la utilidad de PE de los años sin anexo propio
+          for (let m = 1; m <= 12; m++) {
+            const cell = ws[XL.utils.encode_cell({ r, c: c0 + m - 1 })];
+            meses[m]['Private equity|utilidad'] = cell && typeof cell.v === 'number' ? cell.v : 0;
+          }
+          continue;
+        }
         if (!def) continue;
         for (let m = 1; m <= 12; m++) {
           const cell = ws[XL.utils.encode_cell({ r, c: c0 + m - 1 })];
@@ -10270,13 +10298,16 @@ async function chqArchivo(input, destino) {
 
     // el año: de la hoja de bancos, celda C1, o del nombre del archivo
     let anio = null;
-    const wsb = wb.Sheets['ANEXO - (BANCOS)'];
+    const wsb = wb.Sheets['ANEXO - (BANCOS)'] || wb.Sheets['ANEXO - (CASH)'];
     if (wsb && wsb['C1'] && typeof wsb['C1'].v === 'number') anio = wsb['C1'].v;
     if (!anio) { const m = String(f.name).match(/20\d{2}/); anio = m ? +m[0] : new Date().getFullYear(); }
 
     let bancosCarga = null;
-    try { if (wsb) bancosCarga = _chqBancosCarga(wsb, XL); } catch (e) { console.warn('bancosCarga:', e.message); }
-    _cmp = { anio, meses, archivo: f.name, faltan, bancosCarga };
+    // v205 — la regla de la celda blanca es la del COMPLETO en curso: los años cerrados
+    // tienen otros rellenos (en 2022 daba "cargado hasta enero") y están completos.
+    try { if (wsb && anio >= new Date().getFullYear()) bancosCarga = _chqBancosCarga(wsb, XL); } catch (e) { console.warn('bancosCarga:', e.message); }
+    if (peEnSoc) for (let m = 1; m <= 12; m++) meses[m]['Private equity|aportedecapital'] = 0;
+    _cmp = { anio, meses, archivo: f.name, faltan, bancosCarga, peEnSoc };
     if (destino === 'cierre') await renderChqCierre(); else await renderChqCompleto();
   } catch (e) {
     cont.innerHTML = `<div class="card" style="color:var(--usa)">No se pudo leer el archivo: ${e.message}<br>
@@ -10303,7 +10334,7 @@ async function renderChqCompleto() {
   cont.innerHTML = '<div class="loader"><div class="spinner"></div></div>';
   const Y = _cmp.anio;
 
-  const app = await _chqAppMeses(Y);
+  const app = _chqAjustePeEnSoc(await _chqAppMeses(Y));
 
   const claves = [];
   CHQ_ANEXOS.forEach(A => A.filas.forEach(f => claves.push({ grupo:A.grupo, k:A.grupo + '|' + f.et, lbl:f.lbl })));
@@ -10345,7 +10376,8 @@ async function renderChqCompleto() {
       <div style="font-size:11px;color:var(--text3);margin-top:3px">
         ${_cmp.archivo} · ejercicio ${Y} · revisado hasta ${LK_MESNOM[hasta-1]} · ${conDato.length} mes${conDato.length===1?'':'es'} con dato
         ${fuera.length ? ' · fuera de la revisión: ' + fuera.join(', ') : ''}
-        ${_cmp.faltan.length ? ' · <span style="color:var(--gold)">no encontré: ' + _cmp.faltan.join(', ') + '</span>' : ''}</div>
+        ${_cmp.faltan.length ? ' · <span style="color:var(--gold)">no encontré: ' + _cmp.faltan.join(', ') + '</span>' : ''}
+        ${_cmp.peEnSoc ? '<br><span style="color:var(--gold)">Este COMPLETO no tiene anexo de private equity: la utilidad de PE se compara con la fila "Dividendos" de Sociedades y los aportes de PE van sumados en los de Sociedades.</span>' : ''}</div>
     </div>
 
     <div style="margin-bottom:12px;display:flex;flex-wrap:wrap;align-items:center">${selHasta}<span>${chips}</span></div>
@@ -11414,10 +11446,10 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
           <table style="width:100%;border-collapse:collapse;font-size:11.5px;margin:3px 0 2px"><tbody>
             ${L.map(l => `<tr><td style="width:18px;color:var(--text3);padding:3px 4px">${l.k}</td><td style="padding:3px 4px">${l.txt}</td>
               <td class="num" style="padding:3px 4px;white-space:nowrap;color:${l.v < 0 ? 'var(--usa)' : 'var(--esp)'}">${S(l.v)}</td></tr>`).join('')}
-            <tr><td style="width:18px;color:var(--text3);padding:3px 4px">·</td><td style="padding:3px 4px;font-style:italic;color:var(--gold,#8a6d3b)">Sin explicar · gastos personales</td>
-              <td class="num" style="padding:3px 4px;white-space:nowrap;font-style:italic;color:var(--gold,#8a6d3b)">${Math.abs(sinExp) < 0.5 ? '—' : S(sinExp)}</td></tr>
+            <tr><td style="width:18px;color:var(--text3);padding:3px 4px">·</td><td style="padding:3px 4px;font-style:italic;color:var(--gold,#A8842F)">Sin explicar · gastos personales</td>
+              <td class="num" style="padding:3px 4px;white-space:nowrap;font-style:italic;color:var(--gold,#A8842F)">${Math.abs(sinExp) < 0.5 ? '—' : S(sinExp)}</td></tr>
           </tbody></table>
-          ${aviso ? `<div class="no-pdf" style="font-size:11px;color:var(--gold,#8a6d3b);background:var(--gold-soft,#f7f0e2);border-radius:5px;padding:4px 8px;margin-top:3px">
+          ${aviso ? `<div class="no-pdf" style="font-size:11px;color:var(--gold,#A8842F);background:var(--gold-soft,#f7f0e2);border-radius:5px;padding:4px 8px;margin-top:3px">
             Revisar antes de mandar: lo sin explicar es ${Math.round(Math.abs(sinExp) / Math.abs(vari) * 100)} % de la variación
             (puede faltar un pago, una regla o una transferencia). Este aviso no sale en el PDF.</div>` : ''}
         </div>`);
@@ -12020,7 +12052,7 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
 
   cont.innerHTML = `
     <style>
-      .rep-doc{--esp:#2f9e63;--usa:#c0605f;--navy:#0f2a43;--gold:#8a6d3b;font-size:11px;}
+      .rep-doc{--esp:#2f9e63;--usa:#c0605f;--navy:#0f2a43;--gold:#A8842F;font-size:11px;}
       .rep-doc .section-title{background:var(--navy);color:#fff!important;font-weight:700!important;font-size:12px!important;padding:6px 10px!important;border-radius:5px;margin-bottom:8px!important;letter-spacing:.2px;border-bottom:none!important;}
       .rep-doc .rep-h2{font-size:15px!important;font-weight:800;color:var(--navy);margin:16px 0 6px!important;letter-spacing:-.3px;padding-bottom:3px;border-bottom:2px solid var(--navy);}
       .rep-doc .pgbreak{page-break-before:always;break-before:page;}
@@ -17328,7 +17360,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260921-204';
+const APP_VERSION = '20260921-205';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
