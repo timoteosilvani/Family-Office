@@ -10307,7 +10307,9 @@ async function chqArchivo(input, destino) {
     // tienen otros rellenos (en 2022 daba "cargado hasta enero") y están completos.
     try { if (wsb && anio >= new Date().getFullYear()) bancosCarga = _chqBancosCarga(wsb, XL); } catch (e) { console.warn('bancosCarga:', e.message); }
     if (peEnSoc) for (let m = 1; m <= 12; m++) meses[m]['Private equity|aportedecapital'] = 0;
-    _cmp = { anio, meses, archivo: f.name, faltan, bancosCarga, peEnSoc };
+    let det = null;
+    try { det = _chqLeerDetalle(wb, XL); } catch (e) { console.warn('detalle COMPLETO:', e.message); }
+    _cmp = { anio, meses, archivo: f.name, faltan, bancosCarga, peEnSoc, det };
     if (destino === 'cierre') await renderChqCierre(); else await renderChqCompleto();
   } catch (e) {
     cont.innerHTML = `<div class="card" style="color:var(--usa)">No se pudo leer el archivo: ${e.message}<br>
@@ -10323,6 +10325,152 @@ function _chqHastaSet(Y, v) {
   try { v = parseInt(v) || 0; if (v) localStorage.setItem('chq_hasta_' + Y, v); else localStorage.removeItem('chq_hasta_' + Y); } catch (e) {}
   window._chqHastaMem = window._chqHastaMem || {}; window._chqHastaMem[Y] = parseInt(v) || 0;
 }
+
+/* ═══ v206 — DÓNDE ESTÁ LA DIFERENCIA (Contra el COMPLETO) ═══════════════════
+   Además de la cabecera de cada anexo, al soltar el COMPLETO se leen los BLOQUES
+   por activo y se comparan con la base activo por activo y mes por mes.
+   · Propiedades: bloque = fila con el país en la columna A y el nombre en la B;
+     sus filas RENTA / GASTOS / IMPUESTOS (en mayúscula) ya vienen en USD.
+   · Bancos: bloque = rótulo en la columna B que no sea Invest/Cash/Total/Credit/NETO;
+     las filas Invest…/Cash…/Credit… vienen en su moneda (U$S, US$ → USD; "$" → ARS;
+     UY/$U → UYU; EUR/€ → EUR) y se pasan a USD con el TC del mes de la app (el mismo
+     del COMPLETO). Total y NETO no se leen: se recalculan.
+   · Nombres: se normalizan y se buscan en la base; después los alias conocidos de la
+     carga histórica; después "empieza con"; después prefijo común ≥ 8 si es único.
+   · MFL queda afuera, igual que en los totales.
+   Por ahora propiedades y bancos (lo que más diferencias da). */
+const _CHQ_ALIAS = {
+  alcortal007:'palacioalcorta', nordeltacastores:'nordelta', coraltower1404:'coral1404', aquarius1101a:'aquarius',
+  pedrocampbel:'pedrocampbell', '1050brickell':'1050brickell2922', '1060brickell':'1050brickell2922',
+  bh3002:'brickellheights3002', bh3105:'brickellheights3105', ocenana1104s:'oceana1102', lagasca72:'lagasca',
+  arce:'arce8835d', vitta1:'vitta204', vitta2:'vitta404', vitta3:'vitta702', vitta504:'vitta505',
+  olleros1890:'olleros1900', keycolonia602:'keycolony353', coraltower302:'coral302', arcos:'arcos4b', fontainebleau3405:'fontainebleau3405tresor',
+};
+const _chqN = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]/g, '')
+  .replace(/^forum(\d+)([a-z])$/, 'forum$2$1');   // "Forum 203B" (planilla) = "Forum B203" (app)
+function _chqMatch(nombre, lista) {           // lista: [{id, nombre, titular}]
+  const n = _chqN(nombre); if (!n) return null;
+  const idx = {}; lista.forEach(x => { idx[_chqN(x.nombre)] = x; });
+  if (idx[n]) return idx[n];
+  if (_CHQ_ALIAS[n] && idx[_CHQ_ALIAS[n]]) return idx[_CHQ_ALIAS[n]];
+  let c = lista.filter(x => { const k = _chqN(x.nombre); return k && (k.startsWith(n) || n.startsWith(k)); });
+  if (c.length === 1) return c[0];
+  const pref = (a, b) => { let i = 0; while (i < a.length && a[i] === b[i]) i++; return i; };
+  c = lista.filter(x => pref(_chqN(x.nombre), n) >= 8);
+  return c.length === 1 ? c[0] : null;
+}
+function _chqMonedaFila(lbl) {
+  const t = String(lbl).toUpperCase();
+  if (/U\$S|US\$|USD/.test(t)) return 'USD';
+  if (/EUR|€/.test(t)) return 'EUR';
+  if (/\$U|UY/.test(t)) return 'UYU';
+  return 'ARS';
+}
+// Lee los bloques por activo de un libro ya abierto
+function _chqLeerDetalle(wb, XL) {
+  const out = { prop: {}, banco: {} };
+  const num = c => c && typeof c.v === 'number' ? c.v : 0;
+  const wp = wb.Sheets['ANEXO - (PROPIEDADES)'];
+  if (wp) {
+    const c0 = _colEnero(wp, XL), R = XL.utils.decode_range(wp['!ref']);
+    let cur = null;
+    for (let r = R.s.r + 8; r <= R.e.r; r++) {
+      const a = wp[XL.utils.encode_cell({ r, c: 0 })], b = wp[XL.utils.encode_cell({ r, c: 1 })];
+      const tb = b && b.v != null ? String(b.v).trim() : '';
+      if (a && /^[A-Za-z]{2,3}$/.test(String(a.v).trim()) && tb) { cur = tb; out.prop[cur] = out.prop[cur] || {}; continue; }
+      if (!cur || !tb) continue;
+      const k = { RENTA:'renta', GASTOS:'gastos', IMPUESTOS:'impuestos' }[tb];
+      if (!k || tb !== tb.toUpperCase()) continue;
+      for (let m = 1; m <= 12; m++) {
+        const o = out.prop[cur][m] = out.prop[cur][m] || {};
+        o[k] = (o[k] || 0) + num(wp[XL.utils.encode_cell({ r, c: c0 + m - 1 })]);
+      }
+    }
+  }
+  const wb2 = wb.Sheets['ANEXO - (BANCOS)'] || wb.Sheets['ANEXO - (CASH)'];
+  if (wb2) {
+    const c0 = _colEnero(wb2, XL), R = XL.utils.decode_range(wb2['!ref']);
+    let cur = null;
+    for (let r = R.s.r + 10; r <= R.e.r; r++) {
+      const b = wb2[XL.utils.encode_cell({ r, c: 1 })];
+      const t = b && b.v != null ? String(b.v).trim() : '';
+      if (!t) continue;
+      if (!/^(invest|cash|total|credit|neto)/i.test(t)) { cur = t; out.banco[cur] = out.banco[cur] || {}; continue; }
+      if (!cur || /^(total|neto)/i.test(t)) continue;
+      const k = /^invest/i.test(t) ? 'inv' : (/^cash/i.test(t) ? 'cash' : 'cred');
+      const mon = _chqMonedaFila(t);
+      for (let m = 1; m <= 12; m++) {
+        const o = out.banco[cur][m] = out.banco[cur][m] || {};
+        const key = k + '|' + mon;
+        o[key] = (o[key] || 0) + num(wb2[XL.utils.encode_cell({ r, c: c0 + m - 1 })]);
+      }
+    }
+  }
+  return out;
+}
+// Lado app, por activo y mes (una vez por año)
+let _chqDetApp = { anio: null, p: null };
+async function _chqAppDetalle(Y) {
+  if (_chqDetApp.anio === Y && _chqDetApp.p) return _chqDetApp.p;
+  _chqDetApp = { anio: Y, p: (async () => {
+    const B = await _rsocBase();
+    const [mp, mb] = await Promise.all([
+      sb.from('movimientos_propiedades').select('propiedad_id,mes,total_renta_usd,total_gastos_usd,total_impuestos_usd').eq('anio', Y).limit(9000),
+      sb.from('movimientos_bancos').select('*').eq('anio', Y).limit(9000),
+    ]);
+    const prop = {}, banco = {};
+    (mp.data || []).forEach(x => { const o = (prop[x.propiedad_id] = prop[x.propiedad_id] || {})[x.mes] = (prop[x.propiedad_id] || {})[x.mes] || { renta:0, gastos:0, impuestos:0 };
+      o.renta += Number(x.total_renta_usd) || 0; o.gastos += Number(x.total_gastos_usd) || 0; o.impuestos += Number(x.total_impuestos_usd) || 0; });
+    (mb.data || []).forEach(x => { const u = bancoMovUSD(x); (banco[x.banco_id] = banco[x.banco_id] || {})[x.mes] = { inv:u.inv, cash:u.cash, cred:u.cred }; });
+    return { B, prop, banco };
+  })() };
+  return _chqDetApp.p;
+}
+// Diferencias por activo para un mes. Devuelve { 'Propiedades|renta': [..], 'Bancos|cash': [..], ..., _noMatch: [..] }
+async function _chqDiferencias(Y, M) {
+  const det = _cmp && _cmp.det; if (!det) return null;
+  const A = await _chqAppDetalle(Y);
+  const tc = tcFor(Y, M) || {};
+  const aUSD = (v, mon) => mon === 'USD' ? v : mon === 'ARS' ? v / (tc.ars_usd || 1) : mon === 'UYU' ? v / (tc.uyu_usd || 1) : v / (tc.eur_usd || 1);
+  const TOL = 1, res = { _noMatch: [] };
+  const push = (k, it) => (res[k] = res[k] || []).push(it);
+  const estado = (c, a) => Math.abs(a) < 0.5 ? 'falta en la app' : (Math.abs(c) < 0.5 ? 'sobra en la app' : (c > a ? 'la app tiene menos' : 'la app tiene más'));
+  // propiedades
+  const props = A.B.props, vistos = new Set();
+  Object.keys(det.prop).forEach(nom => {
+    const p = _chqMatch(nom, props);
+    const c = (det.prop[nom] || {})[M] || {};
+    if (!p) { if (['renta','gastos','impuestos'].some(k => Math.abs(c[k] || 0) > TOL)) res._noMatch.push('Propiedad "' + nom + '"'); return; }
+    vistos.add(p.id);
+    if (p.titular === 'MFL') return;
+    const a = (A.prop[p.id] || {})[M] || {};
+    ['renta','gastos','impuestos'].forEach(k => { const cv = c[k] || 0, av = a[k] || 0;
+      if (Math.abs(cv - av) > TOL) push('Propiedades|' + k, { nom: p.nombre, nro: p.nro, c: cv, a: av, d: cv - av, est: estado(cv, av) }); });
+  });
+  props.forEach(p => { if (vistos.has(p.id) || p.titular === 'MFL') return; const a = (A.prop[p.id] || {})[M] || {};
+    ['renta','gastos','impuestos'].forEach(k => { const av = a[k] || 0;
+      if (Math.abs(av) > TOL) push('Propiedades|' + k, { nom: p.nombre, nro: p.nro, c: 0, a: av, d: -av, est: 'sobra en la app · no está en el COMPLETO' }); }); });
+  // bancos
+  const bancos = A.B.bancos, vb = new Set();
+  Object.keys(det.banco).forEach(nom => {
+    const b = _chqMatch(nom, bancos);
+    const raw = (det.banco[nom] || {})[M] || {};
+    const c = { inv:0, cash:0, cred:0 };
+    Object.keys(raw).forEach(k => { const [f, mon] = k.split('|'); c[f] += aUSD(raw[k], mon); });
+    if (!b) { if (Math.abs(c.inv) + Math.abs(c.cash) + Math.abs(c.cred) > TOL) res._noMatch.push('Cuenta "' + nom + '"'); return; }
+    vb.add(b.id);
+    if (b.titular === 'MFL') return;
+    const a = (A.banco[b.id] || {})[M] || { inv:0, cash:0, cred:0 };
+    [['inv','invest'],['cash','cash'],['cred','credit']].forEach(([f, k]) => { const cv = c[f], av = a[f] || 0;
+      if (Math.abs(cv - av) > TOL) push('Bancos|' + k, { nom: b.nombre, nro: b.nro, c: cv, a: av, d: cv - av, est: estado(cv, av) }); });
+  });
+  bancos.forEach(b => { if (vb.has(b.id) || b.titular === 'MFL') return; const a = (A.banco[b.id] || {})[M]; if (!a) return;
+    [['inv','invest'],['cash','cash'],['cred','credit']].forEach(([f, k]) => { const av = a[f] || 0;
+      if (Math.abs(av) > TOL) push('Bancos|' + k, { nom: b.nombre, nro: b.nro, c: 0, a: av, d: -av, est: 'sobra en la app · no está en el COMPLETO' }); }); });
+  Object.keys(res).forEach(k => { if (k !== '_noMatch') res[k].sort((x, y) => Math.abs(y.d) - Math.abs(x.d)); });
+  return res;
+}
+
 async function renderChqCompleto() {
   const cont = document.getElementById('chqc-contenido'); if (!cont) return;
   if (!_cmp) {
@@ -10366,6 +10514,13 @@ async function renderChqCompleto() {
       border:1px solid ${d?'var(--usa)':'var(--esp)'};color:${d?'var(--usa)':'var(--esp)'};${m===M?'background:var(--bg3)':''}">
       ${LK_MESNOM[m-1]}${d?' · '+d:' ✓'}</span>`; }).join('');
 
+  // v206 — diferencias por activo del mes elegido (propiedades y bancos)
+  let D = null;
+  try { D = await _chqDiferencias(Y, M); } catch (e) { console.warn('diferencias por activo:', e.message); }
+  const Fd = v => (v < 0 ? '-' : '') + '$' + fmt(Math.abs(v));
+  const popDe = k => { const L = D && D[k]; if (!L || !L.length) return '';
+    return '<span class="coment-pop"><b>Dónde:</b><br>' + L.slice(0, 6).map(x => x.nom + ': ' + (x.d > 0 ? '+' : '') + Fd(x.d) + ' · ' + x.est).join('<br>')
+      + (L.length > 6 ? '<br>+ ' + (L.length - 6) + ' más (ver abajo)' : '') + '</span>'; };
   const grupos = [...new Set(claves.map(c => c.grupo))];
   const totDif = conDato.reduce((a,m)=>a+difMes(m),0);
 
@@ -10397,14 +10552,34 @@ async function renderChqCompleto() {
             return `<tr>
               <td style="text-align:center">${ok?'<span style="color:var(--esp)">●</span>':'<span style="color:var(--usa)">●</span>'}</td>
               <td>${c.lbl}</td><td class="num">${F(a)}</td><td class="num">${F(b)}</td>
-              <td class="num" style="font-weight:600;color:${ok?'var(--esp)':'var(--usa)'}">${ok?'0':(d>0?'+':'')+F(d)}</td></tr>`;
+              <td class="num ${!ok && popDe(c.k) ? 'coment-tooltip has-coment' : ''}" style="font-weight:600;color:${ok?'var(--esp)':'var(--usa)'}">${ok?'0':(d>0?'+':'')+F(d)}${!ok ? popDe(c.k) : ''}</td></tr>`;
           }).join('')}`).join('')}
         </tbody></table></div>
       <p style="font-size:11px;color:var(--text3);margin:10px 0 0">
         <b>COMPLETO</b> es la fila consolidada del encabezado de cada anexo. <b>App</b> es la suma de los movimientos
         cargados de ese mes, en dólares. MFL queda afuera de los dos lados.
-        Una diferencia positiva significa que <b>el COMPLETO tiene más</b>: falta cargar algo en la app.</p>
-    </div>`;
+        Una diferencia positiva significa que <b>el COMPLETO tiene más</b>: falta cargar algo en la app.
+        Pasá el mouse por una diferencia para ver en qué activo está.</p>
+    </div>
+    ${(() => {
+      if (!D) return `<div class="card" style="margin-top:14px;font-size:12px;color:var(--text3)">Volvé a soltar el COMPLETO para ver en qué activo está cada diferencia.</div>`;
+      const G = [['Propiedades|renta','Propiedades · Renta'],['Propiedades|gastos','Propiedades · Gastos'],['Propiedades|impuestos','Propiedades · Impuestos'],
+                 ['Bancos|invest','Bancos · Inversión'],['Bancos|cash','Bancos · Cash'],['Bancos|credit','Bancos · Crédito']];
+      const bloques = G.filter(([k]) => D[k] && D[k].length).map(([k, t]) => `
+        <tr style="background:var(--bg3)"><td colspan="5" style="font-weight:600;font-size:11px;color:var(--gold)">${t}</td></tr>
+        ${D[k].map(x => `<tr><td>${x.nro != null ? x.nro + ' · ' : ''}${x.nom}</td><td class="num">${Fd(x.c)}</td><td class="num">${Fd(x.a)}</td>
+          <td class="num" style="font-weight:600;color:var(--usa)">${(x.d > 0 ? '+' : '') + Fd(x.d)}</td>
+          <td style="font-size:11px;color:${/falta/.test(x.est) ? 'var(--usa)' : 'var(--gold)'}">${x.est}</td></tr>`).join('')}`).join('');
+      return `<div class="card" style="margin-top:14px">
+        <div class="section-title" style="font-size:13px;margin:0 0 4px">Dónde está la diferencia · ${LK_MESNOM[M-1]} ${Y}</div>
+        <p style="font-size:11px;color:var(--text3);margin:0 0 10px">Activo por activo, bloque por bloque del COMPLETO contra lo cargado en la app.
+          Por ahora propiedades y bancos. MFL queda afuera.</p>
+        ${bloques ? `<div class="table-wrap"><table style="font-size:12px">
+          <thead><tr><th>Activo</th><th class="num">COMPLETO</th><th class="num">App</th><th class="num">Diferencia</th><th>Qué pasa</th></tr></thead>
+          <tbody>${bloques}</tbody></table></div>`
+          : `<p style="font-size:12px;color:var(--esp);margin:0">En ${LK_MESNOM[M-1]}, propiedades y bancos coinciden activo por activo.</p>`}
+        ${D._noMatch.length ? `<p style="font-size:11px;color:var(--gold);margin:10px 0 0"><b>No los encontré en la app</b> (nombre distinto o no cargado): ${D._noMatch.join(' · ')}</p>` : ''}
+      </div>`; })()}`;
 }
 
 /* v192 — cada sub-solapa de Chequeo contesta una pregunta distinta y la
@@ -17360,7 +17535,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260921-205';
+const APP_VERSION = '20260922-206';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
