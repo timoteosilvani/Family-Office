@@ -7693,8 +7693,18 @@ async function apCierreRender() {
       <div style="font-size:11px;color:var(--text3);margin-top:2px">${ult >= objetivo ? 'Al día.'
         : `Falta ${prox < objetivo ? nom(prox) + ' a ' + nom(objetivo) : nom(objetivo)}${atrasado ? ` — vencía el 15/${String(hoy.getMonth() + 1).padStart(2, '0')}` : ` — se carga antes del 15/${String(hoy.getMonth() + 1).padStart(2, '0')}`}.`}
         Un mes se marca como cargado aunque no haya tenido aportes.</div></div>
-    <div style="display:flex;gap:8px;align-items:center">
-      ${prox <= objetivo ? `<button class="btn-primary" style="width:auto;padding:7px 14px;font-size:12px" onclick="apCierreMarcar(${Math.floor(prox / 12)},${prox % 12 + 1})">Marcar ${nom(prox)} como cargado</button>` : ''}
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      ${(() => {
+        // v204 — se puede marcar de una vez hasta cualquier mes: desde el siguiente al último
+        // marcado (o desde enero del año anterior al objetivo si no hay ninguno) hasta el mes anterior.
+        const desde = ult < 0 ? (Math.floor(objetivo / 12)) * 12 : ult + 1;
+        if (desde > objetivo) return '';
+        const ops = []; for (let i = objetivo; i >= desde; i--) ops.push(i);
+        return `<select id="ap-cierre-hasta" class="fld" style="width:auto;padding:5px 8px;font-size:12px">
+            ${ops.map(i => `<option value="${i}">${nom(i)}</option>`).join('')}</select>
+          <button class="btn-primary" style="width:auto;padding:7px 14px;font-size:12px"
+            onclick="apCierreMarcarHasta(${desde}, parseInt(document.getElementById('ap-cierre-hasta').value))">Marcar cargado hasta ese mes</button>`;
+      })()}
       ${ult >= 0 ? `<button class="btn-secondary" style="padding:7px 12px;font-size:11px" title="Desmarcar el último mes" onclick="apCierreDesmarcar(${Math.floor(ult / 12)},${ult % 12 + 1})">Deshacer ${nom(ult)}</button>` : ''}
     </div></div>`;
 }
@@ -7702,6 +7712,14 @@ async function apCierreMarcar(anio, mes) {
   const { error } = await sb.from('aportes_cierre').upsert({ anio, mes }, { onConflict: 'anio,mes' });
   if (error) return toast('Error: ' + error.message, 'error');
   toast('Aportes de ' + LK_MESNOM[mes - 1] + ' ' + anio + ' marcados como cargados ✓', 'success');
+  apCierreRender();
+}
+async function apCierreMarcarHasta(desde, hasta) {
+  const filas = []; for (let i = desde; i <= hasta; i++) filas.push({ anio: Math.floor(i / 12), mes: i % 12 + 1 });
+  if (!filas.length) return;
+  const { error } = await sb.from('aportes_cierre').upsert(filas, { onConflict: 'anio,mes' });
+  if (error) return toast('Error: ' + error.message, 'error');
+  toast(`Aportes marcados como cargados: ${filas.length} mes${filas.length === 1 ? '' : 'es'} ✓`, 'success');
   apCierreRender();
 }
 async function apCierreDesmarcar(anio, mes) {
@@ -17310,7 +17328,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260921-203';
+const APP_VERSION = '20260921-204';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
