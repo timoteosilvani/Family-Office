@@ -10075,8 +10075,53 @@ async function renderChqCierre() {
           }).join('')}`).join('')}
         </tbody></table></div>
         <p style="font-size:11px;color:var(--text3);margin:10px 0 0">
-          Una diferencia positiva significa que <b>el COMPLETO tiene más</b>: falta cargar algo en la app.</p>`}
+          Una diferencia positiva significa que <b>el COMPLETO tiene más</b>: falta cargar algo en la app.</p>
+        ${(() => { const lst = (_cmp.bancosCarga && _cmp.bancosCarga.sinCargar[M]) || [];
+          return lst.length ? `<p style="font-size:12px;margin:10px 0 0"><b style="color:var(--gold)">Sin saldo de ${LK_MESNOM[M - 1]} en el COMPLETO:</b> ${lst.join(' · ')}</p>` : ''; })()}`}
     </div>`;
+}
+
+/* v201 — REGLA DEL COMPLETO: CELDA BLANCA = SALDO CARGADO (regla de Timoteo, 21/09).
+   En el ANEXO - (BANCOS) los meses que no pasaron igual tienen número (la fórmula
+   arrastra el saldo anterior), así que el valor no sirve para saber qué está cargado.
+   Lo que sirve es el color: cuando se carga un saldo, esa celda se pinta de blanco;
+   mientras tenga relleno, no está cargada.
+   · Filas de detalle = las que en la columna B empiezan con "Invest" o "Cash". La
+     cuenta es el último rótulo de arriba que no sea Total / Credit / NETO.
+   · Una cuenta está cargada en un mes si ALGUNA de sus filas no tiene relleno sólido.
+     Filas con relleno los 12 meses = sub-filas sin uso; cuentas así se ignoran.
+   · Hasta = último mes en que la mayoría de las cuentas en uso están cargadas.
+   · Se reclama una cuenta en el mes M sólo si estaba cargada en M-1: así una cuenta
+     cerrada en febrero no aparece todos los meses. */
+function _chqBancosCarga(ws, XL) {
+  const R = XL.utils.decode_range(ws['!ref']);
+  const c0 = _colEnero(ws, XL);
+  const cuentas = {}; let cur = null;
+  for (let r = R.s.r + 1; r <= R.e.r; r++) {
+    const b = ws[XL.utils.encode_cell({ r, c: 1 })];
+    const t = b && b.v != null ? String(b.v).trim() : '';
+    if (!t) continue;
+    if (/^(invest|cash)/i.test(t)) {
+      if (!cur) continue;
+      const cu = cuentas[cur] = cuentas[cur] || Array(13).fill(false);
+      for (let m = 1; m <= 12; m++) {
+        const c = ws[XL.utils.encode_cell({ r, c: c0 + m - 1 })];
+        const solido = !!(c && c.s && c.s.patternType === 'solid');
+        if (!solido) cu[m] = true;
+      }
+    } else if (!/^(total|credit|neto)/i.test(t)) cur = t;
+  }
+  const enUso = Object.keys(cuentas).filter(k => cuentas[k].some(Boolean));
+  if (!enUso.length) return null;
+  let hasta = 0;
+  for (let m = 1; m <= 12; m++) {
+    const n = enUso.filter(k => cuentas[k][m]).length;
+    if (n > enUso.length / 2) hasta = m;
+  }
+  const sinCargar = {};
+  for (let m = 1; m <= 12; m++)
+    sinCargar[m] = enUso.filter(k => !cuentas[k][m] && m > 1 && cuentas[k][m - 1]);
+  return { hasta, sinCargar, nCuentas: enUso.length };
 }
 
 async function chqMarcarOk(clave, anio, mes, ok) {
@@ -10105,7 +10150,8 @@ async function chqArchivo(input, destino) {
     const buf = await f.arrayBuffer();
     const XL = window.XLSX;
     if (!XL) throw new Error('No cargó la librería de Excel');
-    const wb = XL.read(new Uint8Array(buf), { type:'array', cellDates:true });
+    // v201 — cellStyles: hace falta el relleno de las celdas del anexo de bancos (ver _chqBancosCarga)
+    const wb = XL.read(new Uint8Array(buf), { type:'array', cellDates:true, cellStyles:true });
 
     const meses = {}; for (let m = 1; m <= 12; m++) meses[m] = {};
     const faltan = [];
@@ -10134,7 +10180,9 @@ async function chqArchivo(input, destino) {
     if (wsb && wsb['C1'] && typeof wsb['C1'].v === 'number') anio = wsb['C1'].v;
     if (!anio) { const m = String(f.name).match(/20\d{2}/); anio = m ? +m[0] : new Date().getFullYear(); }
 
-    _cmp = { anio, meses, archivo: f.name, faltan };
+    let bancosCarga = null;
+    try { if (wsb) bancosCarga = _chqBancosCarga(wsb, XL); } catch (e) { console.warn('bancosCarga:', e.message); }
+    _cmp = { anio, meses, archivo: f.name, faltan, bancosCarga };
     if (destino === 'cierre') await renderChqCierre(); else await renderChqCompleto();
   } catch (e) {
     cont.innerHTML = `<div class="card" style="color:var(--usa)">No se pudo leer el archivo: ${e.message}<br>
@@ -10173,12 +10221,15 @@ async function renderChqCompleto() {
   const hayApp = m => claves.some(c => Math.abs(app[m][c.k] || 0) > 0.005);
   let ultApp = 0; for (let m = 1; m <= 12; m++) if (hayApp(m)) ultApp = m;
   const elegido = (window._chqHastaMem && Y in window._chqHastaMem) ? window._chqHastaMem[Y] : _chqHastaGet(Y);
-  const hasta = elegido || ultApp || 12;
+  // v201 — por defecto manda el COMPLETO: último mes con los saldos de bancos en blanco
+  const hastaCmp = _cmp.bancosCarga && _cmp.bancosCarga.hasta || 0;
+  const hasta = elegido || hastaCmp || ultApp || 12;
   const conDato = []; for (let m = 1; m <= hasta; m++) if (hayDato(m)) conDato.push(m);
   const fuera = []; for (let m = hasta + 1; m <= 12; m++) if (hayDato(m)) fuera.push(LK_MESNOM[m-1]);
   const selHasta = `<label style="font-size:11px;color:var(--text3);margin-right:10px">Revisar hasta
     <select onchange="_chqHastaSet(${Y},this.value);renderChqCompleto()" style="font-size:11px;padding:3px 6px;margin-left:4px">
-      <option value="0"${elegido ? '' : ' selected'}>Último cargado en la app${ultApp ? ' (' + LK_MESNOM[ultApp-1] + ')' : ''}</option>
+      <option value="0"${elegido ? '' : ' selected'}>${hastaCmp ? 'Automático · COMPLETO cargado hasta ' + LK_MESNOM[hastaCmp-1]
+                                                   : 'Último cargado en la app' + (ultApp ? ' (' + LK_MESNOM[ultApp-1] + ')' : '')}</option>
       ${LK_MESNOM.map((n, i) => `<option value="${i+1}"${elegido === i+1 ? ' selected' : ''}>${n}</option>`).join('')}
     </select></label>`;
   if (!window._chqMes || !conDato.includes(window._chqMes)) window._chqMes = conDato.length ? conDato[conDato.length - 1] : 1;
@@ -10204,6 +10255,10 @@ async function renderChqCompleto() {
     </div>
 
     <div style="margin-bottom:12px;display:flex;flex-wrap:wrap;align-items:center">${selHasta}<span>${chips}</span></div>
+    ${(() => { const bc = _cmp.bancosCarga; const lst = bc ? (bc.sinCargar[M] || []) : [];
+      return lst.length ? `<div class="card" style="border-color:var(--gold);margin-bottom:12px;font-size:12px">
+        <b style="color:var(--gold)">${lst.length} cuenta${lst.length === 1 ? '' : 's'} sin el saldo de ${LK_MESNOM[M-1]} cargado en el COMPLETO</b>
+        <span style="color:var(--text3)">(celda todavía con color en el anexo de bancos)</span><br>${lst.join(' · ')}</div>` : ''; })()}
 
     <div class="card">
       <div class="section-title" style="font-size:13px;margin:0 0 10px">${LK_MESNOM[M-1]} ${Y}</div>
@@ -17058,7 +17113,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260921-200';
+const APP_VERSION = '20260921-201';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
