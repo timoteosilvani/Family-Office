@@ -558,7 +558,10 @@ th.num { text-align: right; }
 .has-coment { position: relative; cursor: help; }
 .has-coment::after { content: ''; position: absolute; top: 2px; right: 2px; width: 0; height: 0; border-style: solid; border-width: 0 6px 6px 0; border-color: transparent var(--gold) transparent transparent; }
 .coment-tooltip { position: relative; }
-.coment-tooltip:hover .coment-pop { display: block; }
+.coment-tooltip:hover .coment-pop { display: none; }   /* v203 — se muestra flotante (#coment-float) */
+#coment-float { position: fixed; z-index: 99999; pointer-events: none; display: none; background: var(--bg2); border: 1px solid var(--gold);
+  border-radius: 6px; padding: 6px 10px; font-size: 11px; color: var(--text); white-space: normal; max-width: 260px;
+  box-shadow: 0 4px 14px rgba(0,0,0,.25); text-align: left; line-height: 1.35; font-weight: 400; }
 .coment-pop { display: none; position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); background: var(--bg2); border: 1px solid var(--gold); border-radius: 6px; padding: 6px 10px; font-size: 11px; color: var(--text); white-space: normal; width: max-content; max-width: 220px; z-index: 100; box-shadow: 0 4px 12px rgba(0,0,0,0.4); margin-bottom: 4px; text-align: left; }
 td.bold { color: var(--text); font-weight: 500; }
 .positive { color: #5cb85c; }
@@ -10168,6 +10171,35 @@ function _chqBancosCarga(ws, XL) {
   return { hasta, sinCargar, nCuentas: enUso.length };
 }
 
+/* v203 — COMENTARIOS QUE NO SE CORTAN.
+   El globito de los comentarios era position:absolute dentro de la celda, y las tablas
+   viven en .table-wrap (overflow auto): arriba lo cortaba el encabezado o el título
+   (se vio en PE → TGA FINANCIAL, abril). Ahora hay UN globo flotante (position:fixed)
+   para toda la app: al pasar por una celda con comentario se copia su texto y se ubica
+   arriba de la celda, o abajo si no entra, siempre dentro de la pantalla. */
+(function () {
+  let fl = null;
+  const get = () => { if (!fl) { fl = document.createElement('div'); fl.id = 'coment-float'; document.body.appendChild(fl); } return fl; };
+  document.addEventListener('mouseover', ev => {
+    const td = ev.target && ev.target.closest ? ev.target.closest('.coment-tooltip') : null;
+    if (!td) return;
+    const pop = td.querySelector('.coment-pop'); if (!pop || !pop.innerHTML.trim()) return;
+    const f = get(); f.innerHTML = pop.innerHTML; f.style.display = 'block';
+    const r = td.getBoundingClientRect(), w = f.offsetWidth, h = f.offsetHeight, M = 6;
+    let left = r.left + r.width / 2 - w / 2;
+    left = Math.max(M, Math.min(left, window.innerWidth - w - M));
+    let top = r.top - h - M;
+    if (top < M) top = r.bottom + M;
+    f.style.left = left + 'px'; f.style.top = top + 'px';
+  });
+  document.addEventListener('mouseout', ev => {
+    const td = ev.target && ev.target.closest ? ev.target.closest('.coment-tooltip') : null;
+    if (!td || (ev.relatedTarget && td.contains(ev.relatedTarget))) return;
+    if (fl) fl.style.display = 'none';
+  });
+  document.addEventListener('scroll', () => { if (fl) fl.style.display = 'none'; }, true);
+})();
+
 async function chqMarcarOk(clave, anio, mes, ok) {
   const r = ok
     ? await sb.from('completitud_ok').upsert({ clave, anio, mes }, { onConflict: 'clave,anio,mes' })
@@ -11285,15 +11317,36 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
       let _bn = {};
       for (const m of _edVig) {
         const R = await cmLineas(anio, m);
+        const tcM = (tcFor(anio, m) || {}).ars_usd || 0;
         (R.bancos || []).forEach(b => _bn[b.id] = b.nombre);
-        R.lineas.forEach(l => { if (l.cuenta && E[l.cuenta]) E[l.cuenta].lines.push(l); });
-        R.trs.forEach(r => [r.banco_origen_id, r.banco_destino_id].forEach(id => { if (id && E[id] && !E[id].trs.includes(r)) E[id].trs.push(r); }));
+        R.lineas.forEach(l => { if (l.cuenta && E[l.cuenta]) E[l.cuenta].lines.push({ ...l, _tc: tcM }); });
+        R.trs.forEach(r => [r.banco_origen_id, r.banco_destino_id].forEach(id => { if (id && E[id] && !E[id].trs.some(z => z.id === r.id && z.fecha === r.fecha)) E[id].trs.push({ ...r, _tc: tcM }); }));
       }
+      /* v203 — CUENTAS EN PESOS, EN PESOS (Timoteo, 21/09). Una cuenta es ARS si sus
+         saldos del año sólo tienen campos *_ars (mismo criterio que Cuentas y tarjetas).
+         Su bloque va en AR$: saldo nativo (inversión + cash, sin crédito), rubros en pesos
+         por su importe exacto y el resto × TC del mes del movimiento. El umbral de
+         USD 10.000 se compara convirtiendo con el TC del último mes del período. */
+      const _F_ARS = ['invest_account_ars','cash_ars','credit_ars'];
+      const _F_OTR = ['invest_account_usd','cash_usd','credit_usd','invest_account_uyu','cash_uyu','credit_uyu','invest_account_eur','cash_eur','credit_eur'];
+      const _nz = v => Math.abs(Number(v) || 0) > 0.005;
+      const _rowsB = bid => Object.values(byBankMes[bid] || {}).concat((mbPrevDicR.data || []).filter(m => m.banco_id === bid));
+      const _esARS = bid => { const rs = _rowsB(bid); return rs.some(m => _F_ARS.some(f => _nz(m[f]))) && !rs.some(m => _F_OTR.some(f => _nz(m[f]))); };
+      const _cashARS = m => m ? (Number(m.invest_account_ars) || 0) + (Number(m.cash_ars) || 0) : null;
+      const _movArsAt = (bid, upTo) => { if (upTo < 1) return (mbPrevDicR.data || []).find(m => m.banco_id === bid) || null;
+        const mm = byBankMes[bid] || {}; let best = 0; for (const k in mm) { const km = +k; if (km <= upTo && km > best) best = km; }
+        return best ? mm[best] : ((mbPrevDicR.data || []).find(m => m.banco_id === bid) || null); };
+      const _tcFin = (tcFor(anio, m2) || {}).ars_usd || 0;
       const _fdm = f => { const d = String(f || ''); return d.length >= 10 ? d.slice(8, 10) + '/' + d.slice(5, 7) : d; };
       const _lista = arr => { const u = [...new Set(arr)]; return u.length <= 3 ? u.join(', ') : u.slice(0, 3).join(', ') + ' y ' + (u.length - 3) + ' más'; };
       const bloques = [];
       _bDat.filter(x => opIds.has(x.b.id)).forEach(x => {
         const e = E[x.b.id];
+        const ars = _esARS(x.b.id) && _tcFin > 0;
+        // importe en la moneda de la cuenta
+        const cL = l => !ars ? (l.dir === 'cobro' ? 1 : -1) * l.usd
+          : (l.dir === 'cobro' ? 1 : -1) * (l.mon === 'ARS' ? Math.abs(l.v) * (l.usd < 0 ? -1 : 1) : l.usd * (l._tc || _tcFin));
+        const cT = r => !ars ? (Number(r.monto_usd) || 0) : (r.moneda === 'ARS' ? Number(r.monto) || 0 : (Number(r.monto_usd) || 0) * (r._tc || _tcFin));
         const L = [];   // { sg, txt, v }
         // transferencias, una por una
         e.trs.slice().sort((a, b) => String(a.fecha).localeCompare(String(b.fecha))).forEach(r => {
@@ -11301,10 +11354,10 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
           const otra = out ? (r.banco_destino_id ? (_bn[r.banco_destino_id] || 'otra cuenta') : (r.destino_externo || 'cuenta ajena'))
                            : (r.banco_origen_id ? (_bn[r.banco_origen_id] || 'otra cuenta') : (r.origen_externo || 'origen externo'));
           L.push({ k: out ? '↗' : '↘', txt: `Transferencia ${out ? 'a' : 'de'} ${otra} · ${_fdm(r.fecha)}${r.concepto ? ` · <i>"${r.concepto}"</i>` : ''}`,
-                   v: (out ? -1 : 1) * (Number(r.monto_usd) || 0) });
+                   v: (out ? -1 : 1) * cT(r) });
         });
-        if (x.ap > 0.5) L.push({ k: '+', txt: 'Aportes de capital', v: x.ap });
-        if (x.re > 0.5) L.push({ k: '−', txt: 'Retiros de capital', v: -x.re });
+        if (x.ap > 0.5) L.push({ k: '+', txt: 'Aportes de capital', v: x.ap * (ars ? _tcFin : 1) });
+        if (x.re > 0.5) L.push({ k: '−', txt: 'Retiros de capital', v: -x.re * (ars ? _tcFin : 1) });
         // rentas y pagos agrupados por tipo
         const grp = {};
         e.lines.forEach(l => {
@@ -11312,29 +11365,33 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
             ? ({ propiedad: 'Rentas cobradas', pe: 'Private equity cobrado' }[l.t.key] || 'Cobros')
             : ({ propiedad: 'Gastos de propiedades', auto: 'Autos', sociedad: 'Sociedades', pe: 'Private equity' }[l.t.key] || 'Pagos');
           const G = grp[g] = grp[g] || { v: 0, n: 0, act: [], rub: [] };
-          G.v += (l.dir === 'cobro' ? 1 : -1) * l.usd; G.n++; G.act.push(l.act.nombre); G.rub.push((LK_NOM[l.rubro] || l.rubro).toLowerCase());
+          G.v += cL(l); G.n++; G.act.push(l.act.nombre); G.rub.push((LK_NOM[l.rubro] || l.rubro).toLowerCase());
         });
         Object.entries(grp).sort((a, b) => Math.abs(b[1].v) - Math.abs(a[1].v)).forEach(([g, G]) => {
           const det = g === 'Rentas cobradas' || g.startsWith('Private') || g === 'Sociedades' || g === 'Cobros'
             ? _lista(G.act) : _lista(G.rub) + ` (${G.n} pago${G.n === 1 ? '' : 's'})`;
           L.push({ k: G.v >= 0 ? '+' : '−', txt: `${g} · ${det}`, v: G.v });
         });
-        const vari = x.c - x.a;
+        const sA = ars ? _cashARS(_movArsAt(x.b.id, m1 - 1)) : x.a;
+        const sC = ars ? _cashARS(_movArsAt(x.b.id, m2)) : x.c;
+        const vari = (sC || 0) - (sA || 0);
         const expl = L.reduce((s, l) => s + l.v, 0);
         const sinExp = vari - expl;
-        // la tabla de arriba pasa a decir lo mismo que el bloque
+        // la tabla de arriba (en USD) pasa a decir lo mismo que el bloque
         x.cobro = e.lines.filter(l => l.dir === 'cobro').reduce((s, l) => s + l.usd, 0);
         x.pago  = e.lines.filter(l => l.dir === 'pago').reduce((s, l) => s + l.usd, 0);
-        x.personales = -sinExp;
-        const relevante = Math.abs(vari) > _ED_UMBRAL || (Math.abs(x.a) > 0.5 && Math.abs(vari) > _ED_PCT * Math.abs(x.a));
+        x.personales = -(ars ? sinExp / _tcFin : sinExp);
+        const variUSD = ars ? vari / _tcFin : vari;
+        const relevante = Math.abs(variUSD) > _ED_UMBRAL || (Math.abs(sA || 0) > 0.5 && Math.abs(vari) > _ED_PCT * Math.abs(sA));
         if (!relevante) return;
-        const pct = Math.abs(x.a) > 0.5 ? ` (${vari < 0 ? '−' : '+'}${Math.round(Math.abs(vari) / Math.abs(x.a) * 100)} %)` : '';
+        const pct = Math.abs(sA || 0) > 0.5 ? ` (${vari < 0 ? '−' : '+'}${Math.round(Math.abs(vari) / Math.abs(sA) * 100)} %)` : '';
         const aviso = Math.abs(vari) > 0.5 && Math.abs(sinExp) > _ED_AVISO * Math.abs(vari);
-        const S = v => (v < 0 ? '−' : '+') + $m(Math.abs(v)).replace('$', 'USD ');
+        const MON = ars ? 'AR$ ' : 'USD ';
+        const S = v => (v < 0 ? '−' : '+') + $m(Math.abs(v)).replace('$', MON);
         bloques.push(`<div style="margin-top:8px">
           <div style="display:flex;justify-content:space-between;align-items:baseline;border-bottom:1.5px solid var(--navy,#0F2A43);padding:3px 0 4px">
             <b style="font-size:12.5px;color:var(--navy,#0F2A43)">${x.b.nombre}</b>
-            <span style="font-size:11.5px">${$m(x.a).replace('$', 'USD ')} → ${$m(x.c).replace('$', 'USD ')} &nbsp;
+            <span style="font-size:11.5px">${$m(sA || 0).replace('$', MON)} → ${$m(sC || 0).replace('$', MON)} &nbsp;
               <b style="color:${vari < 0 ? 'var(--usa)' : 'var(--esp)'}">${S(vari)}${pct}</b></span></div>
           <table style="width:100%;border-collapse:collapse;font-size:11.5px;margin:3px 0 2px"><tbody>
             ${L.map(l => `<tr><td style="width:18px;color:var(--text3);padding:3px 4px">${l.k}</td><td style="padding:3px 4px">${l.txt}</td>
@@ -11351,7 +11408,8 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
         <div class="section-title" style="margin-bottom:6px">Movimientos relevantes · cuentas operativas</div>
         ${bloques.join('')}
         <p style="font-size:11px;color:var(--text3);margin:10px 0 0">Se detallan las cuentas operativas que se movieron más de USD 10.000
-          o más del 10 % en el período. Las demás no se detallan. Las cuentas de inversión no entran: su variación es rendimiento.</p></div>`;
+          o más del 10 % en el período. Las demás no se detallan. Las cuentas de inversión no entran: su variación es rendimiento.
+          Las cuentas en pesos se muestran en pesos.</p></div>`;
     } catch (e) { console.warn('etapa D:', e.message); }
   }
 
@@ -17252,7 +17310,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260921-202';
+const APP_VERSION = '20260921-203';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
