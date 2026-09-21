@@ -4977,8 +4977,15 @@ function tcFor(anio, mes) {
    mezcla pesos con dolares y el total no cierra nunca contra las columnas
    _usd — que es exactamente lo que pasaba en el linkeo del informe mensual.
    `secMon` es 'moneda_renta' | 'moneda_gastos' | 'moneda_impuestos'. */
+/* v209 — RUBRO QUE SE VE PERO NO SUMA. Algunos rubros del COMPLETO están registrados
+   pero la fórmula del bloque no los suma (COMPLETO 2020: luz de Forum B303, tributo
+   domiciliario de los Forum y Pedro Campbell, saneamiento de Pedro Campbell). Decisión
+   de Timoteo (22/09): la app hace lo mismo — el importe queda cargado y se muestra,
+   pero no entra en ningún total. Se marca en `detalle[<rubro>].no_suma = true`. */
+const rubroNoSuma = (m, campo) => !!(m && m.detalle && m.detalle[campo] && m.detalle[campo].no_suma === true);
 function rubroPropUSD(m, campo, secMon) {
   if (!m) return 0;
+  if (rubroNoSuma(m, campo)) return 0;
   const mon = m['moneda_' + campo] || (secMon ? m[secMon] : null) || m.moneda || 'USD';
   return convUSD(Number(m[campo]) || 0, mon, m.anio, m.mes);
 }
@@ -7083,15 +7090,14 @@ async function guardarMovProp() {
   }
 
   // 4. Recalculate totals from ALL fields (merged)
-  const totalRenta = toUSD((base.renta||0) + (base.otro_ingreso||0), base.moneda_renta||'USD');
+  const _ns = f => rubroNoSuma(base, f) ? 0 : (base[f] || 0);   // v209 — lo que no suma, no suma
+  const totalRenta = toUSD(_ns('renta') + _ns('otro_ingreso'), base.moneda_renta||'USD');
   const totalGastos = toUSD(
-    [base.gas,base.luz,base.cable,base.telefono,base.expensas,base.jardinero,
-     base.limpieza,base.mantenimiento,base.deposito,base.comision,base.seguros,
-     base.administracion,base.otros_gastos].reduce((a,b)=>a+(b||0),0), base.moneda_gastos||'USD');
+    ['gas','luz','cable','telefono','expensas','jardinero','limpieza','mantenimiento','deposito','comision',
+     'seguros','administracion','otros_gastos'].reduce((a,f)=>a+_ns(f),0), base.moneda_gastos||'USD');
   const totalImp = toUSD(
-    [base.arba_abl,base.municipalidad_tigre,base.property_tax,base.tributo_domiciliario,
-     base.impuesto_primarias,base.contribucion_inmobiliaria,base.saneamiento,
-     base.ascensor,base.otros_impuestos].reduce((a,b)=>a+(b||0),0), base.moneda_impuestos||'USD');
+    ['arba_abl','municipalidad_tigre','property_tax','tributo_domiciliario','impuesto_primarias',
+     'contribucion_inmobiliaria','saneamiento','ascensor','otros_impuestos'].reduce((a,f)=>a+_ns(f),0), base.moneda_impuestos||'USD');
 
   base.total_renta_usd = totalRenta;
   base.total_gastos_usd = totalGastos;
@@ -10344,7 +10350,10 @@ const _CHQ_ALIAS = {
   pedrocampbel:'pedrocampbell', '1050brickell':'1050brickell2922', '1060brickell':'1050brickell2922',
   bh3002:'brickellheights3002', bh3105:'brickellheights3105', ocenana1104s:'oceana1102', lagasca72:'lagasca',
   arce:'arce8835d', vitta1:'vitta204', vitta2:'vitta404', vitta3:'vitta702', vitta504:'vitta505',
-  olleros1890:'olleros1900', keycolonia602:'keycolony353', coraltower302:'coral302', arcos1440piso12052c:'arcos1440p12', oceana1104s:'oceana1102', arcos:'arcos4b', fontainebleau3405:'fontainebleau3405tresor',
+  olleros1890:'olleros1900', keycolonia602:'keycolony353', coraltower302:'coral302', arcos1440piso12052c:'arcos1440p12', oceana1104s:'oceana1102',
+  // v210 — cuentas de años viejos, equivalencias de Timoteo (22/09)
+  itau:'itau4386us9610', hsbc:['galicabb10262','galiciabb10262','galicabb','galiciabb'],
+  chasemiamioffida:'chasemiamibeachoffida7535', bnyfcfccyacfranc:'bnyhermanos2618', arcos:'arcos4b', fontainebleau3405:'fontainebleau3405tresor',
 };
 /* v208 — MATCHEO MÁS ESTRICTO Y CON SINÓNIMOS.
    · Sinónimos: "BANK OF NEW YORK" = BNY · "M BENZ" / "MERCEDES BENZ" = MB · "PEOGEOT" = Peugeot.
@@ -10362,7 +10371,11 @@ function _chqMatch(nombre, lista) {           // lista: [{id, nombre, titular}]
   const n = _chqN(nombre); if (!n) return null;
   const idx = {}; lista.forEach(x => { idx[_chqN(x.nombre)] = x; });
   if (idx[n]) return idx[n];
-  if (_CHQ_ALIAS[n] && idx[_CHQ_ALIAS[n]]) return idx[_CHQ_ALIAS[n]];
+  for (const al of [].concat(_CHQ_ALIAS[n] || [])) {
+    if (idx[al]) return idx[al];
+    const c1 = lista.filter(x => _chqN(String(x.nombre || '').replace(/\s*-\s*[\d\/ ]+$/, '')) === al);
+    if (c1.length === 1) return c1[0];
+  }
   // el nombre de la app sin el número de cuenta del final (" - 7335", " - 1169/1")
   const sinNro = x => _chqN(String(x.nombre || '').replace(/\s*-\s*[\d\/ ]+$/, ''));
   let c = lista.filter(x => sinNro(x) === n);
@@ -15314,6 +15327,7 @@ async function guardarMovProp2() {
   // Recalculate totals — CADA CONCEPTO con su propia moneda
   // (USD se suma directo; pesos/UYU/EUR se dividen por el TC del mes)
   const cvField = (val, field, sectionMoneda) => {
+    if (rubroNoSuma(base, field)) return 0;   // v209 — se ve, no suma
     const m = getMn('mn-' + field) || base['moneda_' + field] || sectionMoneda || 'USD';
     return convUSD(val || 0, m, anio, mes);
   };
@@ -15614,7 +15628,7 @@ async function verGastosTabla() {
     const monedaNote = moneda !== 'USD' ? ` · valores en ${moneda}` : '';
 
     const _mFor = (mm, f, sk) => mm['moneda_'+f] || mm['moneda_'+sk] || 'USD';
-    const _secUSD = (concepts, sk) => [1,2,3,4,5,6,7,8,9,10,11,12].map(m => { const mm=byMes[m]; if(!mm) return 0; return concepts.reduce((s,[,f]) => s + convUSD(parseFloat(mm[f])||0, _mFor(mm,f,sk), anio, m), 0); });
+    const _secUSD = (concepts, sk) => [1,2,3,4,5,6,7,8,9,10,11,12].map(m => { const mm=byMes[m]; if(!mm) return 0; return concepts.reduce((s,[,f]) => s + (rubroNoSuma(mm, f) ? 0 : convUSD(parseFloat(mm[f])||0, _mFor(mm,f,sk), anio, m)), 0); });
     const _rU=_secUSD(RENTAS,'renta'), _gU=_secUSD(GASTOS,'gastos'), _iU=_secUSD(IMPUESTOS,'impuestos');
     const _nU=_rU.map((v,i)=>v-_gU[i]-_iU[i]);
     // v193: MFL se ve en su tarjeta pero NO suma al consolidado (regla de toda la app)
@@ -15626,11 +15640,14 @@ async function verGastosTabla() {
         <td colspan="14" style="font-weight:600;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:${color};padding:6px 12px">${label}</td>
       </tr>`;
       active.forEach(([name, field]) => {
-        const vals = [1,2,3,4,5,6,7,8,9,10,11,12].map(m => ({ v: byMes[m]?.[field]||0, c: byMes[m]?.comentarios?.[field]||'' }));
-        const tot = vals.reduce((a,b)=>a+b.v,0);
+        // v209 — un rubro que no suma se ve tachado y con la aclaración en el globo
+        const vals = [1,2,3,4,5,6,7,8,9,10,11,12].map(m => { const ns = rubroNoSuma(byMes[m], field);
+          const c0 = byMes[m]?.comentarios?.[field] || '';
+          return { v: byMes[m]?.[field]||0, ns, c: ns ? ('No suma: el COMPLETO lo registra pero no lo incluye en el total.' + (c0 ? ' · ' + c0 : '')) : c0 }; });
+        const tot = vals.reduce((a,b)=>a+(b.ns?0:b.v),0);
         rows += `<tr><td style="font-size:10px;padding-left:16px">${name}</td>
           <td class="num bold" style="font-size:10px;border-right:2px solid var(--border2)">${tot>0?fmt(tot):'—'}</td>
-          ${vals.map(({v,c})=>`<td class="num ${c?'coment-tooltip has-coment':''}" style="font-size:10px;position:relative">${v>0?fmt(v):'—'}${c?`<span class="coment-pop">💬 ${c}</span>`:''}</td>`).join('')}</tr>`;
+          ${vals.map(({v,c,ns})=>`<td class="num ${c?'coment-tooltip has-coment':''}" style="font-size:10px;position:relative;${ns?'text-decoration:line-through;color:var(--text3)':''}">${v>0?fmt(v):'—'}${c?`<span class="coment-pop">💬 ${c}</span>`:''}</td>`).join('')}</tr>`;
       });
       const totUSD = usdArr;
       const grand = totUSD.reduce((a,b)=>a+b,0);
@@ -17612,7 +17629,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260922-208';
+const APP_VERSION = '20260922-210';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
