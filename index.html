@@ -10344,19 +10344,32 @@ const _CHQ_ALIAS = {
   pedrocampbel:'pedrocampbell', '1050brickell':'1050brickell2922', '1060brickell':'1050brickell2922',
   bh3002:'brickellheights3002', bh3105:'brickellheights3105', ocenana1104s:'oceana1102', lagasca72:'lagasca',
   arce:'arce8835d', vitta1:'vitta204', vitta2:'vitta404', vitta3:'vitta702', vitta504:'vitta505',
-  olleros1890:'olleros1900', keycolonia602:'keycolony353', coraltower302:'coral302', arcos:'arcos4b', fontainebleau3405:'fontainebleau3405tresor',
+  olleros1890:'olleros1900', keycolonia602:'keycolony353', coraltower302:'coral302', arcos1440piso12052c:'arcos1440p12', oceana1104s:'oceana1102', arcos:'arcos4b', fontainebleau3405:'fontainebleau3405tresor',
 };
+/* v208 — MATCHEO MÁS ESTRICTO Y CON SINÓNIMOS.
+   · Sinónimos: "BANK OF NEW YORK" = BNY · "M BENZ" / "MERCEDES BENZ" = MB · "PEOGEOT" = Peugeot.
+   · "Forum 203B" (planilla) = "Forum B203" (app).
+   · Orden: igual → alias → igual sacando el número de cuenta del final del nombre de la app
+     ("JP MORGAN (JCFC INC)" = "JP MORGAN (JCFC Inc) - 7335") → misma patente (autos) →
+     "empieza con" si hay uno solo. Se sacó el "prefijo común ≥ 8": hacía que BANK OF AMERICA
+     LATAM (otra cuenta, en cero) cayera sobre BANK OF AMERICA 9764 y la marcara como sobrante.
+   · Varios bloques que caen en el mismo activo se SUMAN antes de comparar (ver _chqDiferencias). */
 const _chqN = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]/g, '')
-  .replace(/^forum(\d+)([a-z])$/, 'forum$2$1');   // "Forum 203B" (planilla) = "Forum B203" (app)
+  .replace(/bankofnewyork/g, 'bny').replace(/mercedesbenz|mbenz/g, 'mb').replace(/peogeot/g, 'peugeot')
+  .replace(/^forum(\d+)([a-z])$/, 'forum$2$1');
+const _chqPatente = s => { const m = String(s || '').toUpperCase().match(/\b([A-Z]{2}\d{3}[A-Z]{2}|[A-Z]{3}\d{3}|[A-Z]\d{3}[A-Z]{3}|[A-Z]{4}\d{2})\b/); return m ? m[1] : null; };
 function _chqMatch(nombre, lista) {           // lista: [{id, nombre, titular}]
   const n = _chqN(nombre); if (!n) return null;
   const idx = {}; lista.forEach(x => { idx[_chqN(x.nombre)] = x; });
   if (idx[n]) return idx[n];
   if (_CHQ_ALIAS[n] && idx[_CHQ_ALIAS[n]]) return idx[_CHQ_ALIAS[n]];
-  let c = lista.filter(x => { const k = _chqN(x.nombre); return k && (k.startsWith(n) || n.startsWith(k)); });
+  // el nombre de la app sin el número de cuenta del final (" - 7335", " - 1169/1")
+  const sinNro = x => _chqN(String(x.nombre || '').replace(/\s*-\s*[\d\/ ]+$/, ''));
+  let c = lista.filter(x => sinNro(x) === n);
   if (c.length === 1) return c[0];
-  const pref = (a, b) => { let i = 0; while (i < a.length && a[i] === b[i]) i++; return i; };
-  c = lista.filter(x => pref(_chqN(x.nombre), n) >= 8);
+  const pat = _chqPatente(nombre);
+  if (pat) { c = lista.filter(x => _chqPatente(x.nombre) === pat); if (c.length === 1) return c[0]; }
+  c = lista.filter(x => { const k = sinNro(x); return k && (k.startsWith(n) || n.startsWith(k)); });
   return c.length === 1 ? c[0] : null;
 }
 function _chqMonedaFila(lbl) {
@@ -10470,6 +10483,7 @@ async function _chqAppDetalle(Y) {
   return _chqDetApp.p;
 }
 // Diferencias por activo para un mes. Devuelve { 'Propiedades|renta': [..], 'Bancos|cash': [..], ..., _noMatch: [..] }
+// v208 — los bloques del COMPLETO se agrupan por activo de la app y se SUMAN antes de comparar.
 async function _chqDiferencias(Y, M) {
   const det = _cmp && _cmp.det; if (!det) return null;
   const A = await _chqAppDetalle(Y);
@@ -10478,80 +10492,59 @@ async function _chqDiferencias(Y, M) {
   const TOL = 1, res = { _noMatch: [] };
   const push = (k, it) => (res[k] = res[k] || []).push(it);
   const estado = (c, a) => Math.abs(a) < 0.5 ? 'falta en la app' : (Math.abs(c) < 0.5 ? 'sobra en la app' : (c > a ? 'la app tiene menos' : 'la app tiene más'));
+  const nz = o => Object.values(o || {}).some(v => Math.abs(v || 0) > TOL);
+  const peMatch = nom => _chqMatch(nom, A.B.pe || []) || (typeof PE_ALIAS !== 'undefined'
+    ? (A.B.pe || []).find(x => _chqN(PE_ALIAS[_peNorm(x.nombre)] || '') === _chqN(nom)) : null);
+  /* agrupar: bloques → activo. `leer(nom)` da los valores del bloque en el mes (ya en USD),
+     `buscar(nom)` el activo. Devuelve { id: { e, c:{...} } } */
+  const agrupar = (bloques, buscar, leer, tipo) => {
+    const G = {};
+    Object.keys(bloques || {}).forEach(nom => {
+      const c = leer(nom), e = buscar(nom);
+      if (!e) { if (nz(c)) res._noMatch.push(tipo + ' "' + nom + '"'); return; }
+      const g = G[e.id] = G[e.id] || { e, c: {} };
+      Object.keys(c).forEach(k => g.c[k] = (g.c[k] || 0) + (c[k] || 0));
+    });
+    return G;
+  };
+  // compara lo agrupado contra la app y marca lo que la app tiene y el COMPLETO no
+  const comparar = (G, lista, appMap, pares) => {
+    Object.values(G).forEach(({ e, c }) => { if (e.titular === 'MFL') return;
+      const a = (appMap[e.id] || {})[M] || {};
+      pares.forEach(([fc, fa, key]) => { const cv = c[fc] || 0, av = a[fa] || 0;
+        if (Math.abs(cv - av) > TOL) push(key, { nom: e.nombre, nro: e.nro, c: cv, a: av, d: cv - av, est: estado(cv, av) }); }); });
+    lista.forEach(e => { if (G[e.id] || e.titular === 'MFL') return; const a = (appMap[e.id] || {})[M]; if (!a) return;
+      pares.forEach(([fc, fa, key]) => { const av = a[fa] || 0;
+        if (Math.abs(av) > TOL) push(key, { nom: e.nombre, nro: e.nro, c: 0, a: av, d: -av, est: 'sobra en la app · no está en el COMPLETO' }); }); });
+  };
   // propiedades
-  const props = A.B.props, vistos = new Set();
-  Object.keys(det.prop).forEach(nom => {
-    const p = _chqMatch(nom, props);
-    const c = (det.prop[nom] || {})[M] || {};
-    if (!p) { if (['renta','gastos','impuestos'].some(k => Math.abs(c[k] || 0) > TOL)) res._noMatch.push('Propiedad "' + nom + '"'); return; }
-    vistos.add(p.id);
-    if (p.titular === 'MFL') return;
-    const a = (A.prop[p.id] || {})[M] || {};
-    ['renta','gastos','impuestos'].forEach(k => { const cv = c[k] || 0, av = a[k] || 0;
-      if (Math.abs(cv - av) > TOL) push('Propiedades|' + k, { nom: p.nombre, nro: p.nro, c: cv, a: av, d: cv - av, est: estado(cv, av) }); });
-  });
-  props.forEach(p => { if (vistos.has(p.id) || p.titular === 'MFL') return; const a = (A.prop[p.id] || {})[M] || {};
-    ['renta','gastos','impuestos'].forEach(k => { const av = a[k] || 0;
-      if (Math.abs(av) > TOL) push('Propiedades|' + k, { nom: p.nombre, nro: p.nro, c: 0, a: av, d: -av, est: 'sobra en la app · no está en el COMPLETO' }); }); });
-  // bancos
-  const bancos = A.B.bancos, vb = new Set();
-  Object.keys(det.banco).forEach(nom => {
-    const b = _chqMatch(nom, bancos);
-    const raw = (det.banco[nom] || {})[M] || {};
-    const c = { inv:0, cash:0, cred:0 };
-    Object.keys(raw).forEach(k => { const [f, mon] = k.split('|'); c[f] += aUSD(raw[k], mon); });
-    if (!b) { if (Math.abs(c.inv) + Math.abs(c.cash) + Math.abs(c.cred) > TOL) res._noMatch.push('Cuenta "' + nom + '"'); return; }
-    vb.add(b.id);
-    if (b.titular === 'MFL') return;
-    const a = (A.banco[b.id] || {})[M] || { inv:0, cash:0, cred:0 };
-    [['inv','invest'],['cash','cash'],['cred','credit']].forEach(([f, k]) => { const cv = c[f], av = a[f] || 0;
-      if (Math.abs(cv - av) > TOL) push('Bancos|' + k, { nom: b.nombre, nro: b.nro, c: cv, a: av, d: cv - av, est: estado(cv, av) }); });
-  });
-  bancos.forEach(b => { if (vb.has(b.id) || b.titular === 'MFL') return; const a = (A.banco[b.id] || {})[M]; if (!a) return;
-    [['inv','invest'],['cash','cash'],['cred','credit']].forEach(([f, k]) => { const av = a[f] || 0;
-      if (Math.abs(av) > TOL) push('Bancos|' + k, { nom: b.nombre, nro: b.nro, c: 0, a: av, d: -av, est: 'sobra en la app · no está en el COMPLETO' }); }); });
-  /* v207 — autos, sociedades y private equity con el mismo esquema */
-  const cmp = (key, ent, cv, av) => { if (Math.abs(cv - av) > TOL) push(key, { nom: ent.nombre, nro: ent.nro, c: cv, a: av, d: cv - av, est: estado(cv, av) }); };
-  const sobrantes = (lista, vistosIds, appMap, pares) => lista.forEach(e => { if (vistosIds.has(e.id) || e.titular === 'MFL') return;
-    const a = (appMap[e.id] || {})[M]; if (!a) return;
-    pares.forEach(([f, key]) => { const av = a[f] || 0; if (Math.abs(av) > TOL) push(key, { nom: e.nombre, nro: e.nro, c: 0, a: av, d: -av, est: 'sobra en la app · no está en el COMPLETO' }); }); });
-  const nz3 = o => Object.values(o || {}).some(v => Math.abs(v || 0) > TOL);
+  comparar(agrupar(det.prop, n => _chqMatch(n, A.B.props), n => ({ ...((det.prop[n] || {})[M] || {}) }), 'Propiedad'),
+    A.B.props, A.prop, [['renta','renta','Propiedades|renta'], ['gastos','gastos','Propiedades|gastos'], ['impuestos','impuestos','Propiedades|impuestos']]);
+  // bancos (cada fila en su moneda → USD con el TC del mes)
+  comparar(agrupar(det.banco, n => _chqMatch(n, A.B.bancos), n => {
+      const raw = (det.banco[n] || {})[M] || {}, c = { inv:0, cash:0, cred:0 };
+      Object.keys(raw).forEach(k => { const [f, mon] = k.split('|'); c[f] += aUSD(raw[k], mon); }); return c; }, 'Cuenta'),
+    A.B.bancos, A.banco, [['inv','inv','Bancos|invest'], ['cash','cash','Bancos|cash'], ['cred','cred','Bancos|credit']]);
   // autos
-  const autos = A.B.autos || [], va = new Set();
-  Object.keys(det.auto || {}).forEach(nom => { const e = _chqMatch(nom, autos), c = (det.auto[nom] || {})[M] || {};
-    if (!e) { if (nz3(c)) res._noMatch.push('Auto "' + nom + '"'); return; }
-    va.add(e.id); if (e.titular === 'MFL') return;
-    cmp('Autos|total', e, c.total || 0, ((A.auto[e.id] || {})[M] || {}).total || 0); });
-  sobrantes(autos, va, A.auto, [['total', 'Autos|total']]);
-  // private equity (su anexo propio)
-  const pes = A.B.pe || [], vp = new Set();
-  const peMatch = nom => _chqMatch(nom, pes) || (typeof PE_ALIAS !== 'undefined' ? pes.find(x => _chqN(PE_ALIAS[_peNorm ? _peNorm(x.nombre) : ''] || '') === _chqN(nom)) : null);
-  Object.keys(det.pe || {}).forEach(nom => { const e = peMatch(nom), c = (det.pe[nom] || {})[M] || {};
-    if (!e) { if (nz3(c)) res._noMatch.push('Private equity "' + nom + '"'); return; }
-    vp.add(e.id); if (e.titular === 'MFL') return;
-    const a = (A.pe[e.id] || {})[M] || {};
-    cmp('Private equity|utilidad', e, c.util || 0, a.util || 0);
-    cmp('Private equity|aportedecapital', e, c.ap || 0, a.ap || 0); });
-  // sociedades (y, en 2020-2022, las posiciones de PE que vivían adentro)
-  const socs = A.B.socs || [], vs = new Set();
-  Object.keys(det.soc || {}).forEach(nom => { const c = (det.soc[nom] || {})[M] || {};
-    const e = _chqMatch(nom, socs);
-    if (e) { vs.add(e.id); if (e.titular === 'MFL') return; const a = (A.soc[e.id] || {})[M] || {};
-      cmp('Sociedades|aportes', e, c.aportes || 0, a.aportes || 0);
-      cmp('Sociedades|impuestos', e, c.impuestos || 0, a.impuestos || 0);
-      cmp('Sociedades|otrosgastos', e, c.otros || 0, a.otros || 0); return; }
-    const p = _cmp.peEnSoc ? peMatch(nom) : null;
-    if (p) { vp.add(p.id); if (p.titular === 'MFL') return; const a = (A.pe[p.id] || {})[M] || {};
-      cmp('Private equity|utilidad', p, c.div || 0, a.util || 0);
-      cmp('Sociedades|aportes', p, c.aportes || 0, a.ap || 0); return; }
-    if (nz3(c)) res._noMatch.push('Sociedad "' + nom + '"'); });
-  sobrantes(socs, vs, A.soc, [['aportes', 'Sociedades|aportes'], ['impuestos', 'Sociedades|impuestos'], ['otros', 'Sociedades|otrosgastos']]);
-  sobrantes(pes, vp, A.pe, _cmp.peEnSoc ? [['util', 'Private equity|utilidad'], ['ap', 'Sociedades|aportes']]
-                                         : [['util', 'Private equity|utilidad'], ['ap', 'Private equity|aportedecapital']]);
+  comparar(agrupar(det.auto, n => _chqMatch(n, A.B.autos || []), n => ({ ...((det.auto[n] || {})[M] || {}) }), 'Auto'),
+    A.B.autos || [], A.auto, [['total','total','Autos|total']]);
+  // private equity con anexo propio
+  const Gpe = agrupar(det.pe, peMatch, n => ({ ...((det.pe[n] || {})[M] || {}) }), 'Private equity');
+  // sociedades; en 2020-2022 las posiciones de PE vivían adentro del anexo de sociedades
+  const blSoc = {}, blPe = {};
+  Object.keys(det.soc || {}).forEach(n => { if (_chqMatch(n, A.B.socs || [])) blSoc[n] = det.soc[n];
+    else if (_cmp.peEnSoc && peMatch(n)) blPe[n] = det.soc[n]; else blSoc[n] = det.soc[n]; });
+  comparar(agrupar(blSoc, n => _chqMatch(n, A.B.socs || []), n => ({ ...((blSoc[n] || {})[M] || {}) }), 'Sociedad'),
+    A.B.socs || [], A.soc, [['aportes','aportes','Sociedades|aportes'], ['impuestos','impuestos','Sociedades|impuestos'], ['otros','otros','Sociedades|otrosgastos']]);
+  if (_cmp.peEnSoc) {
+    comparar(agrupar(blPe, peMatch, n => { const o = (blPe[n] || {})[M] || {}; return { util: o.div || 0, ap: o.aportes || 0 }; }, 'Private equity'),
+      A.B.pe || [], A.pe, [['util','util','Private equity|utilidad'], ['ap','ap','Sociedades|aportes']]);
+  } else {
+    comparar(Gpe, A.B.pe || [], A.pe, [['util','util','Private equity|utilidad'], ['ap','ap','Private equity|aportedecapital']]);
+  }
   Object.keys(res).forEach(k => { if (k !== '_noMatch') res[k].sort((x, y) => Math.abs(y.d) - Math.abs(x.d)); });
   return res;
 }
-
 async function renderChqCompleto() {
   const cont = document.getElementById('chqc-contenido'); if (!cont) return;
   if (!_cmp) {
@@ -17619,7 +17612,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260922-207';
+const APP_VERSION = '20260922-208';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
