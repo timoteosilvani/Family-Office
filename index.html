@@ -4400,8 +4400,14 @@ let verComo = null;           // titular que el admin elige ver (null = ver todo
    suma, para que no vuelva a colarse en un cuadro nuevo.
    Unica excepcion: cuando se esta viendo "como MFL", el total ES su patrimonio
    propio y ahi si suma. */
-const sumaTit     = r => verComo === 'MFL' || !r || r.titular !== 'MFL';
-const soloSumables= arr => (arr || []).filter(sumaTit);
+/* v211 — TITULAR POR AÑO. Un activo puede cambiar de titular: `titular_anterior` rige
+   para los años ANTERIORES a `titular_desde`. Caso real: Nordelta es de JC y suma hasta
+   2024; desde 2025 es de MFL y no suma. Sin año (o sin esas columnas) manda el titular
+   actual, que es lo de siempre. Todo lo que se calcula PARA UN AÑO tiene que pasar el año. */
+const titularEn   = (r, anio) => (r && r.titular_desde && r.titular_anterior && anio && parseInt(anio) < Number(r.titular_desde)) ? r.titular_anterior : (r ? r.titular : undefined);
+const conTitAnio  = (r, anio) => { const t = titularEn(r, anio); return (r && t !== r.titular) ? { ...r, titular: t } : r; };
+const sumaTit     = (r, anio) => verComo === 'MFL' || !r || titularEn(r, anio) !== 'MFL';
+const soloSumables= (arr, anio) => (arr || []).filter(r => sumaTit(r, anio));
 const hayMFL      = arr => (arr || []).length !== soloSumables(arr).length;
 const notaSinMFL  = arr => hayMFL(arr)
   ? '<span style="font-weight:400;color:var(--text3);font-size:11px"> · sin MFL</span>' : '';
@@ -5848,7 +5854,7 @@ function renderHistorialProps(filtro) {
   }).join('');
 
   // Totals row
-  const totals = YEARS.map(y => soloSumables(data).reduce((sum, p) => {
+  const totals = YEARS.map(y => soloSumables(data, y).reduce((sum, p) => {
     const sy = (p.vendida===true) ? Math.max(...Object.keys(p.valores).map(Number)) : null;
     if (sy !== null && y === sy) return sum; // vendida: no cuenta en el año de venta
     return sum + (p.valores[String(y)]||0);
@@ -9918,7 +9924,7 @@ function _chqAjustePeEnSoc(app) {
 }
 async function _chqAppMeses(Y) {
   const B = await _rsocBase();
-  const noMFL = new Set(soloSumables(B.props ).map(x => x.id));
+  const noMFL = new Set(soloSumables(B.props, Y).map(x => x.id));   // v211: titular del año
   const noMFLb= new Set(soloSumables(B.bancos).map(x => x.id));
   const noMFLa= new Set(soloSumables(B.autos ).map(x => x.id));
   const noMFLs= new Set(soloSumables(B.socs  ).map(x => x.id));
@@ -10014,7 +10020,7 @@ async function _chqCompletitud(Y, M) {
 
   const idx = arr => { const o = {}; arr.forEach(x => o[x.id] = x); return o; };
   const Ib = idx(soloSumables(B.bancos).filter(_chqViva));
-  const Ip = idx(soloSumables(B.props ).filter(_chqViva));
+  const Ip = idx(soloSumables(B.props, Y).filter(_chqViva));
   const Is = idx(soloSumables(B.socs  ).filter(_chqViva));
   const Ia = idx(soloSumables(B.autos ).filter(_chqViva));
   const Ie = idx(soloSumables(B.pe    ).filter(_chqViva));
@@ -10364,7 +10370,7 @@ const _CHQ_ALIAS = {
      LATAM (otra cuenta, en cero) cayera sobre BANK OF AMERICA 9764 y la marcara como sobrante.
    · Varios bloques que caen en el mismo activo se SUMAN antes de comparar (ver _chqDiferencias). */
 const _chqN = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]/g, '')
-  .replace(/bankofnewyork/g, 'bny').replace(/mercedesbenz|mbenz/g, 'mb').replace(/peogeot/g, 'peugeot')
+  .replace(/bankofnewyork/g, 'bny').replace(/realestate/g, 'realstate').replace(/mercedesbenz|mbenz/g, 'mb').replace(/peogeot/g, 'peugeot')
   .replace(/^forum(\d+)([a-z])$/, 'forum$2$1');
 const _chqPatente = s => { const m = String(s || '').toUpperCase().match(/\b([A-Z]{2}\d{3}[A-Z]{2}|[A-Z]{3}\d{3}|[A-Z]\d{3}[A-Z]{3}|[A-Z]{4}\d{2})\b/); return m ? m[1] : null; };
 function _chqMatch(nombre, lista) {           // lista: [{id, nombre, titular}]
@@ -10522,11 +10528,11 @@ async function _chqDiferencias(Y, M) {
   };
   // compara lo agrupado contra la app y marca lo que la app tiene y el COMPLETO no
   const comparar = (G, lista, appMap, pares) => {
-    Object.values(G).forEach(({ e, c }) => { if (e.titular === 'MFL') return;
+    Object.values(G).forEach(({ e, c }) => { if (!sumaTit(e, Y)) return;
       const a = (appMap[e.id] || {})[M] || {};
       pares.forEach(([fc, fa, key]) => { const cv = c[fc] || 0, av = a[fa] || 0;
         if (Math.abs(cv - av) > TOL) push(key, { nom: e.nombre, nro: e.nro, c: cv, a: av, d: cv - av, est: estado(cv, av) }); }); });
-    lista.forEach(e => { if (G[e.id] || e.titular === 'MFL') return; const a = (appMap[e.id] || {})[M]; if (!a) return;
+    lista.forEach(e => { if (G[e.id] || !sumaTit(e, Y)) return; const a = (appMap[e.id] || {})[M]; if (!a) return;
       pares.forEach(([fc, fa, key]) => { const av = a[fa] || 0;
         if (Math.abs(av) > TOL) push(key, { nom: e.nombre, nro: e.nro, c: 0, a: av, d: -av, est: 'sobra en la app · no está en el COMPLETO' }); }); });
   };
@@ -10711,7 +10717,7 @@ async function loadChequeo() {
     sb.from('tipo_de_cambio').select('mes').eq('anio', Y),
   ]);
 
-  const props = soloSumables(B.props ).filter(p => p.activa !== false && p.vendida !== true);
+  const props = soloSumables(B.props, Y).filter(p => p.activa !== false && p.vendida !== true);
   const autos = soloSumables(B.autos ).filter(a => a.activo !== false);
   const bancos= soloSumables(B.bancos).filter(b => b.activo !== false);
   const pes   = soloSumables(B.pe    ).filter(x => x.activo !== false);
@@ -10922,12 +10928,13 @@ async function renderRepSoc() {
     if (m && socIds.has(m)) (hijos[m] = hijos[m] || []).push(s); else raices.push(s);
   });
 
-  const propAct = soloSumables(B.props ).filter(p => p.activa !== false && p.vendida !== true);
+  const _PRY = B.props.map(p => conTitAnio(p, ANIO));   // v211 — titular del año del informe
+  const propAct = soloSumables(_PRY).filter(p => p.activa !== false && p.vendida !== true);
   const banAct  = soloSumables(B.bancos).filter(b => b.activo !== false);
   const autAct  = soloSumables(B.autos ).filter(x => x.activo !== false);
   // Vendida en el año: ya no tiene tenencia, pero su renta hasta la venta SÍ es
   // resultado del año y antes se perdía entera.
-  const propVend = soloSumables(B.props).filter(p => p.vendida === true &&
+  const propVend = soloSumables(_PRY).filter(p => p.vendida === true &&
     String(p.fecha_venta || '').slice(0, 4) === Ys);
 
   // ── selector de sociedad, reutilizado en los dos cuadros
@@ -11036,7 +11043,7 @@ async function renderRepSoc() {
      y conviene enterarse acá y no de casualidad tres semanas después. */
   const _patri = (() => {
     let t = 0;
-    soloSumables(B.props).filter(p => p.activa !== false && p.vendida !== true)
+    soloSumables(_PRY).filter(p => p.activa !== false && p.vendida !== true)
       .filter(p => !CLI || p.titular === CLI || (esH && p.titular === 'H'))
       .forEach(p => t += vProp(p.nro) * share(p));
     soloSumables(B.autos).filter(a => a.activo !== false)
@@ -11238,13 +11245,13 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
   const share = r => (r && r.titular==='H' && esH) ? 1/3 : 1;
 
   const [propsR, peR, autosR, bancosR, prestamosR] = await Promise.all([
-    sb.from('propiedades').select('*').in('titular', titFilter),
+    sb.from('propiedades').select('*'),   // v211 — todas: cuenta el titular DEL AÑO (titularEn)
     sb.from('private_equity').select('*').in('titular', titFilter),
     sb.from('autos').select('*').in('titular', titFilter),
     sb.from('bancos').select('*').eq('titular', tit),
     sb.from('prestamos').select('*').in('titular', titFilter).then(r=>r,()=>({data:[]})),
   ]);
-  const props = (propsR.data||[]).filter(p=>p.activa!==false && p.vendida!==true);
+  const props = (propsR.data||[]).map(p=>conTitAnio(p, anio)).filter(p=>titFilter.includes(p.titular) && p.activa!==false && p.vendida!==true);
   const pe = peR.data||[], autos = autosR.data||[], bancos = (bancosR.data||[]).filter(b=>b.activo!==false);
   const bancoIds = bancos.map(b=>b.id), propIds = props.map(p=>p.id);
 
@@ -12055,7 +12062,7 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
   const share = r => (r.titular === 'H' && esH) ? 1/3 : 1;
 
   const [propsR, peR, autosR, bancosR, prestamosR] = await Promise.all([
-    sb.from('propiedades').select('*').in('titular', titFilter),
+    sb.from('propiedades').select('*'),   // v211 — todas: cuenta el titular DEL AÑO (titularEn)
     sb.from('private_equity').select('*').in('titular', titFilter),
     sb.from('autos').select('*').in('titular', titFilter),
     sb.from('bancos').select('*').in('titular', titFilter),
@@ -12066,7 +12073,8 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
   // Se sigue trayendo MFL en la query justamente para no perder Nordelta.
   await peValCargar();     // valuaciones manuales de las participaciones
   const cuentaFO = r => !esFO || r.titular !== 'MFL' || (r.nro === 3 && ANIO <= 2024);
-  const props = (propsR.data||[]).filter(p => p.activa !== false && p.vendida !== true).filter(cuentaFO);
+  const props = (propsR.data||[]).map(p => conTitAnio(p, ANIO)).filter(p => titFilter.includes(p.titular))
+    .filter(p => p.activa !== false && p.vendida !== true).filter(cuentaFO);
   const pe = (peR.data||[]).filter(cuentaFO), autos = (autosR.data||[]).filter(cuentaFO),
         bancos = (bancosR.data||[]).filter(b => b.activo !== false).filter(cuentaFO);
   const bancoIds = bancos.map(b=>b.id);
@@ -14183,6 +14191,8 @@ async function _hidratarArray(tabla, arr, campoActivo) {
     h.nombre  = r.nombre  ?? h.nombre;
     h.titular = r.titular ?? h.titular;
     h.pais    = r.pais    ?? h.pais;
+    h.titular_anterior = r.titular_anterior ?? null;          // v211 — titular por año
+    h.titular_desde    = r.titular_desde != null ? Number(r.titular_desde) : null;
     h.vendida = (r.vendida === true);
     if (r.valor_venta != null) h.valor_venta = Number(r.valor_venta);
     h.valores = h.valores || {};
@@ -15395,7 +15405,7 @@ async function filtrarAnual2() {
   let nProps = 0;
   Object.values(byProp).sort((a,b) => (a.prop.nro||99)-(b.prop.nro||99)).forEach(({ prop, movs: mv }) => {
     // v193: MFL se ve en su tarjeta pero NO suma al consolidado
-    if (sumaTit(prop)) {
+    if (sumaTit(prop, anio)) {
       nProps++;
       for (let k=1;k<=12;k++){ const m=mv[k]; if(!m) continue;
         GR[k-1]+=(m.total_renta_usd||0); GG[k-1]+=(m.total_gastos_usd||0);
@@ -15533,7 +15543,8 @@ function renderComparativoAnual() {
   // Agrupar por propiedad (nro)
   const byProp = {};
   _compData.forEach(r => {
-    if (!byProp[r.nro]) byProp[r.nro] = { nro:r.nro, nombre:r.nombre, pais:r.pais, titular:r.titular, vals:{} };
+    if (!byProp[r.nro]) { const _h = (typeof PROP_HIST_DATA !== 'undefined' ? PROP_HIST_DATA : []).find(x => x.nro === r.nro) || {};   // v211 — titular por año
+      byProp[r.nro] = { nro:r.nro, nombre:r.nombre, pais:r.pais, titular:r.titular, titular_anterior:_h.titular_anterior, titular_desde:_h.titular_desde, vals:{} }; }
     byProp[r.nro].vals[r.anio] = r[compMetrica] || 0;
     // mantener el nombre más reciente
     if (r.anio === anios[anios.length-1] && r.nombre) byProp[r.nro].nombre = r.nombre;
@@ -15551,7 +15562,7 @@ function renderComparativoAnual() {
       <td style="color:var(--text3);font-size:10px">${p.nro}</td>
       <td style="font-weight:500">${p.nombre}</td>
       <td style="color:var(--text3);font-size:10px">${p.titular}</td>
-      ${anios.map(a=>{const v=p.vals[a]; if(v!==undefined && sumaTit(p))totByYear[a]+=v; const cls=esNeto?(v>=0?'positive':'negative'):''; return `<td class="num ${cls}" style="font-size:10px">${v!==undefined&&v!==0?'$'+fmt(v):'—'}</td>`;}).join('')}
+      ${anios.map(a=>{const v=p.vals[a]; if(v!==undefined && sumaTit(p, a))totByYear[a]+=v; const cls=esNeto?(v>=0?'positive':'negative'):''; return `<td class="num ${cls}" style="font-size:10px">${v!==undefined&&v!==0?'$'+fmt(v):'—'}</td>`;}).join('')}
     </tr>`;
   });
   html += `<tr style="background:var(--bg3);border-top:2px solid var(--border2)">
@@ -15632,7 +15643,7 @@ async function verGastosTabla() {
     const _rU=_secUSD(RENTAS,'renta'), _gU=_secUSD(GASTOS,'gastos'), _iU=_secUSD(IMPUESTOS,'impuestos');
     const _nU=_rU.map((v,i)=>v-_gU[i]-_iU[i]);
     // v193: MFL se ve en su tarjeta pero NO suma al consolidado (regla de toda la app)
-    if (sumaTit(prop)) for (let i=0;i<12;i++){ CR[i]+=_rU[i]; CG[i]+=_gU[i]; CI[i]+=_iU[i]; }
+    if (sumaTit(prop, anio)) for (let i=0;i<12;i++){ CR[i]+=_rU[i]; CG[i]+=_gU[i]; CI[i]+=_iU[i]; }
     const renderSection = (label, concepts, color, usdArr) => {
       const active = concepts.filter(([,f]) => Object.values(byMes).some(m => m[f] && parseFloat(m[f]) > 0));
       if (active.length === 0) return '';
@@ -15700,7 +15711,7 @@ async function verGastosTabla() {
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
       <div>
         <span class="bold" style="color:var(--gold)">CONSOLIDADO · ${anio}</span>
-        <span style="color:var(--text3);font-size:11px;margin-left:8px">${soloSumables(props).length} propiedad${soloSumables(props).length===1?'':'es'}${propFiltro||paisFiltro||titFiltro?' (con los filtros aplicados)':''} · todo en USD</span>${notaSinMFL(props)}
+        <span style="color:var(--text3);font-size:11px;margin-left:8px">${soloSumables(props, anio).length} propiedad${soloSumables(props, anio).length===1?'':'es'}${propFiltro||paisFiltro||titFiltro?' (con los filtros aplicados)':''} · todo en USD</span>${notaSinMFL(props)}
       </div>
       <div style="font-size:12px">Neto del año: <span class="bold ${netoTot>=0?'positive':'negative'}">$${fmt(netoTot)}</span></div>
     </div>
@@ -17629,7 +17640,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260922-210';
+const APP_VERSION = '20260922-211';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
