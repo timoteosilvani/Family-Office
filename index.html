@@ -10400,6 +10400,33 @@ function _chqMatch(nombre, lista) {           // lista: [{id, nombre, titular}]
   c = lista.filter(x => { const k = sinNro(x); return k && (k.startsWith(n) || n.startsWith(k)); });
   return c.length === 1 ? c[0] : null;
 }
+/* v215 — MONEDA DE CADA FILA SEGÚN LA FÓRMULA DEL ENCABEZADO DEL ANEXO DE BANCOS.
+   Las filas Invest / Cash / Credit de arriba suman cada bloque así:  D13 + D18/D8 + (D51+D52)/D9 + D203/D10 …
+   Lo que va sin dividir está en USD; lo dividido, en la moneda de la fila divisora (PESOS $ · PESOS UY · EURO).
+   Devuelve { filaExcel(1-based): 'USD'|'ARS'|'UYU'|'EUR' }. Si no hay fórmulas, vacío (se usa la etiqueta). */
+function _chqMonedaPorFormula(ws, XL) {
+  const out = {};
+  const lbl = r => { const c = ws[XL.utils.encode_cell({ r: r - 1, c: 1 })]; return c && c.v != null ? String(c.v).toUpperCase() : ''; };
+  const monDiv = r => { const t = lbl(r); if (/EUR|€/.test(t)) return 'EUR'; if (/UY/.test(t)) return 'UYU'; if (/\$|PESO|ARS/.test(t)) return 'ARS'; return null; };
+  const partir = f => { const o = []; let d = 0, cur = '';
+    for (const ch of f) { if (ch === '(') d++; if (ch === ')') d--; if ((ch === '+' || ch === '-') && d === 0) { o.push(cur); cur = ''; } else cur += ch; }
+    o.push(cur); return o.map(x => x.trim()).filter(Boolean); };
+  const c0 = _colEnero(ws, XL);
+  for (let r = 2; r <= 12; r++) {
+    if (!/^(INVEST|CASH|CREDIT)/.test(lbl(r).trim())) continue;
+    for (let m = 0; m < 12; m++) {
+      const cell = ws[XL.utils.encode_cell({ r: r - 1, c: c0 + m })];
+      const f = cell && cell.f ? String(cell.f).replace(/\$/g, '') : ''; if (!f) continue;
+      partir(f).forEach(term => {
+        const dv = term.match(/\/([A-Z]+)(\d+)\s*$/);
+        const mon = dv ? monDiv(+dv[2]) : 'USD'; if (!mon) return;
+        const num = dv ? term.slice(0, dv.index) : term;
+        (num.match(/[A-Z]+\d+/g) || []).forEach(ref => { const rr = +ref.replace(/[A-Z]+/, ''); if (!out[rr]) out[rr] = mon; });
+      });
+    }
+  }
+  return out;
+}
 function _chqMonedaFila(lbl) {
   const t = String(lbl).toUpperCase();
   if (/U\$S|US\$|USD/.test(t)) return 'USD';
@@ -10429,6 +10456,7 @@ function _chqLeerDetalle(wb, XL) {
     }
   }
   const wb2 = wb.Sheets['ANEXO - (BANCOS)'] || wb.Sheets['ANEXO - (CASH)'];
+  const _monF = wb2 ? _chqMonedaPorFormula(wb2, XL) : {};
   if (wb2) {
     const c0 = _colEnero(wb2, XL), R = XL.utils.decode_range(wb2['!ref']);
     let cur = null, curPais = '';
@@ -10444,6 +10472,9 @@ function _chqLeerDetalle(wb, XL) {
       // El total de arriba del COMPLETO lo divide por la fila "PESOS UY"; el detalle tiene que hacer lo mismo.
       let mon = _chqMonedaFila(t);
       if (mon === 'ARS' && /^(URU|UY)$/.test(curPais)) mon = 'UYU';
+      // v215 — manda la fórmula del total de arriba: si ahí la fila se divide por la fila del EURO (Vodno "Cash U$S"
+      // en euros) o por PESOS UY, esa es su moneda, diga lo que diga la etiqueta.
+      if (_monF[r + 1]) mon = _monF[r + 1];
       for (let m = 1; m <= 12; m++) {
         const o = out.banco[cur][m] = out.banco[cur][m] || {};
         const key = k + '|' + mon;
@@ -15386,7 +15417,7 @@ async function filtrarAnual2() {
 
   // Load ALL active props + their movimientos for the year
   const [{ data: allProps }, { data: movs }] = await Promise.all([
-    aplicarFiltroTit(sb.from('propiedades').select('id,nombre,pais,titular,nro,activa,vendida,fecha_venta').order('nro')),
+    aplicarFiltroTit(sb.from('propiedades').select('*').order('nro')),   // v215 — '*' para traer titular_anterior/titular_desde (Nordelta)
     sb.from('movimientos_propiedades').select('*').eq('anio', anio),
   ]);
 
@@ -15601,7 +15632,7 @@ async function verGastosTabla() {
 
   try {
   const [{ data: allProps, error: e1 }, { data: allMovs, error: e2 }] = await Promise.all([
-    aplicarFiltroTit(sb.from('propiedades').select('id,nombre,pais,titular,nro,activa,vendida,fecha_venta').order('nro')),
+    aplicarFiltroTit(sb.from('propiedades').select('*').order('nro')),   // v215 — '*' para traer titular_anterior/titular_desde (Nordelta)
     sb.from('movimientos_propiedades').select('*').eq('anio', anio),
   ]);
   if (e1 || e2) { if(res) res.innerHTML = `<div class="card" style="color:var(--usa);padding:20px">Error: ${e1?.message||e2?.message}</div>`; return; }
@@ -17655,7 +17686,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260922-214';
+const APP_VERSION = '20260922-215';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
