@@ -10362,13 +10362,17 @@ const _CHQ_ALIAS = {
   pedrocampbel:'pedrocampbell', '1050brickell':'1050brickell2922', '1060brickell':'1050brickell2922',
   bh3002:'brickellheights3002', bh3105:'brickellheights3105', ocenana1104s:'oceana1102', lagasca72:'lagasca',
   arce:'arce8835d', vitta1:'vitta204', vitta2:'vitta404', vitta3:'vitta702', vitta504:'vitta505',
-  olleros1890:'olleros1900', keycolonia602:'keycolony353', coraltower302:'coral302', arcos1440piso12052c:'arcos1440p12', oceana1104s:'oceana1102',
+  olleros1890:'olleros1900', keycolonia602:'keycolony353', coraltower302:'coral302', arcos1440piso12052c:['arcos1440p12','arcos4b'], oceana1104s:'oceana1102',
+  // v218 — Timoteo (22/09): Arcos 4B y Arcos 1440 P12 son la misma propiedad, se escriba como se escriba
+  arcos4b:['arcos4b','arcos1440p12'], arcos1440p12:['arcos1440p12','arcos4b'],
   // v210 — cuentas de años viejos, equivalencias de Timoteo (22/09)
   itau:'itau4386us9610', hsbc:['galicabb10262','galiciabb10262','galicabb','galiciabb'],
-  chasemiamioffida:'chasemiamibeachoffida7535', bnyfcfccyacfranc:'bnyhermanos2618', arcos:'arcos4b', fontainebleau3405:'fontainebleau3405tresor',
+  chasemiamioffida:'chasemiamibeachoffida7535', bnyfcfccyacfranc:'bnyhermanos2618', arcos:['arcos4b','arcos1440p12'], fontainebleau3405:'fontainebleau3405tresor',
   // v214 — COMPLETO 2020-2021 "BANK OF AMERICA LATAM" = en la app "BNY (LATAM) - 1875" (el crédito de 1.850.000 está cargado ahí).
   // Sin el alias, la regla de "empieza igual" lo pegaba con BANK OF AMERICA - 9764.
   bankofamericalatam:'bnylatam1875',
+  // v218 — Timoteo (22/09): BNY Grupillo = BNY Grupillo - Hermanos - 2884
+  bnygrupillo:'bnygrupillohermanos2884',
 };
 /* v208 — MATCHEO MÁS ESTRICTO Y CON SINÓNIMOS.
    · Sinónimos: "BANK OF NEW YORK" = BNY · "M BENZ" / "MERCEDES BENZ" = MB · "PEOGEOT" = Peugeot.
@@ -10623,8 +10627,13 @@ async function _chqDiferencias(Y, M) {
   const Gpe = agrupar(det.pe, peMatch, n => ({ ...((det.pe[n] || {})[M] || {}) }), 'Private equity');
   // sociedades; en 2020-2022 las posiciones de PE vivían adentro del anexo de sociedades
   const blSoc = {}, blPe = {};
-  Object.keys(det.soc || {}).forEach(n => { if (_chqMatch(n, A.B.socs || [])) blSoc[n] = det.soc[n];
-    else if (_cmp.peEnSoc && peMatch(n)) blPe[n] = det.soc[n]; else blSoc[n] = det.soc[n]; });
+  /* v218 — una posición de PE que aparece en el anexo de SOCIEDADES:
+       · COMPLETO sin anexo de PE (2020-2022): ese bloque ES la fuente de PE.
+       · COMPLETO con anexo de PE (2023 en adelante): manda el anexo de PE y el bloque de sociedades se ignora
+         (en 2024 los dos anexos traían números distintos para Vannier; Timoteo lo sacó del consolidado de sociedades). */
+  Object.keys(det.soc || {}).forEach(n => { if (_chqMatch(n, A.B.socs || [])) { blSoc[n] = det.soc[n]; return; }
+    if (peMatch(n)) { if (_cmp.peEnSoc) blPe[n] = det.soc[n]; return; }   // con anexo de PE, el bloque de sociedades se ignora
+    blSoc[n] = det.soc[n]; });
   comparar(agrupar(blSoc, n => _chqMatch(n, A.B.socs || []), n => ({ ...((blSoc[n] || {})[M] || {}) }), 'Sociedad'),
     A.B.socs || [], A.soc, [['aportes','aportes','Sociedades|aportes'], ['impuestos','impuestos','Sociedades|impuestos'], ['otros','otros','Sociedades|otrosgastos']]);
   if (_cmp.peEnSoc) {
@@ -17724,7 +17733,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260922-217';
+const APP_VERSION = '20260922-218';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
