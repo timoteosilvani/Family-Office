@@ -10366,6 +10366,9 @@ const _CHQ_ALIAS = {
   // v210 — cuentas de años viejos, equivalencias de Timoteo (22/09)
   itau:'itau4386us9610', hsbc:['galicabb10262','galiciabb10262','galicabb','galiciabb'],
   chasemiamioffida:'chasemiamibeachoffida7535', bnyfcfccyacfranc:'bnyhermanos2618', arcos:'arcos4b', fontainebleau3405:'fontainebleau3405tresor',
+  // v214 — COMPLETO 2020-2021 "BANK OF AMERICA LATAM" = en la app "BNY (LATAM) - 1875" (el crédito de 1.850.000 está cargado ahí).
+  // Sin el alias, la regla de "empieza igual" lo pegaba con BANK OF AMERICA - 9764.
+  bankofamericalatam:'bnylatam1875',
 };
 /* v208 — MATCHEO MÁS ESTRICTO Y CON SINÓNIMOS.
    · Sinónimos: "BANK OF NEW YORK" = BNY · "M BENZ" / "MERCEDES BENZ" = MB · "PEOGEOT" = Peugeot.
@@ -17652,7 +17655,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260922-213';
+const APP_VERSION = '20260922-214';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
