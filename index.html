@@ -10448,11 +10448,24 @@ function _chqDivPorCelda(ws, XL, reLbl) {
       const cell = ws[XL.utils.encode_cell({ r: r - 1, c: c0 + m - 1 })];
       const f = cell && cell.f ? String(cell.f).replace(/\$/g, '') : ''; if (!f) continue;
       partir(f).forEach(term => {
-        const dv = term.match(/\/([A-Z]+)(\d+)\s*$/); if (!dv) return;
-        (term.slice(0, dv.index).match(/[A-Z]+\d+/g) || []).forEach(ref => { out[ref.replace(/[A-Z]+/, '') + '|' + m] = +dv[2]; });
+        const dv = term.match(/\/([A-Z]+)(\d+)\s*$/);
+        const num = dv ? term.slice(0, dv.index) : term;
+        (num.match(/[A-Z]+\d+/g) || []).forEach(ref => { const k = ref.replace(/[A-Z]+/, '') + '|' + m;
+          if (out[k] === undefined) out[k] = dv ? +dv[2] : 0; });   // 0 = está en la fórmula y NO se divide
       });
     }
   }
+  /* v219 — arrastre por fila. Un mes puede sumar el bloque por otro camino (en C 2024 229 enero y junio
+     suman la fila TOTAL del bloque Vodno en vez de "fila 170 / EURO"), y entonces esa celda no figura en la
+     fórmula. Si la MISMA fila se divide en otros meses, se usa ese divisor también acá: la moneda del rubro
+     no cambia de un mes a otro. Sólo para los meses sin ningún dato en la fórmula. */
+  const porFila = {};
+  Object.keys(out).forEach(k => { const [r, m] = k.split('|'); const d = out[k]; if (!d) return;
+    (porFila[r] = porFila[r] || {})[d] = (porFila[r][d] || 0) + 1; });
+  Object.keys(porFila).forEach(r => {
+    const dom = Object.keys(porFila[r]).sort((a, b) => porFila[r][b] - porFila[r][a])[0];
+    for (let m = 1; m <= 12; m++) if (out[r + '|' + m] === undefined) out[r + '|' + m] = +dom;
+  });
   return out;
 }
 function _chqMonedaFila(lbl) {
@@ -17733,7 +17746,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260922-218';
+const APP_VERSION = '20260922-219';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
