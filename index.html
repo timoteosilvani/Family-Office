@@ -16963,10 +16963,18 @@ async function loadSocEvolucion() {
     ['Otros Gastos','otros_gastos','var(--text2)','negative'],
   ];
 
-  // Los importes se guardan en MONEDA NATIVA (Fionder SA en pesos uruguayos, Vodno en euros).
-  // Para sumar entre sociedades hay que pasarlos a dólares con el TC del mes; sumarlos crudo
-  // mezclaba monedas.
-  const _socUSD = (m, field, mes) => m ? convUSD(Number(m[field]) || 0, m.moneda || 'USD', anio, mes) : 0;
+  /* v216 — CONVENCIÓN DE movimientos_sociedades (la de la Carga y la de todas las cargas históricas):
+     las columnas aportes / impuestos / otros_gastos / total están YA EN DÓLARES; el importe original y
+     su moneda viven en detalle[rubro] = { monto, moneda }. Antes esta pantalla tomaba las columnas como
+     si fueran moneda nativa y las volvía a dividir por el TC (Martona Latam abr-2023: 1.378.390 UYU =
+     35.371 USD se mostraba como "35.371 UYU" y "908 USD"). */
+  const _socUSD = (m, field) => m ? (Number(m[field]) || 0) : 0;
+  const _SOC_RB = { aportes:'aportes', impuestos:'impuestos', otros_gastos:'otros' };
+  // importe en su moneda original (lo que se tipeó en la Carga); sin detalle, la columna en USD
+  const _socNat = (m, field) => { if (!m) return { v:0, mon:'USD' };
+    const d = (m.detalle || {})[_SOC_RB[field]];
+    return (d && d.monto != null) ? { v: Number(d.monto) || 0, mon: d.moneda || 'USD' } : { v: Number(m[field]) || 0, mon: 'USD' }; };
+  const _socFmt = (v, mon) => (mon && mon !== 'USD' ? mon + ' ' : '$') + fmt(v);
 
   // ===== CONSOLIDADO (arriba de todo, depende solo de Evolucion) =====
   let consHtml = `<div class="card" style="border:1px solid var(--gold);margin-bottom:16px">
@@ -17001,18 +17009,21 @@ async function loadSocEvolucion() {
       <div style="margin-bottom:10px">
         <span class="bold">${s.nombre}</span>
         <span class="badge badge-${colStr}" style="margin-left:8px">${s.pais}</span>
-        <span style="color:var(--text3);font-size:11px;margin-left:6px">${s.titular}${s.soc_madre?' · '+s.soc_madre:''}${(()=>{const mo=(Object.values(mv)[0]||{}).moneda||'USD';return mo!=='USD'?' · valores en '+mo:'';})()}</span>
+        <span style="color:var(--text3);font-size:11px;margin-left:6px">${s.titular}${s.soc_madre?' · '+s.soc_madre:''}${(()=>{const ms=new Set(); Object.values(mv).forEach(m=>CONCEPTOS.forEach(([,f])=>{const n=_socNat(m,f); if(n.v) ms.add(n.mon);})); const a=[...ms].filter(x=>x!=='USD'); return a.length?' · rubros en su moneda original ('+[...ms].join(' / ')+'); el TOTAL USD es la suma convertida':'';})()}</span>
       </div>
       <div class="table-wrap"><table style="font-size:11px">
         <thead><tr><th>Concepto</th><th class="num">Total</th>${MESES.map(m=>`<th class="num">${meses[m]}</th>`).join('')}</tr></thead>
         <tbody>
           ${CONCEPTOS.map(([label, field, color, cls]) => {
-            const vals = MESES.map(m => ({ v: mv[m]?.[field]||0, c: mv[m]?.comentarios?.[field]||'' }));
-            const tot = vals.reduce((a,b)=>a+b.v,0);
+            const vals = MESES.map(m => { const n = _socNat(mv[m], field); return { v: n.v, mon: n.mon, c: mv[m]?.comentarios?.[field]||'' }; });
+            // Total de la fila: en la moneda original si todos los meses están en la misma; si se mezclan, en USD.
+            const mons = new Set(vals.filter(x=>x.v).map(x=>x.mon));
+            const monTot = mons.size === 1 ? [...mons][0] : 'USD';
+            const tot = monTot === 'USD' && mons.size > 1 ? MESES.reduce((a,m)=>a+_socUSD(mv[m],field),0) : vals.reduce((a,b)=>a+b.v,0);
             return `<tr>
               <td style="font-size:11px;color:${color}">${label}</td>
-              <td class="num ${cls} bold" style="font-size:11px;color:${tot?color:'var(--border2)'}">${tot>0?'$'+fmt(tot):'—'}</td>
-              ${vals.map(({v,c})=>`<td class="num ${cls} ${c?'coment-tooltip has-coment':''}" style="font-size:11px;color:${v?color:'var(--border2)'};position:relative">${v>0?'$'+fmt(v):'—'}${c?`<span class="coment-pop">💬 ${c}</span>`:''}</td>`).join('')}
+              <td class="num ${cls} bold" style="font-size:11px;color:${tot?color:'var(--border2)'}">${tot>0?_socFmt(tot,monTot):'—'}</td>
+              ${vals.map(({v,mon,c})=>`<td class="num ${cls} ${c?'coment-tooltip has-coment':''}" style="font-size:11px;color:${v?color:'var(--border2)'};position:relative">${v>0?_socFmt(v,mon):'—'}${c?`<span class="coment-pop">💬 ${c}</span>`:''}</td>`).join('')}
             </tr>`;
           }).join('')}
           <tr style="background:var(--bg3);border-top:2px solid var(--border2)">
@@ -17686,7 +17697,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260922-215';
+const APP_VERSION = '20260922-216';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
