@@ -10427,6 +10427,30 @@ function _chqMonedaPorFormula(ws, XL) {
   }
   return out;
 }
+/* v217 — DIVISOR DE CADA CELDA SEGÚN LA FÓRMULA DEL ENCABEZADO (mes por mes).
+   Para anexos donde el encabezado convierte sólo algunas celdas: en SOCIEDADES 2023 el impuesto de Martona Latam
+   de abril va "+G50/G9" (1.378.390 UYU) y el de enero no se divide. Devuelve { 'fila|mes': filaDivisora }.
+   El detalle divide cada celda por ESA fila del propio COMPLETO, así suma exactamente lo mismo que el encabezado. */
+function _chqDivPorCelda(ws, XL, reLbl) {
+  const out = {};
+  const lbl = r => { const c = ws[XL.utils.encode_cell({ r: r - 1, c: 1 })]; return c && c.v != null ? String(c.v).trim() : ''; };
+  const partir = f => { const o = []; let d = 0, cur = '';
+    for (const ch of f) { if (ch === '(') d++; if (ch === ')') d--; if ((ch === '+' || ch === '-') && d === 0) { o.push(cur); cur = ''; } else cur += ch; }
+    o.push(cur); return o.map(x => x.trim()).filter(Boolean); };
+  const c0 = _colEnero(ws, XL);
+  for (let r = 2; r <= 12; r++) {
+    if (!reLbl.test(lbl(r))) continue;
+    for (let m = 1; m <= 12; m++) {
+      const cell = ws[XL.utils.encode_cell({ r: r - 1, c: c0 + m - 1 })];
+      const f = cell && cell.f ? String(cell.f).replace(/\$/g, '') : ''; if (!f) continue;
+      partir(f).forEach(term => {
+        const dv = term.match(/\/([A-Z]+)(\d+)\s*$/); if (!dv) return;
+        (term.slice(0, dv.index).match(/[A-Z]+\d+/g) || []).forEach(ref => { out[ref.replace(/[A-Z]+/, '') + '|' + m] = +dv[2]; });
+      });
+    }
+  }
+  return out;
+}
 function _chqMonedaFila(lbl) {
   const t = String(lbl).toUpperCase();
   if (/U\$S|US\$|USD/.test(t)) return 'USD';
@@ -10505,12 +10529,15 @@ function _chqLeerDetalle(wb, XL) {
      Los rótulos cambian entre bloques ("Gastos", "Impuesto", "Ingresos (Dividendo / Renta)"). */
   const ws3 = wb.Sheets['ANEXO - (SOCIEDADES)'];
   if (ws3) { const c0 = _colEnero(ws3, XL);
+    const _div = _chqDivPorCelda(ws3, XL, /^(dividendo|ingreso|aporte|impuesto|otros|gasto)/i);   // v217
+    const _val = (r, m) => { let v = num(ws3[XL.utils.encode_cell({ r, c: c0 + m - 1 })]); const d = _div[(r + 1) + '|' + m];
+      if (d) { const t = num(ws3[XL.utils.encode_cell({ r: d - 1, c: c0 + m - 1 })]); if (t) v = v / t; } return v; };
     let conDiv = false; for (let r = 0; r < 8; r++) { const b = ws3[XL.utils.encode_cell({ r, c: 1 })]; if (b && /^dividendo/i.test(String(b.v).trim())) conDiv = true; }
     const ORD = conDiv ? ['div','aportes','impuestos','otros'] : ['aportes','impuestos','otros'];
     _bloques(ws3, (cur, lbl, pos, r) => { if (lbl === null) { out.soc[cur] = out.soc[cur] || {}; return; }
       if (/^total/i.test(lbl) || pos >= ORD.length) return;
       const k = ORD[pos];
-      for (let m = 1; m <= 12; m++) { const o = out.soc[cur][m] = out.soc[cur][m] || {}; o[k] = (o[k] || 0) + num(ws3[XL.utils.encode_cell({ r, c: c0 + m - 1 })]); } }); }
+      for (let m = 1; m <= 12; m++) { const o = out.soc[cur][m] = out.soc[cur][m] || {}; o[k] = (o[k] || 0) + _val(r, m); } }); }
   /* PRIVATE EQUITY: UTILIDAD / INGRESO = utilidad · APORTE DE CAPITAL / INVERSION = aporte. */
   const w4 = wb.Sheets['ANEXO - (PRIVATE EQUITY)'];
   if (w4) { const c0 = _colEnero(w4, XL);
@@ -17697,7 +17724,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260922-216';
+const APP_VERSION = '20260922-217';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
