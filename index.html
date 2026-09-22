@@ -10428,15 +10428,19 @@ function _chqLeerDetalle(wb, XL) {
   const wb2 = wb.Sheets['ANEXO - (BANCOS)'] || wb.Sheets['ANEXO - (CASH)'];
   if (wb2) {
     const c0 = _colEnero(wb2, XL), R = XL.utils.decode_range(wb2['!ref']);
-    let cur = null;
+    let cur = null, curPais = '';
     for (let r = R.s.r + 10; r <= R.e.r; r++) {
       const b = wb2[XL.utils.encode_cell({ r, c: 1 })];
       const t = b && b.v != null ? String(b.v).trim() : '';
       if (!t) continue;
-      if (!/^(invest|cash|total|credit|neto)/i.test(t)) { cur = t; out.banco[cur] = out.banco[cur] || {}; continue; }
+      if (!/^(invest|cash|total|credit|neto)/i.test(t)) { cur = t; out.banco[cur] = out.banco[cur] || {};
+        const a = wb2[XL.utils.encode_cell({ r, c: 0 })]; curPais = a && a.v != null ? String(a.v).trim().toUpperCase() : ''; continue; }
       if (!cur || /^(total|neto)/i.test(t)) continue;
       const k = /^invest/i.test(t) ? 'inv' : (/^cash/i.test(t) ? 'cash' : 'cred');
-      const mon = _chqMonedaFila(t);
+      // v213 — el "$" es la moneda local DEL BANCO: en un bloque URU (ITAU 4386) es peso uruguayo, no argentino.
+      // El total de arriba del COMPLETO lo divide por la fila "PESOS UY"; el detalle tiene que hacer lo mismo.
+      let mon = _chqMonedaFila(t);
+      if (mon === 'ARS' && /^(URU|UY)$/.test(curPais)) mon = 'UYU';
       for (let m = 1; m <= 12; m++) {
         const o = out.banco[cur][m] = out.banco[cur][m] || {};
         const key = k + '|' + mon;
@@ -17648,7 +17652,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260922-212';
+const APP_VERSION = '20260922-213';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
