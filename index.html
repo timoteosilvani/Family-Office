@@ -9919,6 +9919,11 @@ function _chqAjustePeEnSoc(app) {
     const a = app[m] || (app[m] = {});
     a['Sociedades|aportes'] = (a['Sociedades|aportes'] || 0) + (a['Private equity|aportedecapital'] || 0);
     a['Private equity|aportedecapital'] = 0;
+    // v212 — igual con los impuestos y gastos de PE: en esos COMPLETO están en el bloque de la
+    // posición dentro del anexo de sociedades (ej. Vannier 2021: impuestos en ago, oct y nov).
+    a['Sociedades|impuestos']   = (a['Sociedades|impuestos']   || 0) + (a['Private equity|impuestos'] || 0);
+    a['Sociedades|otrosgastos'] = (a['Sociedades|otrosgastos'] || 0) + (a['Private equity|gastos']    || 0);
+    a['Private equity|impuestos'] = 0; a['Private equity|gastos'] = 0;
   }
   return app;
 }
@@ -9935,7 +9940,7 @@ async function _chqAppMeses(Y) {
     sb.from('movimientos_propiedades').select('propiedad_id,mes,total_renta_usd,total_gastos_usd,total_impuestos_usd').eq('anio', Y).limit(5000),
     sb.from('movimientos_sociedades').select('sociedad_id,mes,aportes,impuestos,otros_gastos').eq('anio', Y).limit(5000),
     sb.from('movimientos_autos').select('auto_id,mes,total_usd').eq('anio', Y).limit(5000),
-    sb.from('movimientos_pe').select('pe_id,mes,utilidad,aporte_capital').eq('anio', Y).limit(5000),
+    sb.from('movimientos_pe').select('pe_id,mes,utilidad,aporte_capital,gastos,impuestos').eq('anio', Y).limit(5000),
   ]);
 
   const app = {}; for (let m = 1; m <= 12; m++) app[m] = {};
@@ -9953,7 +9958,8 @@ async function _chqAppMeses(Y) {
   (ma.data ||[]).forEach(x => { if (!noMFLa.has(x.auto_id)) return; acc(x.mes, 'Autos|total', x.total_usd); });
   (mpe.data||[]).forEach(x => { if (!noMFLe.has(x.pe_id)) return;
     acc(x.mes, 'Private equity|utilidad', x.utilidad);
-    acc(x.mes, 'Private equity|aportedecapital', x.aporte_capital); });
+    acc(x.mes, 'Private equity|aportedecapital', x.aporte_capital);
+    acc(x.mes, 'Private equity|impuestos', x.impuestos); acc(x.mes, 'Private equity|gastos', x.gastos); });
   return app;
 }
 
@@ -10487,13 +10493,14 @@ async function _chqAppDetalle(Y) {
       sb.from('movimientos_bancos').select('*').eq('anio', Y).limit(9000),
       sb.from('movimientos_autos').select('auto_id,mes,total_usd').eq('anio', Y).limit(9000),
       sb.from('movimientos_sociedades').select('sociedad_id,mes,aportes,impuestos,otros_gastos').eq('anio', Y).limit(9000),
-      sb.from('movimientos_pe').select('pe_id,mes,utilidad,aporte_capital').eq('anio', Y).limit(9000),
+      sb.from('movimientos_pe').select('pe_id,mes,utilidad,aporte_capital,gastos,impuestos').eq('anio', Y).limit(9000),
     ]);
     const prop = {}, banco = {}, auto = {}, soc = {}, pe = {};
     const acc = (o, id, m, k, v) => { const e = (o[id] = o[id] || {})[m] = (o[id] || {})[m] || {}; e[k] = (e[k] || 0) + (Number(v) || 0); };
     (ma.data || []).forEach(x => acc(auto, x.auto_id, x.mes, 'total', x.total_usd));
     (ms.data || []).forEach(x => { acc(soc, x.sociedad_id, x.mes, 'aportes', x.aportes); acc(soc, x.sociedad_id, x.mes, 'impuestos', x.impuestos); acc(soc, x.sociedad_id, x.mes, 'otros', x.otros_gastos); });
-    (me.data || []).forEach(x => { acc(pe, x.pe_id, x.mes, 'util', x.utilidad); acc(pe, x.pe_id, x.mes, 'ap', x.aporte_capital); });
+    (me.data || []).forEach(x => { acc(pe, x.pe_id, x.mes, 'util', x.utilidad); acc(pe, x.pe_id, x.mes, 'ap', x.aporte_capital);
+      acc(pe, x.pe_id, x.mes, 'imp', x.impuestos); acc(pe, x.pe_id, x.mes, 'gas', x.gastos); });
     (mp.data || []).forEach(x => { const o = (prop[x.propiedad_id] = prop[x.propiedad_id] || {})[x.mes] = (prop[x.propiedad_id] || {})[x.mes] || { renta:0, gastos:0, impuestos:0 };
       o.renta += Number(x.total_renta_usd) || 0; o.gastos += Number(x.total_gastos_usd) || 0; o.impuestos += Number(x.total_impuestos_usd) || 0; });
     (mb.data || []).forEach(x => { const u = bancoMovUSD(x); (banco[x.banco_id] = banco[x.banco_id] || {})[x.mes] = { inv:u.inv, cash:u.cash, cred:u.cred }; });
@@ -10556,8 +10563,9 @@ async function _chqDiferencias(Y, M) {
   comparar(agrupar(blSoc, n => _chqMatch(n, A.B.socs || []), n => ({ ...((blSoc[n] || {})[M] || {}) }), 'Sociedad'),
     A.B.socs || [], A.soc, [['aportes','aportes','Sociedades|aportes'], ['impuestos','impuestos','Sociedades|impuestos'], ['otros','otros','Sociedades|otrosgastos']]);
   if (_cmp.peEnSoc) {
-    comparar(agrupar(blPe, peMatch, n => { const o = (blPe[n] || {})[M] || {}; return { util: o.div || 0, ap: o.aportes || 0 }; }, 'Private equity'),
-      A.B.pe || [], A.pe, [['util','util','Private equity|utilidad'], ['ap','ap','Sociedades|aportes']]);
+    comparar(agrupar(blPe, peMatch, n => { const o = (blPe[n] || {})[M] || {}; return { util: o.div || 0, ap: o.aportes || 0, imp: o.impuestos || 0, gas: o.otros || 0 }; }, 'Private equity'),
+      A.B.pe || [], A.pe, [['util','util','Private equity|utilidad'], ['ap','ap','Sociedades|aportes'],
+                           ['imp','imp','Sociedades|impuestos'], ['gas','gas','Sociedades|otrosgastos']]);   // v212
   } else {
     comparar(Gpe, A.B.pe || [], A.pe, [['util','util','Private equity|utilidad'], ['ap','ap','Private equity|aportedecapital']]);
   }
@@ -17640,7 +17648,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260922-211';
+const APP_VERSION = '20260922-212';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
