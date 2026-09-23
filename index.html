@@ -10433,37 +10433,38 @@ function _chqMonedaPorFormula(ws, XL) {
    Para anexos donde el encabezado convierte sólo algunas celdas: en SOCIEDADES 2023 el impuesto de Martona Latam
    de abril va "+G50/G9" (1.378.390 UYU) y el de enero no se divide. Devuelve { 'fila|mes': filaDivisora }.
    El detalle divide cada celda por ESA fila del propio COMPLETO, así suma exactamente lo mismo que el encabezado. */
+/* Lee UNA fórmula y devuelve { fila: filaDivisora | 0 }. 0 = la fila entra sin dividir.
+   Sirve tanto para las filas consolidadas del encabezado como para la fila TOTAL de cada bloque, que es
+   una consolidada en chiquito: `=SUM(G125:G127)/G9+G128` dice que 125-127 van en pesos UY y 128 en dólares. */
+function _chqDivDeFormula(f) {
+  const out = {};
+  const partir = t => { const o = []; let d = 0, cur = '';
+    for (const ch of t) { if (ch === '(') d++; if (ch === ')') d--; if ((ch === '+' || ch === '-') && d === 0) { o.push(cur); cur = ''; } else cur += ch; }
+    o.push(cur); return o.map(x => x.trim()).filter(Boolean); };
+  partir(String(f).replace(/\$/g, '')).forEach(term => {
+    const dv = term.match(/\/([A-Z]+)(\d+)\s*$/);
+    const num = dv ? term.slice(0, dv.index) : term;
+    const rango = num.match(/([A-Z]+)(\d+)\s*:\s*([A-Z]+)(\d+)/g) || [];
+    const filas = [];
+    rango.forEach(rg => { const m = rg.match(/[A-Z]+(\d+)\s*:\s*[A-Z]+(\d+)/); for (let r = +m[1]; r <= +m[2]; r++) filas.push(r); });
+    (num.replace(/([A-Z]+)(\d+)\s*:\s*([A-Z]+)(\d+)/g, '').match(/[A-Z]+\d+/g) || []).forEach(ref => filas.push(+ref.replace(/[A-Z]+/, '')));
+    filas.forEach(r => { if (out[r] === undefined) out[r] = dv ? +dv[2] : 0; });
+  });
+  return out;
+}
 function _chqDivPorCelda(ws, XL, reLbl) {
   const out = {};
   const lbl = r => { const c = ws[XL.utils.encode_cell({ r: r - 1, c: 1 })]; return c && c.v != null ? String(c.v).trim() : ''; };
-  const partir = f => { const o = []; let d = 0, cur = '';
-    for (const ch of f) { if (ch === '(') d++; if (ch === ')') d--; if ((ch === '+' || ch === '-') && d === 0) { o.push(cur); cur = ''; } else cur += ch; }
-    o.push(cur); return o.map(x => x.trim()).filter(Boolean); };
   const c0 = _colEnero(ws, XL);
   for (let r = 2; r <= 12; r++) {
     if (!reLbl.test(lbl(r))) continue;
     for (let m = 1; m <= 12; m++) {
       const cell = ws[XL.utils.encode_cell({ r: r - 1, c: c0 + m - 1 })];
-      const f = cell && cell.f ? String(cell.f).replace(/\$/g, '') : ''; if (!f) continue;
-      partir(f).forEach(term => {
-        const dv = term.match(/\/([A-Z]+)(\d+)\s*$/);
-        const num = dv ? term.slice(0, dv.index) : term;
-        (num.match(/[A-Z]+\d+/g) || []).forEach(ref => { const k = ref.replace(/[A-Z]+/, '') + '|' + m;
-          if (out[k] === undefined) out[k] = dv ? +dv[2] : 0; });   // 0 = está en la fórmula y NO se divide
-      });
+      const f = cell && cell.f ? String(cell.f) : ''; if (!f) continue;
+      const d = _chqDivDeFormula(f);
+      Object.keys(d).forEach(rr => { const k = rr + '|' + m; if (out[k] === undefined) out[k] = d[rr]; });   // 0 = suma sin dividir
     }
   }
-  /* v219 — arrastre por fila. Un mes puede sumar el bloque por otro camino (en C 2024 229 enero y junio
-     suman la fila TOTAL del bloque Vodno en vez de "fila 170 / EURO"), y entonces esa celda no figura en la
-     fórmula. Si la MISMA fila se divide en otros meses, se usa ese divisor también acá: la moneda del rubro
-     no cambia de un mes a otro. Sólo para los meses sin ningún dato en la fórmula. */
-  const porFila = {};
-  Object.keys(out).forEach(k => { const [r, m] = k.split('|'); const d = out[k]; if (!d) return;
-    (porFila[r] = porFila[r] || {})[d] = (porFila[r][d] || 0) + 1; });
-  Object.keys(porFila).forEach(r => {
-    const dom = Object.keys(porFila[r]).sort((a, b) => porFila[r][b] - porFila[r][a])[0];
-    for (let m = 1; m <= 12; m++) if (out[r + '|' + m] === undefined) out[r + '|' + m] = +dom;
-  });
   return out;
 }
 function _chqMonedaFila(lbl) {
@@ -10545,8 +10546,29 @@ function _chqLeerDetalle(wb, XL) {
   const ws3 = wb.Sheets['ANEXO - (SOCIEDADES)'];
   if (ws3) { const c0 = _colEnero(ws3, XL);
     const _div = _chqDivPorCelda(ws3, XL, /^(dividendo|ingreso|aporte|impuesto|otros|gasto)/i);   // v217
-    const _val = (r, m) => { let v = num(ws3[XL.utils.encode_cell({ r, c: c0 + m - 1 })]); const d = _div[(r + 1) + '|' + m];
-      if (d) { const t = num(ws3[XL.utils.encode_cell({ r: d - 1, c: c0 + m - 1 })]); if (t) v = v / t; } return v; };
+    /* v221 — de dónde sale el divisor de cada celda, en este orden:
+         1) la fórmula del encabezado, si la nombra (`+G50/G9` → peso UY, `+G51` → dólares);
+         2) la fórmula de la fila TOTAL de su bloque, que es la misma idea en chiquito
+            (`=SUM(G125:G127)/G9+G128`: los impuestos en pesos UY y los otros gastos en dólares);
+         3) si ninguna de las dos la nombra, NO se divide.
+       Reemplaza al arrastre por fila de v219, que deducía la moneda de un mes mirando los otros y se equivocaba
+       con los rubros que mezclan monedas (Fionder otros gastos 2024: abril en dólares, agosto en pesos UY). */
+    const _totDe = {}, _divTot = {};   // fila de rubro → fila TOTAL de su bloque · divisores leídos de esa fila TOTAL
+    (() => { const pend = [];
+      _bloques(ws3, (cur, lbl, pos, r) => {
+        if (lbl === null) { pend.length = 0; return; }
+        if (/^total/i.test(lbl)) {
+          pend.forEach(x => _totDe[x] = r + 1);
+          for (let m = 1; m <= 12; m++) { const c = ws3[XL.utils.encode_cell({ r, c: c0 + m - 1 })];
+            if (c && c.f) { const d = _chqDivDeFormula(String(c.f));
+              Object.keys(d).forEach(rr => { const k = rr + '|' + m; if (_divTot[k] === undefined) _divTot[k] = d[rr]; }); } }
+          pend.length = 0; return; }
+        pend.push(r + 1); }); })();
+    const _val = (r, m) => { let v = num(ws3[XL.utils.encode_cell({ r, c: c0 + m - 1 })]);
+      let d = _div[(r + 1) + '|' + m];
+      if (d === undefined) d = _divTot[(r + 1) + '|' + m];
+      if (d) { const t = num(ws3[XL.utils.encode_cell({ r: d - 1, c: c0 + m - 1 })]); if (t) v = v / t; }
+      return v; };
     let conDiv = false; for (let r = 0; r < 8; r++) { const b = ws3[XL.utils.encode_cell({ r, c: 1 })]; if (b && /^dividendo/i.test(String(b.v).trim())) conDiv = true; }
     const ORD = conDiv ? ['div','aportes','impuestos','otros'] : ['aportes','impuestos','otros'];
     _bloques(ws3, (cur, lbl, pos, r) => { if (lbl === null) { out.soc[cur] = out.soc[cur] || {}; return; }
@@ -17744,7 +17766,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260923-220';
+const APP_VERSION = '20260923-221';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
