@@ -10363,11 +10363,9 @@ const _CHQ_ALIAS = {
   bh3002:'brickellheights3002', bh3105:'brickellheights3105', ocenana1104s:'oceana1102', lagasca72:'lagasca',
   arce:'arce8835d', vitta1:'vitta204', vitta2:'vitta404', vitta3:'vitta702', vitta504:'vitta505',
   olleros1890:'olleros1900', keycolonia602:'keycolony353', coraltower302:'coral302', arcos1440piso12052c:['arcos1440p12','arcos4b'], oceana1104s:'oceana1102',
-  // v218 — Timoteo (22/09): Arcos 4B y Arcos 1440 P12 son la misma propiedad, se escriba como se escriba
-  arcos4b:['arcos4b','arcos1440p12'], arcos1440p12:['arcos1440p12','arcos4b'],
   // v210 — cuentas de años viejos, equivalencias de Timoteo (22/09)
   itau:'itau4386us9610', hsbc:['galicabb10262','galiciabb10262','galicabb','galiciabb'],
-  chasemiamioffida:'chasemiamibeachoffida7535', bnyfcfccyacfranc:'bnyhermanos2618', arcos:['arcos4b','arcos1440p12'], fontainebleau3405:'fontainebleau3405tresor',
+  chasemiamioffida:'chasemiamibeachoffida7535', bnyfcfccyacfranc:'bnyhermanos2618', arcos:'arcos1440p12',   // v220 — el bloque "Arcos" del COMPLETO es Arcos 1440 p12, NO Arcos 4B (son dos propiedades distintas) fontainebleau3405:'fontainebleau3405tresor',
   // v214 — COMPLETO 2020-2021 "BANK OF AMERICA LATAM" = en la app "BNY (LATAM) - 1875" (el crédito de 1.850.000 está cargado ahí).
   // Sin el alias, la regla de "empieza igual" lo pegaba con BANK OF AMERICA - 9764.
   bankofamericalatam:'bnylatam1875',
@@ -17746,7 +17744,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260922-219';
+const APP_VERSION = '20260923-220';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
