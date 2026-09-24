@@ -9931,7 +9931,7 @@ async function _chqAppMeses(Y) {
   const B = await _rsocBase();
   const noMFL = new Set(soloSumables(B.props, Y).map(x => x.id));   // v211: titular del año
   const noMFLb= new Set(soloSumables(B.bancos).map(x => x.id));
-  const noMFLa= new Set(soloSumables(B.autos ).map(x => x.id));
+  const noMFLa= new Set(soloSumables(B.autos, Y).map(x => x.id));   // v222 — titular del año (MB GLC 300: JC hasta 2025)
   const noMFLs= new Set(soloSumables(B.socs  ).map(x => x.id));
   const noMFLe= new Set(soloSumables(B.pe    ).map(x => x.id));
 
@@ -10028,7 +10028,7 @@ async function _chqCompletitud(Y, M) {
   const Ib = idx(soloSumables(B.bancos).filter(_chqViva));
   const Ip = idx(soloSumables(B.props, Y).filter(_chqViva));
   const Is = idx(soloSumables(B.socs  ).filter(_chqViva));
-  const Ia = idx(soloSumables(B.autos ).filter(_chqViva));
+  const Ia = idx(soloSumables(B.autos, Y).filter(_chqViva));
   const Ie = idx(soloSumables(B.pe    ).filter(_chqViva));
 
   (mb.data ||[]).forEach(x => { const e = Ib[x.banco_id]; if (!e) return;
@@ -10833,7 +10833,7 @@ async function loadChequeo() {
   ]);
 
   const props = soloSumables(B.props, Y).filter(p => p.activa !== false && p.vendida !== true);
-  const autos = soloSumables(B.autos ).filter(a => a.activo !== false);
+  const autos = soloSumables(B.autos, Y).filter(a => a.activo !== false);
   const bancos= soloSumables(B.bancos).filter(b => b.activo !== false);
   const pes   = soloSumables(B.pe    ).filter(x => x.activo !== false);
 
@@ -11044,9 +11044,10 @@ async function renderRepSoc() {
   });
 
   const _PRY = B.props.map(p => conTitAnio(p, ANIO));   // v211 — titular del año del informe
+  const _ARY = B.autos.map(a => conTitAnio(a, ANIO));   // v222 — ídem autos
   const propAct = soloSumables(_PRY).filter(p => p.activa !== false && p.vendida !== true);
   const banAct  = soloSumables(B.bancos).filter(b => b.activo !== false);
-  const autAct  = soloSumables(B.autos ).filter(x => x.activo !== false);
+  const autAct  = soloSumables(_ARY).filter(x => x.activo !== false);
   // Vendida en el año: ya no tiene tenencia, pero su renta hasta la venta SÍ es
   // resultado del año y antes se perdía entera.
   const propVend = soloSumables(_PRY).filter(p => p.vendida === true &&
@@ -11161,7 +11162,7 @@ async function renderRepSoc() {
     soloSumables(_PRY).filter(p => p.activa !== false && p.vendida !== true)
       .filter(p => !CLI || p.titular === CLI || (esH && p.titular === 'H'))
       .forEach(p => t += vProp(p.nro) * share(p));
-    soloSumables(B.autos).filter(a => a.activo !== false)
+    soloSumables(_ARY).filter(a => a.activo !== false)
       .filter(a => !CLI || a.titular === CLI || (esH && a.titular === 'H'))
       .forEach(a => t += vAuto(a.nro) * share(a));
     soloSumables(B.bancos).filter(b => b.activo !== false)
@@ -11362,12 +11363,12 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
   const [propsR, peR, autosR, bancosR, prestamosR] = await Promise.all([
     sb.from('propiedades').select('*'),   // v211 — todas: cuenta el titular DEL AÑO (titularEn)
     sb.from('private_equity').select('*').in('titular', titFilter),
-    sb.from('autos').select('*').in('titular', titFilter),
+    sb.from('autos').select('*'),   // v222 — cuenta el titular DEL AÑO
     sb.from('bancos').select('*').eq('titular', tit),
     sb.from('prestamos').select('*').in('titular', titFilter).then(r=>r,()=>({data:[]})),
   ]);
   const props = (propsR.data||[]).map(p=>conTitAnio(p, anio)).filter(p=>titFilter.includes(p.titular) && p.activa!==false && p.vendida!==true);
-  const pe = peR.data||[], autos = autosR.data||[], bancos = (bancosR.data||[]).filter(b=>b.activo!==false);
+  const pe = peR.data||[], autos = (autosR.data||[]).map(a=>conTitAnio(a, anio)).filter(a=>titFilter.includes(a.titular)), bancos = (bancosR.data||[]).filter(b=>b.activo!==false);
   const bancoIds = bancos.map(b=>b.id), propIds = props.map(p=>p.id);
 
   await peValCargar();   // v183 — sin esto peCalc ignora las valuaciones manuales
@@ -12179,7 +12180,7 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
   const [propsR, peR, autosR, bancosR, prestamosR] = await Promise.all([
     sb.from('propiedades').select('*'),   // v211 — todas: cuenta el titular DEL AÑO (titularEn)
     sb.from('private_equity').select('*').in('titular', titFilter),
-    sb.from('autos').select('*').in('titular', titFilter),
+    sb.from('autos').select('*'),   // v222 — cuenta el titular DEL AÑO
     sb.from('bancos').select('*').in('titular', titFilter),
     sb.from('prestamos').select('*, propiedad:propiedad_id(nombre)').in('titular', titFilter).then(r=>r, ()=>({data:[]})),
   ]);
@@ -12190,7 +12191,7 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
   const cuentaFO = r => !esFO || r.titular !== 'MFL' || (r.nro === 3 && ANIO <= 2024);
   const props = (propsR.data||[]).map(p => conTitAnio(p, ANIO)).filter(p => titFilter.includes(p.titular))
     .filter(p => p.activa !== false && p.vendida !== true).filter(cuentaFO);
-  const pe = (peR.data||[]).filter(cuentaFO), autos = (autosR.data||[]).filter(cuentaFO),
+  const pe = (peR.data||[]).filter(cuentaFO), autos = (autosR.data||[]).map(a=>conTitAnio(a, ANIO)).filter(a=>titFilter.includes(a.titular)).filter(cuentaFO),
         bancos = (bancosR.data||[]).filter(b => b.activo !== false).filter(cuentaFO);
   const bancoIds = bancos.map(b=>b.id);
 
@@ -14452,7 +14453,7 @@ async function hidratarBancosHist() {
   _bancosHidratados = {};
   try {
     const [{ data: bcos }, { data: movs }] = await Promise.all([
-      sb.from('bancos').select('id,nro,nombre'),
+      sb.from('bancos').select('id,nro,nombre,titular,pais'),
       sb.from('movimientos_bancos').select('*').in('anio', BANCOS_ANIOS_LIVE),
     ]);
     if (!bcos || !movs || !movs.length) return;
@@ -14469,10 +14470,21 @@ async function hidratarBancosHist() {
     const cierre = {};
     movs.forEach(m => { if (m.mes === 12) cierre[m.anio + '|' + m.banco_id] = m; });
     const sinMatch = new Set();
+    /* v222 — una cuenta que existe en la base y NO está en el hardcode se agrega al vuelo, con un nro nuevo
+       arriba del máximo, y se registra en BANCOS_ATTR para el año que se está hidratando. Si no, el saldo se
+       carga en Bancos pero el Historial nunca lo muestra (caso BNY Miami Beach Offida 2025) y encima el total
+       por titular no cerraría contra el total general. */
+    let nroLibre = BANCOS_HIST_DATA.reduce((mx, b) => Math.max(mx, Number(b.nro) || 0), 0);
     Object.values(cierre).forEach(m => {
       const c = cuenta[m.banco_id]; if (!c) return;
-      const h = porNombre[_n(c.nombre)];
-      if (!h) { sinMatch.add(c.nombre); return; }
+      let h = porNombre[_n(c.nombre)];
+      if (!h) {
+        h = { nro: ++nroLibre, nombre: c.nombre, titular: c.titular || '', pais: c.pais || '', byY: {} };
+        BANCOS_HIST_DATA.push(h); porNombre[_n(c.nombre)] = h;
+        sinMatch.add(c.nombre + ' (agregada al historial con nro ' + h.nro + ')');
+      }
+      if (h.titular) { const A = (BANCOS_ATTR[h.titular] = BANCOS_ATTR[h.titular] || {});
+        (A[String(m.anio)] = A[String(m.anio)] || {})[h.nro] = 1; }
       const u = bancoMovUSD(m);
       h.byY[String(m.anio)] = { i: u.inv, c: u.cash, r: u.cred, n: u.neto };
       (_bancosHidratados[m.anio] = _bancosHidratados[m.anio] || {})[h.nro] = m.mes;
@@ -15235,6 +15247,13 @@ async function cargarMovProp2() {
   Object.entries(idMap).forEach(([htmlId, dbField]) => {
     const el = document.getElementById(htmlId);
     if (el) el.value = data?.[dbField] || 0;
+    // v222 — cada rubro vuelve a abrirse en la moneda con la que se guardó (antes siempre arrancaban en USD
+    // y al guardar se pisaban los pesos con dólares).
+    const mn = mnEl(dbField);
+    if (mn) { const sec = /^(renta|otro_ingreso)$/.test(dbField) ? data?.moneda_renta
+                        : /^(arba_abl|municipalidad_tigre|property_tax|tributo_domiciliario|impuesto_primarias|contribucion_inmobiliaria|saneamiento|ascensor|otros_impuestos)$/.test(dbField) ? data?.moneda_impuestos
+                        : data?.moneda_gastos;
+      mn.value = data?.['moneda_' + dbField] || sec || 'USD'; }
   });
   const notasEl = document.getElementById('mp2-notas');
   if (notasEl) notasEl.value = data?.notas || '';
@@ -15417,16 +15436,16 @@ async function guardarMovProp2() {
   base.comentarios=getComentarios();
   base.created_by=currentUser?.id;
   // Save per-row moneda
-  const getMn = id => document.getElementById(id)?.value || null;
-  base.moneda_renta = getMn('mn-renta') || 'USD';
-  base.moneda_gastos = getMn('mn-gas') || getMn('mn-expensas') || 'USD';
-  base.moneda_impuestos = getMn('mn-arba_abl') || getMn('mn-property_tax') || 'USD';
+  const getMn = campo => mnVal(campo);   // v222 — por el mapa MN_ID, no por el nombre de la columna
+  base.moneda_renta = getMn('renta') || 'USD';
+  base.moneda_gastos = getMn('gas') || getMn('expensas') || 'USD';
+  base.moneda_impuestos = getMn('arba_abl') || getMn('property_tax') || 'USD';
   // Individual rubro monedas
   ['renta','otro_ingreso','gas','luz','cable','telefono','expensas','jardinero','limpieza',
    'mantenimiento','deposito','comision','seguros','administracion','otros_gastos',
    'arba_abl','municipalidad_tigre','property_tax','tributo_domiciliario','impuesto_primarias',
    'contribucion_inmobiliaria','saneamiento','ascensor','otros_impuestos'].forEach(f => {
-    const mn = getMn('mn-' + f);
+    const mn = getMn(f);
     if (mn) base['moneda_' + f] = mn;
   });
   // Save per-rubro medio de pago
@@ -15453,7 +15472,7 @@ async function guardarMovProp2() {
   // (USD se suma directo; pesos/UYU/EUR se dividen por el TC del mes)
   const cvField = (val, field, sectionMoneda) => {
     if (rubroNoSuma(base, field)) return 0;   // v209 — se ve, no suma
-    const m = getMn('mn-' + field) || base['moneda_' + field] || sectionMoneda || 'USD';
+    const m = getMn(field) || base['moneda_' + field] || sectionMoneda || 'USD';
     return convUSD(val || 0, m, anio, mes);
   };
   base.total_renta_usd = cvField(base.renta,'renta',monedaRenta) + cvField(base.otro_ingreso,'otro_ingreso',monedaRenta);
@@ -16420,6 +16439,21 @@ function selectAccountItem(panelId, mpSelectId, key) {
 }
 
 // Update totals display in carga tables
+/* v222 — LOS SELECT DE MONEDA DE LA CARGA DE PROPIEDADES.
+   El id del select no siempre es "mn-" + el nombre de la columna: los impuestos usan mn-arba, mn-tigre,
+   mn-propertytax, mn-tributo, mn-primarias, mn-contribucion, mn-otros_imp. Por eso el total en vivo y el
+   guardado leían un id que no existe y trataban TODOS los impuestos como dólares. Un solo mapa para las tres
+   cosas: mostrar la moneda al abrir el mes, calcular el neto mientras se escribe y guardar. */
+const MN_ID = { renta:'mn-renta', otro_ingreso:'mn-otro_ingreso',
+  gas:'mn-gas', luz:'mn-luz', cable:'mn-cable', telefono:'mn-telefono', expensas:'mn-expensas',
+  jardinero:'mn-jardinero', limpieza:'mn-limpieza', mantenimiento:'mn-mantenimiento', deposito:'mn-deposito',
+  comision:'mn-comision', seguros:'mn-seguros', administracion:'mn-administracion', otros_gastos:'mn-otros_gastos',
+  arba_abl:'mn-arba', municipalidad_tigre:'mn-tigre', property_tax:'mn-propertytax',
+  tributo_domiciliario:'mn-tributo', impuesto_primarias:'mn-primarias',
+  contribucion_inmobiliaria:'mn-contribucion', saneamiento:'mn-saneamiento', ascensor:'mn-ascensor',
+  otros_impuestos:'mn-otros_imp' };
+const mnEl  = campo => document.getElementById(MN_ID[campo] || ('mn-' + campo));
+const mnVal = campo => mnEl(campo)?.value || null;
 function updateCargaTotals(formId) {
   try {
     const _f = document.getElementById('form-mov-prop2');
@@ -16434,11 +16468,10 @@ function updateCargaTotals(formId) {
     
     if (formId === 'mp2' || !formId) {
       // Per-row moneda conversion
-      function rowUSD(inputId, monedaId) {
+      function rowUSD(inputId, campo) {
         const val = parseFloat(document.getElementById(inputId)?.value)||0;
         if (!val) return 0;
-        const m = document.getElementById(monedaId)?.value || 'USD';
-        return convUSD(val, m, _anio, _mes);
+        return convUSD(val, mnVal(campo) || 'USD', _anio, _mes);
       }
       const fieldMonedaMap = {
         'mp2-renta':'renta','mp2-otro-ingreso':'otro_ingreso',
@@ -16451,14 +16484,14 @@ function updateCargaTotals(formId) {
         'mp2-contribucion':'contribucion_inmobiliaria','mp2-saneamiento':'saneamiento',
         'mp2-ascensor':'ascensor','mp2-otros-imp':'otros_impuestos'
       };
-      const renta = rowUSD('mp2-renta','mn-renta') + rowUSD('mp2-otro-ingreso','mn-otro_ingreso');
+      const renta = rowUSD('mp2-renta','renta') + rowUSD('mp2-otro-ingreso','otro_ingreso');
       const gastos = ['mp2-gas','mp2-luz','mp2-cable','mp2-telefono','mp2-expensas','mp2-jardinero',
         'mp2-limpieza','mp2-mantenimiento','mp2-deposito','mp2-comision','mp2-seguros',
         'mp2-administracion','mp2-otros-gastos']
-        .reduce((sum,id) => sum + rowUSD(id, 'mn-' + fieldMonedaMap[id]), 0);
+        .reduce((sum,id) => sum + rowUSD(id, fieldMonedaMap[id]), 0);
       const imp = ['mp2-arba','mp2-tigre','mp2-propertytax','mp2-tributo','mp2-primarias',
         'mp2-contribucion','mp2-saneamiento','mp2-ascensor','mp2-otros-imp']
-        .reduce((sum,id) => sum + rowUSD(id, 'mn-' + fieldMonedaMap[id]), 0);
+        .reduce((sum,id) => sum + rowUSD(id, fieldMonedaMap[id]), 0);
       const neto = renta - gastos - imp;
       const netoEl = document.getElementById('mp2-neto');
       if (netoEl) { netoEl.textContent = '$' + fmt(neto); netoEl.style.color = neto>=0?'#5cb85c':'#c0392b'; }
@@ -16732,14 +16765,14 @@ async function loadAutosEvolucion() {
       <thead><tr><th>Concepto</th><th class="num" style="color:var(--gold)">Total</th>${MM.map(m=>`<th class="num">${meses[m]}</th>`).join('')}</tr></thead>
       <tbody>
         ${CONCEPTOS.map(([label,field])=>{
-          const vals = MM.map(m=>soloSumables(active).reduce((a,x)=>a+_rubUSD(gasMap[x.id]?.[m], field, m),0));
+          const vals = MM.map(m=>soloSumables(active, anio).reduce((a,x)=>a+_rubUSD(gasMap[x.id]?.[m], field, m),0));
           const tot = vals.reduce((a,b)=>a+b,0);
           return `<tr><td>${label}</td><td class="num bold" style="color:${tot?'var(--text2)':'var(--border2)'}">${tot>0?'$'+fmt(tot):'—'}</td>${vals.map(v=>`<td class="num">${v>0?'$'+fmt(v):'—'}</td>`).join('')}</tr>`;
         }).join('')}
         <tr style="border-top:2px solid var(--border2)">
           <td class="bold" style="color:var(--gold)">TOTAL USD</td>
-          <td class="num bold negative">${(()=>{const g=soloSumables(active).reduce((a,x)=>a+MM.reduce((b,m)=>b+(gasMap[x.id]?.[m]?.total_usd||0),0),0);return g>0?'$'+fmt(g):'—';})()}</td>
-          ${MM.map(m=>{const v=soloSumables(active).reduce((a,x)=>a+(gasMap[x.id]?.[m]?.total_usd||0),0);return`<td class="num bold negative">${v>0?'$'+fmt(v):'—'}</td>`;}).join('')}
+          <td class="num bold negative">${(()=>{const g=soloSumables(active, anio).reduce((a,x)=>a+MM.reduce((b,m)=>b+(gasMap[x.id]?.[m]?.total_usd||0),0),0);return g>0?'$'+fmt(g):'—';})()}</td>
+          ${MM.map(m=>{const v=soloSumables(active, anio).reduce((a,x)=>a+(gasMap[x.id]?.[m]?.total_usd||0),0);return`<td class="num bold negative">${v>0?'$'+fmt(v):'—'}</td>`;}).join('')}
         </tr>
       </tbody>
     </table></div>
@@ -17766,7 +17799,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260923-221';
+const APP_VERSION = '20260924-222';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
