@@ -10371,6 +10371,10 @@ const _CHQ_ALIAS = {
   bankofamericalatam:'bnylatam1875',
   // v218 — Timoteo (22/09): BNY Grupillo = BNY Grupillo - Hermanos - 2884
   bnygrupillo:'bnygrupillohermanos2884',
+  // v223 — Timoteo (25/09): "Grupi Sanber Corp" del COMPLETO = "Grupo Sanber Corp" de la app
+  grupisanbercorp:'gruposanbercorp',
+  // v223 — estaba adentro del comentario de v220 (línea de arcos) y no regía
+  fontainebleau3405:'fontainebleau3405tresor',
 };
 /* v208 — MATCHEO MÁS ESTRICTO Y CON SINÓNIMOS.
    · Sinónimos: "BANK OF NEW YORK" = BNY · "M BENZ" / "MERCEDES BENZ" = MB · "PEOGEOT" = Peugeot.
@@ -10724,6 +10728,10 @@ async function renderChqCompleto() {
 
   // v206 — diferencias por activo del mes elegido (propiedades y bancos)
   let D = null;
+  /* v223 — el detalle por activo se vuelve a leer de la base en cada render, igual que el cuadro de arriba
+     (_chqAppMeses). Antes quedaba guardado la primera vez que se abría el año: después de correr un SQL,
+     "Dónde está la diferencia" seguía mostrando números viejos que el cuadro de arriba ya no tenía. */
+  _chqDetApp = { anio: null, p: null };
   try { D = await _chqDiferencias(Y, M); } catch (e) { console.warn('diferencias por activo:', e.message); }
   const Fd = v => (v < 0 ? '-' : '') + '$' + fmt(Math.abs(v));
   const popDe = k => { const L = D && D[k]; if (!L || !L.length) return '';
@@ -17799,7 +17807,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260924-222';
+const APP_VERSION = '20260925-223';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
