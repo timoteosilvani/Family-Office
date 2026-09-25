@@ -10375,6 +10375,8 @@ const _CHQ_ALIAS = {
   grupisanbercorp:'gruposanbercorp',
   // v223 — estaba adentro del comentario de v220 (línea de arcos) y no regía
   fontainebleau3405:'fontainebleau3405tresor',
+  // v224 — en el COMPLETO 2026 la caja de JC se llama "CAJA CHICA Y GRANDE" (fila 70)
+  cajachicaygrande:'cajajc',
 };
 /* v208 — MATCHEO MÁS ESTRICTO Y CON SINÓNIMOS.
    · Sinónimos: "BANK OF NEW YORK" = BNY · "M BENZ" / "MERCEDES BENZ" = MB · "PEOGEOT" = Peugeot.
@@ -10440,7 +10442,85 @@ function _chqMonedaPorFormula(ws, XL) {
 /* Lee UNA fórmula y devuelve { fila: filaDivisora | 0 }. 0 = la fila entra sin dividir.
    Sirve tanto para las filas consolidadas del encabezado como para la fila TOTAL de cada bloque, que es
    una consolidada en chiquito: `=SUM(G125:G127)/G9+G128` dice que 125-127 van en pesos UY y 128 en dólares. */
+/* v224 — LECTOR DE FÓRMULAS TÉRMINO POR TÉRMINO.
+   Arma el árbol de la fórmula (+ − * /, paréntesis, SUM, rangos) y a cada celda citada le asigna la lista de
+   divisores que la afectan: adentro de "( … )/TC", de "SUM(…/TC)" o suelta "X/TC". Así entiende celdas MIXTAS como
+   Imperiale 1503 "=(D465+…+D476)/D8 + D469 + D477" (unos rubros en pesos UY y otros en dólares) y los casos con la
+   división adentro del SUM, "SUM(G615,…,G627/G8)" (Amphion), que el lector de v217 leía como dólares.
+   Validado contra los valores guardados por Excel: C 2026 249 5.239/5.239 fórmulas, C 2025 249 4.613/4.613.
+   Lo que no sabe leer lo marca en flags; nunca adivina. */
+function _chqLfTok(f) {
+  const re = /\s*(?:('(?:[^']|'')+'|[A-Za-z_][\w\. ]*?)!)?(\$?[A-Z]{1,3}\$?\d+(?::\$?[A-Z]{1,3}\$?\d+)?)|\s*(\d+(?:\.\d+)?(?:E[+-]?\d+)?)|\s*([A-Z][A-Z0-9\.]*)\(|\s*([+\-*/(),^&<>=])/giy;
+  const out = []; let m; re.lastIndex = 0;
+  while (re.lastIndex < f.length) {
+    const at = re.lastIndex; m = re.exec(f);
+    if (!m) { if (/^\s*$/.test(f.slice(at))) break; throw new Error('token raro en "' + f.slice(at, at + 15) + '"'); }
+    if (m[2]) out.push({ t:'ref', sheet: m[1] || null, v: m[2].replace(/\$/g, '').toUpperCase() });
+    else if (m[3]) out.push({ t:'num', v: +m[3] });
+    else if (m[4]) out.push({ t:'fn', v: m[4].toUpperCase() });
+    else if (m[5]) out.push({ t:'op', v: m[5] });
+  }
+  return out;
+}
+function _chqLfCell(a) { const m = /^([A-Z]+)(\d+)$/.exec(a); return { col: m[1], row: +m[2] }; }
+function _chqLfColN(c) { let n = 0; for (const ch of c) n = n * 26 + ch.charCodeAt(0) - 64; return n; }
+function _chqLfColL(n) { let s = ''; while (n > 0) { const r = (n - 1) % 26; s = String.fromCharCode(65 + r) + s; n = (n - 1 - r) / 26; } return s; }
+function _chqLfParse(toks) {
+  let i = 0; const pk = () => toks[i], nx = () => toks[i++];
+  function expr() { let n = term(); while (pk() && pk().t === 'op' && (pk().v === '+' || pk().v === '-')) { const o = nx().v; n = { k:o, a:n, b:term() }; } return n; }
+  function term() { let n = un(); while (pk() && pk().t === 'op' && (pk().v === '*' || pk().v === '/')) { const o = nx().v; n = { k:o, a:n, b:un() }; } return n; }
+  function un() { if (pk() && pk().t === 'op' && (pk().v === '-' || pk().v === '+')) { const o = nx().v; const a = un(); return o === '-' ? { k:'neg', a } : a; } return prim(); }
+  function prim() { const t = nx(); if (!t) throw new Error('fin inesperado');
+    if (t.t === 'num') return { k:'num', v:t.v };
+    if (t.t === 'ref') return { k:'ref', sheet:t.sheet, v:t.v };
+    if (t.t === 'op' && t.v === '(') { const n = expr(); const c = nx(); if (!c || c.v !== ')') throw new Error('falta )'); return { k:'par', a:n }; }
+    if (t.t === 'fn') { const args = []; if (pk() && pk().v === ')') { nx(); return { k:'fn', f:t.v, args }; }
+      for (;;) { args.push(expr()); const c = nx(); if (!c) throw new Error('falta ) en ' + t.v); if (c.v === ')') break; if (c.v !== ',') throw new Error('separador raro ' + c.v); }
+      return { k:'fn', f:t.v, args }; }
+    throw new Error('token inesperado ' + JSON.stringify(t)); }
+  const n = expr(); if (i < toks.length) throw new Error('sobra ' + JSON.stringify(toks[i])); return n;
+}
+/* tcRows: { fila: 'ARS'|'UYU'|'EUR' } (puede ir vacío: entonces todo divisor de una celda se registra igual, marcado).
+   Devuelve { terms: [{col,row,sign,divs:[{col,row}]}], flags: [...] }. divs[0] es el divisor más externo. */
+function _chqLeerFormula(f, tcRows) {
+  tcRows = tcRows || {};
+  const flags = [], terms = [];
+  if (f == null || f === '') return { terms, flags: ['SIN_FORMULA'] };
+  let ast; try { ast = _chqLfParse(_chqLfTok(String(f).replace(/^=/, ''))); } catch (e) { return { terms, flags: ['NO_PARSEA: ' + e.message] }; }
+  const esTC = n => n && n.k === 'ref' && !n.sheet && !n.v.includes(':') && tcRows[_chqLfCell(n.v).row] !== undefined;
+  (function walk(n, sign, divs) {
+    switch (n.k) {
+      case 'num': if (n.v !== 0) flags.push('CONSTANTE'); return;
+      case 'par': return walk(n.a, sign, divs);
+      case 'neg': return walk(n.a, -sign, divs);
+      case '+': walk(n.a, sign, divs); return walk(n.b, sign, divs);
+      case '-': walk(n.a, sign, divs); return walk(n.b, -sign, divs);
+      case '/': { let b = n.b; while (b.k === 'par') b = b.a;
+        if (esTC(b)) return walk(n.a, sign, divs.concat([_chqLfCell(b.v)]));
+        if (b.k === 'ref' && !b.sheet && !b.v.includes(':')) { flags.push('DIV_NO_TC ' + b.v); return walk(n.a, sign, divs.concat([Object.assign(_chqLfCell(b.v), { noTC:true })])); }
+        flags.push('DIV_COMPLEJA'); return walk(n.a, sign, divs); }
+      case '*': flags.push('MULTIPLICA'); walk(n.a, sign, divs); return walk(n.b, sign, divs);
+      case 'fn': if (n.f !== 'SUM') flags.push('FUNCION ' + n.f); n.args.forEach(a => walk(a, sign, divs)); return;
+      case 'ref': {
+        if (n.sheet) { flags.push('OTRA_HOJA'); return; }
+        if (n.v.includes(':')) { const [a, b] = n.v.split(':').map(_chqLfCell);
+          for (let c = _chqLfColN(a.col); c <= _chqLfColN(b.col); c++) for (let r = a.row; r <= b.row; r++) terms.push({ col:_chqLfColL(c), row:r, sign, divs });
+          return; }
+        const c = _chqLfCell(n.v); terms.push({ col:c.col, row:c.row, sign, divs }); return; }
+    }
+  })(ast, 1, []);
+  return { terms, flags };
+}
+/* v224 — divisor de cada fila, ahora con el lector término por término. Misma salida que antes
+   ({ fila: filaDivisora | 0 }, la primera aparición manda). Si la fórmula no se puede leer, cae al lector de v217. */
 function _chqDivDeFormula(f) {
+  const L = _chqLeerFormula(String(f), {});
+  if (L.flags.some(x => /^NO_PARSEA/.test(x))) return _chqDivDeFormulaV217(f);
+  const out = {};
+  L.terms.forEach(t => { if (out[t.row] === undefined) out[t.row] = t.divs.length ? t.divs[0].row : 0; });
+  return out;
+}
+function _chqDivDeFormulaV217(f) {
   const out = {};
   const partir = t => { const o = []; let d = 0, cur = '';
     for (const ch of t) { if (ch === '(') d++; if (ch === ')') d--; if ((ch === '+' || ch === '-') && d === 0) { o.push(cur); cur = ''; } else cur += ch; }
@@ -10582,10 +10662,17 @@ function _chqLeerDetalle(wb, XL) {
   /* PRIVATE EQUITY: UTILIDAD / INGRESO = utilidad · APORTE DE CAPITAL / INVERSION = aporte. */
   const w4 = wb.Sheets['ANEXO - (PRIVATE EQUITY)'];
   if (w4) { const c0 = _colEnero(w4, XL);
+    /* v224 — la celda se divide por lo que diga el encabezado de ese mes: Vannier 2026 tiene la utilidad en pesos
+       (H20 = 20.034.657) y el encabezado la suma como "H20/H8". Antes se leía cruda y abajo aparecían 20 M de diferencia. */
+    const _divPe = _chqDivPorCelda(w4, XL, /^(utilidad|ingreso|aporte|inversion)/i);
+    const _valPe = (r, m) => { let v = num(w4[XL.utils.encode_cell({ r, c: c0 + m - 1 })]);
+      const d = _divPe[(r + 1) + '|' + m];
+      if (d) { const t = num(w4[XL.utils.encode_cell({ r: d - 1, c: c0 + m - 1 })]); if (t) v = v / t; }
+      return v; };
     _bloques(w4, (cur, lbl, pos, r) => { if (lbl === null) { out.pe[cur] = out.pe[cur] || {}; return; }
       const t = _chqN(lbl); const k = /^(utilidad|ingreso)/.test(t) ? 'util' : (/^(aportedecapital|inversion)/.test(t) ? 'ap' : null);
       if (!k) return;
-      for (let m = 1; m <= 12; m++) { const o = out.pe[cur][m] = out.pe[cur][m] || {}; o[k] = (o[k] || 0) + num(w4[XL.utils.encode_cell({ r, c: c0 + m - 1 })]); } }); }
+      for (let m = 1; m <= 12; m++) { const o = out.pe[cur][m] = out.pe[cur][m] || {}; o[k] = (o[k] || 0) + _valPe(r, m); } }); }
   return out;
 }
 // Lado app, por activo y mes (una vez por año)
@@ -17807,7 +17894,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260925-223';
+const APP_VERSION = '20260925-224';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
