@@ -1567,6 +1567,11 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
             </div>
           </div>
         </div>
+        <div id="prop-vendidas" class="tab-content"><!-- v225 — estaba adentro de page-ranking y se veía ahí -->
+          <div style="display:inline-block;background:var(--gold-soft);border:1px solid var(--gold);color:var(--gold);border-radius:20px;padding:4px 14px;font-size:11px;font-weight:600;letter-spacing:0.5px;margin-bottom:14px">PROPIEDADES VENDIDAS</div>
+          <p style="color:var(--text3);font-size:12px;margin-bottom:16px">Historial de las propiedades que salieron de la cartera, con su fecha y valor de venta. No suman al patrimonio.</p>
+          <div id="props-vendidas-lista"><div class="loader"><div class="spinner"></div></div></div>
+        </div>
       </div>
 
 
@@ -1609,11 +1614,6 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
           </div>
         </div>
 
-        <div id="prop-vendidas" class="tab-content">
-          <div style="display:inline-block;background:var(--gold-soft);border:1px solid var(--gold);color:var(--gold);border-radius:20px;padding:4px 14px;font-size:11px;font-weight:600;letter-spacing:0.5px;margin-bottom:14px">PROPIEDADES VENDIDAS</div>
-          <p style="color:var(--text3);font-size:12px;margin-bottom:16px">Historial de las propiedades que salieron de la cartera, con su fecha y valor de venta. No suman al patrimonio.</p>
-          <div id="props-vendidas-lista"><div class="loader"><div class="spinner"></div></div></div>
-        </div>
       </div>
 
       <!-- ======== BANCOS ======== -->
@@ -8702,6 +8702,7 @@ async function renderPropsVendidas() {
   const byY = {};
   rows.forEach(r => { (byY[anio(r.fecha_venta)] = byY[anio(r.fecha_venta)] || []).push(r); });
   const anios = Object.keys(byY).sort((a,b) => b.localeCompare(a));
+  const _aNum = anios.filter(y => /^\d{4}$/.test(y));   // v225 — el período sale sólo de las ventas con fecha
   cont.innerHTML = `
     <div class="grid-3" style="margin-bottom:18px">
       <div style="border:1px solid var(--border);border-radius:8px;padding:14px;text-align:center">
@@ -8712,7 +8713,7 @@ async function renderPropsVendidas() {
         <div style="font-size:22px;font-weight:300;color:var(--gold)">$${fmt(total)}</div></div>
       <div style="border:1px solid var(--border);border-radius:8px;padding:14px;text-align:center">
         <div style="font-size:10px;letter-spacing:1px;color:var(--text3);text-transform:uppercase;margin-bottom:6px">Período</div>
-        <div style="font-size:22px;font-weight:300;color:var(--text2)">${anios[anios.length-1]} — ${anios[0]}</div></div>
+        <div style="font-size:22px;font-weight:300;color:var(--text2)">${_aNum.length ? _aNum[_aNum.length-1] + ' — ' + _aNum[0] : '—'}</div></div>
     </div>` +
     anios.map(y => {
       const rs = byY[y];
@@ -8729,7 +8730,7 @@ async function renderPropsVendidas() {
             <td class="bold">${r.nombre}</td>
             <td>${r.titular}</td>
             <td><span style="color:${colPais[r.pais]||'var(--text3)'}">${r.pais||'—'}</span></td>
-            <td>${r.fecha_venta || '<span style="color:var(--text3)">sin fecha</span>'}</td>
+            <td>${r.fecha_venta ? fechaDMY(r.fecha_venta) : '<span style="color:var(--text3)">sin fecha</span>'}</td>
             <td class="num bold">$${fmt(Number(r.valor_venta)||0)}</td>
           </tr>`).join('')}</tbody>
         </table></div>
@@ -17982,7 +17983,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260930-225';
+const APP_VERSION = '20260930-226';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
