@@ -1820,8 +1820,10 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
             <div class="grid-2">
               <div><label class="fld">Cuenta</label><select class="fld" id="ap-banco"></select></div>
               <div><label class="fld">Fecha</label><input class="fld" type="date" id="ap-fecha"></div>
-              <div><label class="fld">Tipo</label><select class="fld" id="ap-tipo"><option value="incorporacion">Incorporación</option><option value="aporte">Aporte</option><option value="retiro">Retiro</option></select></div>
+              <div><label class="fld">Tipo</label><select class="fld" id="ap-tipo" onchange="apContraCambio()"><option value="incorporacion">Incorporación</option><option value="aporte">Aporte</option><option value="retiro">Retiro</option></select></div>
               <div><label class="fld">Monto (USD)</label><input class="fld" type="number" id="ap-monto" value="0"></div>
+              <div><label class="fld">Desde / hacia cuenta del patrimonio</label><select class="fld" id="ap-contra" onchange="apContraCambio()"></select></div>
+              <div id="ap-mcontra-wrap" style="display:none"><label class="fld" id="ap-mcontra-lbl">Monto en la otra cuenta (USD)</label><input class="fld" type="number" id="ap-monto-contra" value="0"></div>
               <div style="grid-column:1/-1"><label class="fld">Notas</label><input class="fld" id="ap-notas"></div>
             </div>
             <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px">
@@ -7828,17 +7830,23 @@ async function loadAportes() {
   apCierreRender();
   const sel = document.getElementById('ap-banco');
   // v225 — todas las cuentas visibles (también las dadas de baja, para nombrar sus aportes viejos), en el orden del COMPLETO (nro)
-  const { data: bTodos } = await aplicarFiltroTit(sb.from('bancos').select('id,nombre,titular,nro,activo').order('nro'));
+  const { data: bTodos } = await aplicarFiltroTit(sb.from('bancos').select('id,nombre,titular,nro,activo,es_operativa').order('nro'));
   const bcs = (bTodos || []).filter(b => b.activo !== false);
   _apBancosNombre = {}; const _apOrden = {};
   (bTodos||[]).forEach((b, i) => { _apBancosNombre[b.id] = b.nombre; _apOrden[b.id] = i; });
-  if (sel) sel.innerHTML = (bcs||[]).map(b => `<option value="${b.id}">${b.nombre} (${b.titular})</option>`).join('');
+  // v228 — la cuenta del movimiento: sólo las de INVERSIÓN. La contraparte: cualquiera activa (también operativas).
+  const optB = b => `<option value="${b.id}">${b.nombre} (${b.titular})</option>`;
+  if (sel) sel.innerHTML = bcs.filter(b => b.es_operativa !== true).map(optB).join('');
+  const selC = document.getElementById('ap-contra');
+  if (selC) selC.innerHTML = '<option value="">— ninguna (fuera del patrimonio) —</option>' + bcs.map(optB).join('');
+  if (!_apEditId) apRestaurarForm();
   const cont = document.getElementById('aportes-lista');
   if (!cont) return;
   const { data, error } = await sb.from('aportes_bancos').select('*').order('fecha', { ascending: true });
   if (error) { cont.innerHTML = `<p style="color:var(--usa);font-size:13px">No se pudo leer aportes (${error.message}). ¿Creaste la tabla <code>aportes_bancos</code>?</p>`; return; }
   const rows = data || [];
   _apRows = {}; rows.forEach(r => _apRows[r.id] = r);
+  _apPorVinculo = {}; rows.forEach(r => { if (r.vinculo_id) (_apPorVinculo[r.vinculo_id] = _apPorVinculo[r.vinculo_id] || []).push(r); });
   if (!rows.length) { cont.innerHTML = '<p style="color:var(--text3);font-size:13px">Sin movimientos de capital registrados todavía.</p>'; return; }
   const tipoLbl = { incorporacion:'Incorporación', aporte:'Aporte', retiro:'Retiro' };
   const neg = t => t === 'retiro';
@@ -7866,7 +7874,7 @@ async function loadAportes() {
           <thead><tr><th>Fecha</th><th>Tipo</th><th class="num">Monto</th><th></th></tr></thead>
           <tbody>${aps.map(r => `<tr>
             <td>${fechaDMY(r.fecha)}</td>
-            <td>${tipoLbl[r.tipo] || r.tipo}${r.notas ? ` · <span style="color:var(--text3);font-size:11px">${r.notas}</span>` : ''}</td>
+            <td>${tipoLbl[r.tipo] || r.tipo}${(() => { const o = apContraparte(r); return o ? ` <span title="Movimiento vinculado: está cargado también en esa cuenta" style="color:var(--gold);font-size:11px">↔ ${_apBancosNombre[o.banco_id] || 'otra cuenta'}</span>` : ''; })()}${r.notas ? ` · <span style="color:var(--text3);font-size:11px">${r.notas}</span>` : ''}</td>
             <td class="num" style="color:${neg(r.tipo) ? 'var(--usa)' : 'var(--esp)'}">${neg(r.tipo) ? '-' : '+'} $${fmt(Math.abs(r.monto||0))}</td>
             <td class="num" style="white-space:nowrap"><button class="btn-secondary" title="Editar" style="padding:3px 7px;font-size:11px;margin-right:4px" onclick="editarAporte('${r.id}')">✎</button><button class="btn-secondary" title="Borrar" style="padding:3px 9px;font-size:11px" onclick="borrarAporte('${r.id}')">✕</button></td>
           </tr>`).join('')}</tbody>
@@ -8820,9 +8828,9 @@ function toggleAporteBank(bid) {
 // Deja el tipo en "aporte" (el uso habitual): solo falta poner fecha y monto.
 function nuevoAporteCuenta(bid) {
   apCancelarEdicion();
+  apAsegurarOpcion('ap-banco', bid, ' (no es de inversión)');
   const sel = document.getElementById('ap-banco');
   if (sel) sel.value = String(bid);
-  const tipo = document.getElementById('ap-tipo'); if (tipo) tipo.value = 'aporte';
   const card = document.getElementById('ap-form-card');
   if (card) {
     const topbar = document.querySelector('.topbar');
@@ -8837,26 +8845,70 @@ function nuevoAporteCuenta(bid) {
 
 /* v227 — ✎ en cada aporte / retiro: carga el movimiento en el mismo formulario de arriba
    y "Registrar" pasa a "Guardar cambios" (UPDATE de esa fila, no un alta nueva).
-   "Cancelar" o el "+" de una cuenta vuelven el formulario a modo alta. */
-var _apRows = {}, _apEditId = null;
+   "Cancelar" o el "+" de una cuenta vuelven el formulario a modo alta.
+   v228 — MOVIMIENTOS VINCULADOS. Si la plata viene de (o va a) otra cuenta del patrimonio,
+   se elige en "Desde / hacia" y se guardan DOS filas con el mismo vinculo_id: la de esta
+   cuenta y la espejo en la otra, con el tipo contrario (aporte/incorporación ↔ retiro).
+   Dos filas y no una porque todo lo que lee aportes (Dietz, reportes, chequeo, estados)
+   lo hace cuenta por cuenta: así nada de eso cambia. Cada lado tiene su monto (la
+   comisión del wire hace que no siempre coincidan). Editar o borrar uno toca los dos.
+   El formulario recuerda la última cuenta, tipo y fecha (localStorage, por usuario). */
+var _apRows = {}, _apEditId = null, _apPorVinculo = {};
+const AP_INV = { aporte:'retiro', incorporacion:'retiro', retiro:'aporte' };
+function apContraparte(r) {
+  if (!r || !r.vinculo_id) return null;
+  return (_apPorVinculo[r.vinculo_id] || []).find(x => x.id !== r.id) || null;
+}
+function apContraCambio() {
+  const c = document.getElementById('ap-contra')?.value;
+  const w = document.getElementById('ap-mcontra-wrap'); if (w) w.style.display = c ? '' : 'none';
+  const t = document.getElementById('ap-tipo')?.value;
+  const l = document.getElementById('ap-mcontra-lbl');
+  if (l) l.textContent = c ? `Monto ${AP_INV[t] === 'retiro' ? 'que sale de' : 'que entra en'} la otra cuenta (USD)` : 'Monto en la otra cuenta (USD)';
+  const mc = document.getElementById('ap-monto-contra'), m = document.getElementById('ap-monto');
+  if (c && mc && m && !(parseFloat(mc.value) > 0)) mc.value = m.value;
+}
+function apGuardarUltimo() {
+  try { localStorage.setItem('ap_ultimo', JSON.stringify({
+    banco: document.getElementById('ap-banco').value, tipo: document.getElementById('ap-tipo').value,
+    fecha: document.getElementById('ap-fecha').value })); } catch (e) {}
+}
+function apRestaurarForm() {
+  let u = null; try { u = JSON.parse(localStorage.getItem('ap_ultimo') || 'null'); } catch (e) {}
+  if (!u) return;
+  const sel = document.getElementById('ap-banco');
+  if (sel && u.banco && [...sel.options].some(o => o.value === u.banco)) sel.value = u.banco;
+  if (u.tipo) document.getElementById('ap-tipo').value = u.tipo;
+  if (u.fecha) document.getElementById('ap-fecha').value = u.fecha;
+}
 function apCancelarEdicion() {
   _apEditId = null;
   const b = document.getElementById('ap-btn-guardar'); if (b) b.textContent = 'Registrar';
   const c = document.getElementById('ap-btn-cancelar'); if (c) c.style.display = 'none';
   const card = document.getElementById('ap-form-card'); if (card) card.style.outline = '';
+  const sc = document.getElementById('ap-contra'); if (sc) sc.value = '';
+  const mc = document.getElementById('ap-monto-contra'); if (mc) mc.value = 0;
+  apContraCambio();
+}
+function apAsegurarOpcion(selId, bid, sufijo) {
+  const sel = document.getElementById(selId);
+  if (sel && bid && ![...sel.options].some(o => o.value === String(bid)))
+    sel.insertAdjacentHTML('beforeend', `<option value="${bid}">${_apBancosNombre[bid] || '—'}${sufijo}</option>`);
 }
 function editarAporte(id) {
   const r = _apRows[id]; if (!r) return toast('No encontré el movimiento, recargá la solapa', 'error');
-  const sel = document.getElementById('ap-banco');
-  if (sel && ![...sel.options].some(o => o.value === String(r.banco_id))) {
-    // cuenta dada de baja: no está en el select de alta, se agrega sólo para poder editar
-    sel.insertAdjacentHTML('beforeend', `<option value="${r.banco_id}">${_apBancosNombre[r.banco_id] || '—'} (baja)</option>`);
-  }
-  if (sel) sel.value = String(r.banco_id);
+  // cuenta operativa o dada de baja: no está en el select de alta, se agrega sólo para poder editar
+  apAsegurarOpcion('ap-banco', r.banco_id, ' (no es de inversión o está de baja)');
+  document.getElementById('ap-banco').value = String(r.banco_id);
   document.getElementById('ap-fecha').value = String(r.fecha || '').slice(0, 10);
   document.getElementById('ap-tipo').value = r.tipo;
   document.getElementById('ap-monto').value = Math.abs(Number(r.monto) || 0);
   document.getElementById('ap-notas').value = r.notas || '';
+  const o = apContraparte(r);
+  if (o) apAsegurarOpcion('ap-contra', o.banco_id, ' (de baja)');
+  document.getElementById('ap-contra').value = o ? String(o.banco_id) : '';
+  document.getElementById('ap-monto-contra').value = o ? Math.abs(Number(o.monto) || 0) : 0;
+  apContraCambio();
   _apEditId = id;
   const b = document.getElementById('ap-btn-guardar'); if (b) b.textContent = 'Guardar cambios';
   const c = document.getElementById('ap-btn-cancelar'); if (c) c.style.display = '';
@@ -8875,14 +8927,37 @@ async function guardarAporte() {
   const fecha = document.getElementById('ap-fecha').value;
   const tipo = document.getElementById('ap-tipo').value;
   const monto = parseFloat(document.getElementById('ap-monto').value) || 0;
+  const contra = document.getElementById('ap-contra').value || null;
+  const montoC = parseFloat(document.getElementById('ap-monto-contra').value) || 0;
   if (!banco_id || !fecha || !monto) return toast('Completá cuenta, fecha y monto', 'error');
-  const datos = { banco_id, fecha, tipo, monto: Math.abs(monto), notas: document.getElementById('ap-notas').value || null };
+  if (contra && contra === banco_id) return toast('La otra cuenta no puede ser la misma', 'error');
+  if (contra && !montoC) return toast('Completá el monto en la otra cuenta', 'error');
+  const notas = document.getElementById('ap-notas').value || null;
+  const datos = { banco_id, fecha, tipo, monto: Math.abs(monto), notas };
+  const espejo = contra ? { banco_id: contra, fecha, tipo: AP_INV[tipo], monto: Math.abs(montoC), notas } : null;
   const editando = _apEditId;
-  const { error } = editando
-    ? await sb.from('aportes_bancos').update(datos).eq('id', editando)
-    : await sb.from('aportes_bancos').insert({ ...datos, created_by: currentUser?.id });
-  if (error) return toast('Error: ' + error.message, 'error');
-  toast(editando ? 'Movimiento actualizado ✓' : 'Movimiento registrado ✓', 'success');
+  const previa = editando ? apContraparte(_apRows[editando]) : null;
+  let error = null;
+  if (!editando) {
+    if (espejo) {
+      const vinculo_id = crypto.randomUUID();
+      ({ error } = await sb.from('aportes_bancos').insert([
+        { ...datos, vinculo_id, created_by: currentUser?.id }, { ...espejo, vinculo_id, created_by: currentUser?.id }]));
+    } else ({ error } = await sb.from('aportes_bancos').insert({ ...datos, created_by: currentUser?.id }));
+  } else {
+    const vinculo_id = espejo ? (_apRows[editando].vinculo_id || crypto.randomUUID()) : null;
+    ({ error } = await sb.from('aportes_bancos').update({ ...datos, vinculo_id }).eq('id', editando));
+    if (!error && espejo && previa) ({ error } = await sb.from('aportes_bancos').update({ ...espejo, vinculo_id }).eq('id', previa.id));
+    else if (!error && espejo) ({ error } = await sb.from('aportes_bancos').insert({ ...espejo, vinculo_id, created_by: currentUser?.id }));
+    else if (!error && previa) {
+      if (confirm('Sacaste la otra cuenta. ¿Borro también el movimiento espejo en ' + (_apBancosNombre[previa.banco_id] || 'la otra cuenta') + '?\n\nAceptar = borrarlo · Cancelar = dejarlo suelto (sin vínculo).'))
+        ({ error } = await sb.from('aportes_bancos').delete().eq('id', previa.id));
+      else ({ error } = await sb.from('aportes_bancos').update({ vinculo_id: null }).eq('id', previa.id));
+    }
+  }
+  if (error) return toast('Error: ' + error.message + (/vinculo_id/.test(error.message) ? ' — ¿corriste el SQL de la v228?' : ''), 'error');
+  toast(editando ? 'Movimiento actualizado ✓' : (espejo ? 'Movimiento registrado en las dos cuentas ✓' : 'Movimiento registrado ✓'), 'success');
+  apGuardarUltimo();
   apCancelarEdicion();
   document.getElementById('ap-monto').value = 0;
   document.getElementById('ap-notas').value = '';
@@ -8891,10 +8966,12 @@ async function guardarAporte() {
 }
 
 async function borrarAporte(id) {
-  if (!confirm('¿Borrar este movimiento de capital?')) return;
-  const { error } = await sb.from('aportes_bancos').delete().eq('id', id);
+  const o = apContraparte(_apRows[id]);
+  if (!confirm(o ? '¿Borrar este movimiento de capital?\n\nEstá vinculado: se borra también el de ' + (_apBancosNombre[o.banco_id] || 'la otra cuenta') + '.' : '¿Borrar este movimiento de capital?')) return;
+  const { error } = o ? await sb.from('aportes_bancos').delete().in('id', [id, o.id])
+                      : await sb.from('aportes_bancos').delete().eq('id', id);
   if (error) return toast('Error: ' + error.message, 'error');
-  if (_apEditId === id) apCancelarEdicion();
+  if (_apEditId === id || (o && _apEditId === o.id)) apCancelarEdicion();
   toast('Borrado ✓', 'success');
   await loadAportes();
   await refrescarVistaActual();
@@ -18034,7 +18111,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20261002-227';
+const APP_VERSION = '20261002-228';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
