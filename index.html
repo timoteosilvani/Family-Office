@@ -7910,6 +7910,12 @@ async function loadAportes() {
    cuenta de inversión suele ser un aporte o retiro que falta, o un saldo mal cargado).
    Nunca corrige nada: sólo muestra. ════════════════════════════════════ */
 let _cr = null;
+function crOcultas() { try { return JSON.parse(localStorage.getItem('cr_ocultas') || '[]'); } catch (e) { return []; } }
+function crOcultar(id, si) {
+  let o = crOcultas().filter(x => x !== id); if (si) o.push(id);
+  try { localStorage.setItem('cr_ocultas', JSON.stringify(o)); } catch (e) {}
+  crCalcular();
+}
 const _crFin = (y, m) => new Date(Date.UTC(y, m, 0));          // último día del mes m
 const _crD = f => { const [y, m, d] = String(f).slice(0, 10).split('-').map(Number); return new Date(Date.UTC(y, m - 1, d)); };
 function _crDietz(vb, ve, ini, fin, flujos) {
@@ -7936,7 +7942,11 @@ async function crCalcular() {
   const { data: bcs } = await aplicarFiltroTit(sb.from('bancos').select('id,nro,nombre,titular,activo,es_operativa').order('nro'));
   const { data: aps } = await sb.from('aportes_bancos').select('*');
   const conAp = new Set((aps || []).map(a => a.banco_id));
-  const cuentas = soloSumables(bcs || []).filter(b => b.es_operativa !== true || conAp.has(b.id));
+  // v230 — afuera: cuentas dadas de baja y las que el usuario saca del análisis (✕, se recuerda por navegador)
+  const ocultas = crOcultas();
+  const todas = soloSumables(bcs || []).filter(b => b.activo !== false && (b.es_operativa !== true || conAp.has(b.id)));
+  const cuentas = todas.filter(b => !ocultas.includes(b.id));
+  const sacadas = todas.filter(b => ocultas.includes(b.id));
   const ids = cuentas.map(b => b.id);
   let movs = [];
   for (let i = 0; ; i += 1000) {
@@ -7974,12 +7984,13 @@ async function crCalcular() {
   const MN = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
   tab.innerHTML = `<div class="table-wrap"><table style="font-size:12px">
     <thead><tr><th>Cuenta</th>${anios.map(y => `<th class="num">${y}</th>`).join('')}</tr></thead>
-    <tbody>${_cr.cuentas.map(b => `<tr><td>${b.nro} · ${b.nombre}${b.es_operativa ? ' <span style="font-size:9px;color:var(--text3)">(operativa)</span>' : ''}</td>${anios.map(y => {
+    <tbody>${_cr.cuentas.map(b => `<tr><td><span title="Sacar del análisis" style="cursor:pointer;color:var(--text3);margin-right:6px" onclick="crOcultar('${b.id}',true)">✕</span>${b.nro} · ${b.nombre}${b.es_operativa ? ' <span style="font-size:9px;color:var(--text3)">(operativa)</span>' : ''}</td>${anios.map(y => {
       const x = res[b.id][y]; if (!x) return '<td class="num" style="color:var(--text3)">·</td>';
       const tip = `${MN[x.ini.mes-1]} ${x.ini.anio} → ${MN[x.end.mes-1]} ${x.end.anio} · ganancia $${fmt(x.gan)} · anualizado ${_crPct(x.ra)}`;
       const malMes = x.mens.some(mm => mm.r != null && Math.abs(mm.r) > 0.04);
       return `<td class="num" title="${tip}" style="cursor:pointer;color:${_crColor(x.ra)};font-weight:600" onclick="crDetalle('${b.id}',${y})">${_crPct(x.r)}${malMes ? ' <span title="Hay meses con movimiento mayor al 4%" style="color:var(--usa)">•</span>' : ''}</td>`;
     }).join('')}</tr>`).join('')}</tbody></table></div>
+    ${sacadas.length ? `<div style="font-size:11px;color:var(--text3);margin-top:6px">Fuera del análisis: ${sacadas.map(b => `<span style="cursor:pointer;text-decoration:underline" title="Volver a incluir" onclick="crOcultar('${b.id}',false)">${b.nombre}</span>`).join(' · ')}</div>` : ''}
     <div style="font-size:11px;color:var(--text3);margin-top:6px">% del período (el color mira el anualizado). <span style="color:var(--usa)">•</span> = algún mes se movió más de 4%. Clic en una celda para ver el detalle.</div>`;
 }
 function crDetalle(bid, y) {
@@ -18232,7 +18243,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20261002-229';
+const APP_VERSION = '20261002-230';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
