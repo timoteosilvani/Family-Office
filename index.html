@@ -1824,8 +1824,9 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
               <div><label class="fld">Monto (USD)</label><input class="fld" type="number" id="ap-monto" value="0"></div>
               <div style="grid-column:1/-1"><label class="fld">Notas</label><input class="fld" id="ap-notas"></div>
             </div>
-            <div style="display:flex;justify-content:flex-end;margin-top:12px">
-              <button class="btn-primary" style="width:auto;padding:10px 24px" onclick="guardarAporte()">Registrar</button>
+            <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px">
+              <button class="btn-secondary" id="ap-btn-cancelar" style="width:auto;padding:10px 18px;display:none" onclick="apCancelarEdicion()">Cancelar</button>
+              <button class="btn-primary" id="ap-btn-guardar" style="width:auto;padding:10px 24px" onclick="guardarAporte()">Registrar</button>
             </div>
           </div>
           <div class="section-title" style="margin-bottom:12px">Movimientos registrados</div>
@@ -7837,6 +7838,7 @@ async function loadAportes() {
   const { data, error } = await sb.from('aportes_bancos').select('*').order('fecha', { ascending: true });
   if (error) { cont.innerHTML = `<p style="color:var(--usa);font-size:13px">No se pudo leer aportes (${error.message}). ¿Creaste la tabla <code>aportes_bancos</code>?</p>`; return; }
   const rows = data || [];
+  _apRows = {}; rows.forEach(r => _apRows[r.id] = r);
   if (!rows.length) { cont.innerHTML = '<p style="color:var(--text3);font-size:13px">Sin movimientos de capital registrados todavía.</p>'; return; }
   const tipoLbl = { incorporacion:'Incorporación', aporte:'Aporte', retiro:'Retiro' };
   const neg = t => t === 'retiro';
@@ -7866,7 +7868,7 @@ async function loadAportes() {
             <td>${fechaDMY(r.fecha)}</td>
             <td>${tipoLbl[r.tipo] || r.tipo}${r.notas ? ` · <span style="color:var(--text3);font-size:11px">${r.notas}</span>` : ''}</td>
             <td class="num" style="color:${neg(r.tipo) ? 'var(--usa)' : 'var(--esp)'}">${neg(r.tipo) ? '-' : '+'} $${fmt(Math.abs(r.monto||0))}</td>
-            <td class="num"><button class="btn-secondary" style="padding:3px 9px;font-size:11px" onclick="borrarAporte('${r.id}')">✕</button></td>
+            <td class="num" style="white-space:nowrap"><button class="btn-secondary" title="Editar" style="padding:3px 7px;font-size:11px;margin-right:4px" onclick="editarAporte('${r.id}')">✎</button><button class="btn-secondary" title="Borrar" style="padding:3px 9px;font-size:11px" onclick="borrarAporte('${r.id}')">✕</button></td>
           </tr>`).join('')}</tbody>
         </table></div>
       </div>
@@ -8031,14 +8033,19 @@ function lkExcepcion(cat, nro, rubro, anio, mes) {
 const lkEsCash = r => !!(r && (r.referencia === 'CASH' || r.medio === 'Efectivo'));
 const lkEsNeto = r => !!(r && r.referencia === 'NETO');
 const lkEsPosp = r => !!(r && r.referencia === 'POSPUESTO');
+// v227 — TITULAR → "Paga el titular": lo paga (o lo cobra) el dueño con plata propia, fuera de
+// las cuentas del Family Office. Está resuelto, pero no toca ninguna cuenta: no entra en
+// Cuentas (etapa B) ni en el cartel "sin cuenta", ni en el informe mensual por cuenta.
+const lkEsTitular = r => !!(r && r.referencia === 'TITULAR');
 function lkResuelta(r) {
-  return !!(r && (r.cuenta_id || lkEsCash(r) || lkEsNeto(r)));
+  return !!(r && (r.cuenta_id || lkEsCash(r) || lkEsNeto(r) || lkEsTitular(r)));
 }
 // Valores especiales del select → campos de la regla/excepción
 function lkValorARegla(val, medioCuenta) {
   if (val === '__CASH__') return { cuenta_id: null, medio: 'Efectivo', referencia: 'CASH' };
   if (val === '__NETO__') return { cuenta_id: null, medio: 'Descontado de la renta', referencia: 'NETO' };
   if (val === '__POSP__') return { cuenta_id: null, medio: 'Pospuesto', referencia: 'POSPUESTO' };
+  if (val === '__TIT__')  return { cuenta_id: null, medio: 'Paga el titular', referencia: 'TITULAR' };
   return { cuenta_id: val || null, medio: medioCuenta, referencia: null };
 }
 function lkTxtCuenta(r) {
@@ -8046,6 +8053,7 @@ function lkTxtCuenta(r) {
   if (lkEsCash(r)) return 'CASH / efectivo';
   if (lkEsNeto(r)) return '<span style="color:var(--gold)">Descontado de la renta</span>';
   if (lkEsPosp(r)) return '<span style="color:var(--text3)">Pospuesto</span>';
+  if (lkEsTitular(r)) return '<span style="color:var(--text2)">Paga el titular</span>';
   const b = _lkBancos.find(x => x.id === r.cuenta_id);
   return b ? b.nombre : '<span style="color:var(--usa)">sin asignar</span>';
 }
@@ -8053,6 +8061,7 @@ function lkOpts(sel, esProp) {
   return '<option value="">— elegir cuenta —</option>' +
     _lkBancos.map(b => `<option value="${b.id}"${sel && sel.cuenta_id===b.id?' selected':''}>${b.nombre} (${b.titular})</option>`).join('') +
     `<option value="__CASH__"${lkEsCash(sel)?' selected':''}>CASH / efectivo</option>` +
+    `<option value="__TIT__"${lkEsTitular(sel)?' selected':''}>Paga el titular</option>` +
     (esProp || lkEsNeto(sel) ? `<option value="__NETO__"${lkEsNeto(sel)?' selected':''}>Descontado de la renta</option>` : '') +
     `<option value="__POSP__"${lkEsPosp(sel)?' selected':''}>Posponer (mientras no tenga importe)</option>`;
 }
@@ -8320,11 +8329,14 @@ async function cmLineas(anio, mes) {
         const exc = lkExcepcion(t.key, a.nro, c, anio, mes);
         const reg = lkRegla(t.key, a.nro, c);
         const ef = exc || reg;
+        if (lkEsTitular(ef)) return;   // v227 — lo paga el titular por fuera: no pasa por ninguna cuenta
         let cuenta = null, neto = false;
         const aCuenta = r => lkEsCash(r) ? '__CASH__' : (r && r.cuenta_id ? r.cuenta_id : null);
         if (lkEsNeto(ef) && t.key === 'propiedad') {
           neto = true;   // va a la cuenta donde se cobra la renta de esa propiedad
-          cuenta = aCuenta(lkExcepcion(t.key, a.nro, 'renta', anio, mes) || lkRegla(t.key, a.nro, 'renta'));
+          const rRenta = lkExcepcion(t.key, a.nro, 'renta', anio, mes) || lkRegla(t.key, a.nro, 'renta');
+          if (lkEsTitular(rRenta)) return;   // v227 — la renta la cobra el titular: el neto tampoco pasa por una cuenta
+          cuenta = aCuenta(rRenta);
         } else cuenta = aCuenta(ef);
         lineas.push({ cuenta, neto, t, act: a, rubro: c, grupo: gr.g, dir: LK_COBRO.has(c) ? 'cobro' : 'pago',
                       usd: Math.abs(usd), v: n.v, mon: n.mon, origen: exc ? 'Excepción' : (reg ? 'Regla' : '') });
@@ -8807,6 +8819,7 @@ function toggleAporteBank(bid) {
 // "+" de cada cuenta: preselecciona el banco y lleva al form de carga arriba.
 // Deja el tipo en "aporte" (el uso habitual): solo falta poner fecha y monto.
 function nuevoAporteCuenta(bid) {
+  apCancelarEdicion();
   const sel = document.getElementById('ap-banco');
   if (sel) sel.value = String(bid);
   const tipo = document.getElementById('ap-tipo'); if (tipo) tipo.value = 'aporte';
@@ -8822,18 +8835,55 @@ function nuevoAporteCuenta(bid) {
   if (fecha) setTimeout(() => fecha.focus(), 350);
 }
 
+/* v227 — ✎ en cada aporte / retiro: carga el movimiento en el mismo formulario de arriba
+   y "Registrar" pasa a "Guardar cambios" (UPDATE de esa fila, no un alta nueva).
+   "Cancelar" o el "+" de una cuenta vuelven el formulario a modo alta. */
+var _apRows = {}, _apEditId = null;
+function apCancelarEdicion() {
+  _apEditId = null;
+  const b = document.getElementById('ap-btn-guardar'); if (b) b.textContent = 'Registrar';
+  const c = document.getElementById('ap-btn-cancelar'); if (c) c.style.display = 'none';
+  const card = document.getElementById('ap-form-card'); if (card) card.style.outline = '';
+}
+function editarAporte(id) {
+  const r = _apRows[id]; if (!r) return toast('No encontré el movimiento, recargá la solapa', 'error');
+  const sel = document.getElementById('ap-banco');
+  if (sel && ![...sel.options].some(o => o.value === String(r.banco_id))) {
+    // cuenta dada de baja: no está en el select de alta, se agrega sólo para poder editar
+    sel.insertAdjacentHTML('beforeend', `<option value="${r.banco_id}">${_apBancosNombre[r.banco_id] || '—'} (baja)</option>`);
+  }
+  if (sel) sel.value = String(r.banco_id);
+  document.getElementById('ap-fecha').value = String(r.fecha || '').slice(0, 10);
+  document.getElementById('ap-tipo').value = r.tipo;
+  document.getElementById('ap-monto').value = Math.abs(Number(r.monto) || 0);
+  document.getElementById('ap-notas').value = r.notas || '';
+  _apEditId = id;
+  const b = document.getElementById('ap-btn-guardar'); if (b) b.textContent = 'Guardar cambios';
+  const c = document.getElementById('ap-btn-cancelar'); if (c) c.style.display = '';
+  const card = document.getElementById('ap-form-card');
+  if (card) {
+    card.style.outline = '2px solid var(--gold)';
+    const topbar = document.querySelector('.topbar');
+    const tabs = document.querySelector('#page-bancos .tabs');
+    const off = (topbar?.offsetHeight || 0) + (tabs?.offsetHeight || 0) + 16;
+    window.scrollTo({ top: Math.max(0, card.getBoundingClientRect().top + window.scrollY - off), behavior: 'smooth' });
+  }
+}
+
 async function guardarAporte() {
   const banco_id = document.getElementById('ap-banco').value;
   const fecha = document.getElementById('ap-fecha').value;
   const tipo = document.getElementById('ap-tipo').value;
   const monto = parseFloat(document.getElementById('ap-monto').value) || 0;
   if (!banco_id || !fecha || !monto) return toast('Completá cuenta, fecha y monto', 'error');
-  const { error } = await sb.from('aportes_bancos').insert({
-    banco_id, fecha, tipo, monto: Math.abs(monto),
-    notas: document.getElementById('ap-notas').value || null, created_by: currentUser?.id,
-  });
+  const datos = { banco_id, fecha, tipo, monto: Math.abs(monto), notas: document.getElementById('ap-notas').value || null };
+  const editando = _apEditId;
+  const { error } = editando
+    ? await sb.from('aportes_bancos').update(datos).eq('id', editando)
+    : await sb.from('aportes_bancos').insert({ ...datos, created_by: currentUser?.id });
   if (error) return toast('Error: ' + error.message, 'error');
-  toast('Movimiento registrado ✓', 'success');
+  toast(editando ? 'Movimiento actualizado ✓' : 'Movimiento registrado ✓', 'success');
+  apCancelarEdicion();
   document.getElementById('ap-monto').value = 0;
   document.getElementById('ap-notas').value = '';
   await loadAportes();
@@ -8844,6 +8894,7 @@ async function borrarAporte(id) {
   if (!confirm('¿Borrar este movimiento de capital?')) return;
   const { error } = await sb.from('aportes_bancos').delete().eq('id', id);
   if (error) return toast('Error: ' + error.message, 'error');
+  if (_apEditId === id) apCancelarEdicion();
   toast('Borrado ✓', 'success');
   await loadAportes();
   await refrescarVistaActual();
@@ -17983,7 +18034,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20260930-226';
+const APP_VERSION = '20261002-227';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
