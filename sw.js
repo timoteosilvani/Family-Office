@@ -4,7 +4,7 @@
 // forzar actualización en todos los dispositivos
 // ============================================
 
-const CACHE_VERSION = '20261002-230'; // <-- actualizar en cada deploy
+const CACHE_VERSION = '20261007-231'; // <-- actualizar en cada deploy
 const CACHE_NAME = 'fo-cache-' + CACHE_VERSION;
 
 // Rutas RELATIVAS al sw.js, nunca absolutas. Con la app en usuario.github.io/Family-Office/

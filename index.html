@@ -7956,7 +7956,7 @@ async function crCalcular() {
     movs = movs.concat(data || []); if (!data || data.length < 1000) break;
   }
   const serie = {};   // banco_id -> [{anio, mes, neto}]
-  movs.forEach(m => (serie[m.banco_id] = serie[m.banco_id] || []).push({ anio: +m.anio, mes: +m.mes, neto: Number(bancoMovUSD(m).neto) || 0, m }));
+  movs.forEach(m => { const u = bancoMovUSD(m); (serie[m.banco_id] = serie[m.banco_id] || []).push({ anio: +m.anio, mes: +m.mes, neto: Number(u.neto) || 0, cred: Number(u.cred) || 0, m }); });
   const apPor = {}; (aps || []).forEach(a => (apPor[a.banco_id] = apPor[a.banco_id] || []).push(a));
   const anios = [...new Set(movs.map(m => +m.anio))].sort();
   const res = {};
@@ -7971,13 +7971,21 @@ async function crCalcular() {
       const dIni = _crFin(ini.anio, ini.mes), dFin = _crFin(end.anio, end.mes);
       const D = _crDietz(ini.neto, end.neto, dIni, dFin, apPor[b.id] || []);
       const meses = (end.anio - ini.anio) * 12 + end.mes - ini.mes;
-      const ra = D.r == null ? null : (meses >= 12 ? D.r * 12 / meses : (meses >= 3 ? Math.pow(1 + D.r, 12 / meses) - 1 : null));
+      const anual = r => r == null ? null : (meses >= 12 ? r * 12 / meses : (meses >= 3 ? Math.pow(1 + r, 12 / meses) - 1 : null));
+      const ra = anual(D.r);
+      // v231 — con crédito: misma ganancia sobre lo invertido (neto + crédito promedio del período)
+      const delPer = [ini].concat(delAnio.filter(x => x !== ini));
+      const credProm = delPer.reduce((s2, x) => s2 + x.cred, 0) / delPer.length;
+      const conCred = delPer.some(x => x.cred > 0.5);
+      const rG = conCred && D.den + credProm > 1 ? D.gan / (D.den + credProm) : null, raG = anual(rG);
       // mes a mes
       const mens = []; let ant = ini;
       delAnio.forEach(x => { if (x === ini) return;
         const Dm = _crDietz(ant.neto, x.neto, _crFin(ant.anio, ant.mes), _crFin(x.anio, x.mes), apPor[b.id] || []);
-        mens.push({ mes: x.mes, vb: ant.neto, ve: x.neto, ...Dm }); ant = x; });
-      res[b.id][y] = { vb: ini.neto, ve: end.neto, ini, end, meses, ...D, ra, mens };
+        const credM = (ant.cred + x.cred) / 2;
+        const rGm = credM > 0.5 && Dm.den + credM > 1 ? Dm.gan / (Dm.den + credM) : null;
+        mens.push({ mes: x.mes, vb: ant.neto, ve: x.neto, cred: x.cred, rG: rGm, ...Dm }); ant = x; });
+      res[b.id][y] = { vb: ini.neto, ve: end.neto, ini, end, meses, ...D, ra, conCred, credProm, rG, raG, mens };
     });
   });
   _cr = { cuentas: cuentas.filter(b => res[b.id]), res, anios, apPor };
@@ -7986,11 +7994,14 @@ async function crCalcular() {
     <thead><tr><th>Cuenta</th>${anios.map(y => `<th class="num">${y}</th>`).join('')}</tr></thead>
     <tbody>${_cr.cuentas.map(b => `<tr><td><span title="Sacar del análisis" style="cursor:pointer;color:var(--text3);margin-right:6px" onclick="crOcultar('${b.id}',true)">✕</span>${b.nro} · ${b.nombre}${b.es_operativa ? ' <span style="font-size:9px;color:var(--text3)">(operativa)</span>' : ''}</td>${anios.map(y => {
       const x = res[b.id][y]; if (!x) return '<td class="num" style="color:var(--text3)">·</td>';
-      const tip = `${MN[x.ini.mes-1]} ${x.ini.anio} → ${MN[x.end.mes-1]} ${x.end.anio} · ganancia $${fmt(x.gan)} · anualizado ${_crPct(x.ra)}`;
-      const malMes = x.mens.some(mm => mm.r != null && Math.abs(mm.r) > 0.04);
-      return `<td class="num" title="${tip}" style="cursor:pointer;color:${_crColor(x.ra)};font-weight:600" onclick="crDetalle('${b.id}',${y})">${_crPct(x.r)}${malMes ? ' <span title="Hay meses con movimiento mayor al 4%" style="color:var(--usa)">•</span>' : ''}</td>`;
+      const tip = `${MN[x.ini.mes-1]} ${x.ini.anio} → ${MN[x.end.mes-1]} ${x.end.anio} · ganancia $${fmt(x.gan)} · anualizado ${_crPct(x.ra)}${x.conCred ? ' · sobre lo invertido ' + _crPct(x.rG) : ''}`;
+      // con crédito, el semáforo y el punto miran lo invertido (si no, cualquier mes normal sale rojo)
+      const malMes = x.mens.some(mm => { const v = x.conCred && mm.rG != null ? mm.rG : mm.r; return v != null && Math.abs(v) > 0.04; });
+      const colR = x.conCred && x.rG != null ? _crColor(x.raG) : _crColor(x.ra);
+      return `<td class="num" title="${tip}" style="cursor:pointer;color:${colR};font-weight:600" onclick="crDetalle('${b.id}',${y})">${_crPct(x.r)}${malMes ? ' <span title="Hay meses con movimiento mayor al 4%" style="color:var(--usa)">•</span>' : ''}${x.conCred && x.rG != null ? `<div style="font-size:10px;font-weight:400;color:var(--text3)">${_crPct(x.rG)} s/inv.</div>` : ''}</td>`;
     }).join('')}</tr>`).join('')}</tbody></table></div>
     ${sacadas.length ? `<div style="font-size:11px;color:var(--text3);margin-top:6px">Fuera del análisis: ${sacadas.map(b => `<span style="cursor:pointer;text-decoration:underline" title="Volver a incluir" onclick="crOcultar('${b.id}',false)">${b.nombre}</span>`).join(' · ')}</div>` : ''}
+    <div style="font-size:11px;color:var(--text3);margin-top:6px"><b>Cuentas con crédito</b>: abajo, en gris, el rendimiento sobre lo invertido (saldo neto + crédito); el color y el punto miran ese número, porque el % sobre el neto se amplifica por el apalancamiento.</div>
     <div style="font-size:11px;color:var(--text3);margin-top:6px">% del período (el color mira el anualizado). <span style="color:var(--usa)">•</span> = algún mes se movió más de 4%. Clic en una celda para ver el detalle.</div>`;
 }
 function crDetalle(bid, y) {
@@ -8006,11 +8017,13 @@ function crDetalle(bid, y) {
       <span>Saldo final (${MN[x.end.mes-1]} ${x.end.anio}): <b>$${fmt(x.ve)}</b></span>
       <span>Ganancia: <b style="color:${x.gan >= 0 ? 'var(--esp)' : 'var(--usa)'}">${x.gan >= 0 ? '+' : ''}$${fmt(x.gan)}</b></span>
       <span>Rendimiento: <b>${_crPct(x.r)}</b> (${x.meses} meses · anualizado ${_crPct(x.ra)})</span>
+      ${x.conCred ? `<span>Crédito promedio: <b>$${fmt(x.credProm)}</b> · sobre lo invertido: <b>${_crPct(x.rG)}</b> (anualizado ${_crPct(x.raG)})</span>` : ''}
     </div>
+    ${x.conCred ? `<p style="font-size:11px;color:var(--text3);margin:0 0 10px">Cuenta con crédito: el saldo neto es lo invertido menos la deuda, así que cualquier movimiento de la cartera se amplifica sobre el neto. El interés del crédito se suma a la deuda cada mes y ya está descontado de la ganancia.</p>` : ''}
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-      <div class="table-wrap"><table style="font-size:11px"><thead><tr><th>Mes</th><th class="num">Saldo</th><th class="num">Flujo</th><th class="num">Ganancia</th><th class="num">%</th></tr></thead>
-        <tbody>${x.mens.map(mm => { const fuerte = mm.r != null && Math.abs(mm.r) > 0.04;
-          return `<tr style="${fuerte ? 'background:rgba(192,57,43,.08)' : ''}"><td>${MN[mm.mes-1]}</td><td class="num">$${fmt(mm.ve)}</td><td class="num">${mm.F ? (mm.F > 0 ? '+' : '') + '$' + fmt(mm.F) : ''}</td><td class="num">${mm.gan >= 0 ? '+' : ''}$${fmt(mm.gan)}</td><td class="num" style="${fuerte ? 'color:var(--usa);font-weight:700' : ''}">${_crPct(mm.r)}</td></tr>`; }).join('')}</tbody></table></div>
+      <div class="table-wrap"><table style="font-size:11px"><thead><tr><th>Mes</th><th class="num">Saldo</th>${x.conCred ? '<th class="num">Crédito</th>' : ''}<th class="num">Flujo</th><th class="num">Ganancia</th><th class="num">%</th>${x.conCred ? '<th class="num">% s/inv.</th>' : ''}</tr></thead>
+        <tbody>${x.mens.map(mm => { const ref = x.conCred && mm.rG != null ? mm.rG : mm.r; const fuerte = ref != null && Math.abs(ref) > 0.04;
+          return `<tr style="${fuerte ? 'background:rgba(192,57,43,.08)' : ''}"><td>${MN[mm.mes-1]}</td><td class="num">$${fmt(mm.ve)}</td>${x.conCred ? `<td class="num" style="color:var(--usa)">$${fmt(mm.cred)}</td>` : ''}<td class="num">${mm.F ? (mm.F > 0 ? '+' : '') + '$' + fmt(mm.F) : ''}</td><td class="num">${mm.gan >= 0 ? '+' : ''}$${fmt(mm.gan)}</td><td class="num" style="${fuerte && !x.conCred ? 'color:var(--usa);font-weight:700' : ''}">${_crPct(mm.r)}</td>${x.conCred ? `<td class="num" style="${fuerte ? 'color:var(--usa);font-weight:700' : ''}">${_crPct(mm.rG)}</td>` : ''}</tr>`; }).join('')}</tbody></table></div>
       <div class="table-wrap"><table style="font-size:11px"><thead><tr><th>Fecha</th><th>Tipo</th><th class="num">Monto</th></tr></thead>
         <tbody>${fl.length ? fl.map(a => { const o = apContraparte(a); return `<tr><td>${fechaDMY(a.fecha)}</td><td>${({incorporacion:'Incorporación',aporte:'Aporte',retiro:'Retiro'})[a.tipo] || a.tipo}${o ? ` <span style="color:var(--gold)">↔ ${_apBancosNombre[o.banco_id] || ''}</span>` : ''}${a.notas ? ` <span style="color:var(--text3)">· ${a.notas}</span>` : ''}</td><td class="num" style="color:${a.tipo === 'retiro' ? 'var(--usa)' : 'var(--esp)'}">${a.tipo === 'retiro' ? '-' : '+'}$${fmt(Math.abs(Number(a.monto) || 0))}</td></tr>`; }).join('') : '<tr><td colspan="3" style="color:var(--text3)">Sin aportes ni retiros en el período</td></tr>'}</tbody></table></div>
     </div></div>`;
@@ -12670,7 +12683,9 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
         aportesBancos += (apTot[b.id]||0);
         const rend = varTot - (apSem[b.id]||0);
         rendimientoBancos += rend;
-        bancosDietz.push({ nombre:b.nombre, oper:false, vBeg, vEnd, apSem:(apSem[b.id]||0), apTot:(apTot[b.id]||0), varTot, rend, movCap:(apSem[b.id]||0), aportes:aportesOrd });
+        // v231 — crédito al inicio y al cierre: con crédito, el % sobre el neto se amplifica; se informa también sobre lo invertido
+        const cBeg = inicial[b.id] ? (Number(bancoMovUSD(inicial[b.id]).cred)||0) : 0, cEnd = Number(bancoMovUSD(m).cred)||0;
+        bancosDietz.push({ nombre:b.nombre, oper:false, vBeg, vEnd, cBeg, cEnd, apSem:(apSem[b.id]||0), apTot:(apTot[b.id]||0), varTot, rend, movCap:(apSem[b.id]||0), aportes:aportesOrd });
       } else {
         bancosDietz.push({ nombre:b.nombre, oper:true, vBeg, vEnd, apSem:0, apTot:(apTot[b.id]||0), varTot, rend:0, movCap:varTot, aportes:aportesOrd });
       }
@@ -13098,9 +13113,13 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
       <div class="card" style="margin:0">
       <div class="section-title" style="font-size:14px;margin-bottom:10px">Resultado del ${PER_NOMBRE} por cuenta</div>
       <div class="table-wrap"><table><thead><tr><th>Cuenta</th><th class="num">S. inic.</th><th class="num">Aportes</th><th class="num">S. final</th><th class="num">Result.</th><th class="num">Rend.</th></tr></thead><tbody>
-      ${bancosDietz.map(d=>{const pc=(!d.oper&&d.vBeg>0)?((d.rend/d.vBeg*100).toFixed(2)+'%'):'—'; return `<tr><td>${d.nombre}${d.oper?' <span style="font-size:8px;color:var(--text3)">(op)</span>':''}</td><td class="num">$${fmt(d.vBeg)}</td><td class="num">${d.apSem>=0?'+':''}$${fmt(d.apSem)}</td><td class="num">$${fmt(d.vEnd)}</td><td class="num" style="color:${d.rend>=0?'var(--esp)':'var(--usa)'}">${d.oper?'—':(d.rend>=0?'+':'')+'$'+fmt(d.rend)}</td><td class="num">${pc}</td></tr>`}).join('')}
+      ${bancosDietz.map(d=>{const conCred=!d.oper&&((d.cBeg||0)>0.5||(d.cEnd||0)>0.5);const gB=d.vBeg+(d.cBeg||0);
+        const pc=(!d.oper&&d.vBeg>0)?((d.rend/d.vBeg*100).toFixed(2)+'%'):'—';
+        const pcG=conCred&&gB>0?`<div style="font-size:9px;color:var(--text3);font-weight:400;white-space:nowrap">${(d.rend/gB*100).toFixed(2)}% s/invertido</div>`:'';
+        return `<tr><td>${d.nombre}${d.oper?' <span style="font-size:8px;color:var(--text3)">(op)</span>':''}${conCred?' <span title="Cuenta con crédito" style="color:var(--gold)">*</span>':''}</td><td class="num">$${fmt(d.vBeg)}</td><td class="num">${d.apSem>=0?'+':''}$${fmt(d.apSem)}</td><td class="num">$${fmt(d.vEnd)}</td><td class="num" style="color:${d.rend>=0?'var(--esp)':'var(--usa)'}">${d.oper?'—':(d.rend>=0?'+':'')+'$'+fmt(d.rend)}</td><td class="num">${pc}${pcG}</td></tr>`}).join('')}
       ${(()=>{const inv=bancosDietz.filter(d=>!d.oper);const si=inv.reduce((a,d)=>a+d.vBeg,0),ap=inv.reduce((a,d)=>a+d.apSem,0),sf=inv.reduce((a,d)=>a+d.vEnd,0);return `<tr style="font-weight:700;border-top:2px solid var(--navy)"><td>Total inv.</td><td class="num">$${fmt(si)}</td><td class="num">${ap>=0?'+':''}$${fmt(ap)}</td><td class="num">$${fmt(sf)}</td><td class="num" style="color:${rendimientoBancos>=0?'var(--esp)':'var(--usa)'}">${rendimientoBancos>=0?'+':''}$${fmt(rendimientoBancos)}</td><td class="num"></td></tr>`})()}
       </tbody></table></div>
+      ${bancosDietz.some(d=>!d.oper&&((d.cBeg||0)>0.5||(d.cEnd||0)>0.5)) ? `<p style="font-size:10.5px;color:var(--text3);margin:10px 0 0;line-height:1.45"><span style="color:var(--gold)">*</span> <b>Cuentas con crédito.</b> Parte de lo invertido se financia con un préstamo del propio banco, y el saldo que se informa es neto de esa deuda. Por eso el rendimiento sobre el saldo neto se amplifica, para arriba y para abajo: si la cartera gana o pierde un 5% y la cuenta tiene un crédito parecido a su saldo neto, el resultado sobre el neto se acerca al doble. Debajo se muestra también el rendimiento sobre lo invertido (saldo neto más crédito), que es lo que rindió la cartera. El interés del crédito se suma a la deuda todos los meses y ya está descontado del resultado.</p>` : ''}
       </div>
       <div class="card" style="margin-top:14px">
       <div class="section-title" style="font-size:14px;margin-bottom:10px">Detalle de aportes y movimientos de capital</div>
@@ -18243,7 +18262,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20261002-230';
+const APP_VERSION = '20261007-231';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
