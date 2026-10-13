@@ -7638,7 +7638,7 @@ async function reactivarCuentaBanco(id) {
 }
 
 // Cuentas de banco a DESTACAR (negrita extra + puntito). Match por nombre normalizado (tolerante a acentos/puntuación).
-const _bancosDestacados = ['caja jc','caja fc','chase sanber 2320','chase miami fiore 3727','santander fionder 2856','bny mfl 139','caja fcc','caja yac','bny mfl b 253','bny grupillo b sanber corp','itau py','bny jcfc b 5946','bny oeste','caja mfl','itau fionder','bny juan cocci'];
+const _bancosDestacados = ['caja jc','caja fc','chase sanber 2320','chase miami fiore 3727','santander fionder 2856','bny mfl 139','caja fcc','caja yac','bny mfl b 253','bny grupillo b','itau py','bny jcfc b 5946','bny oeste','caja mfl','itau fionder','bny juan cocci'];
 function _normBanco(s){ return String(s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]+/g,' ').trim(); }
 function _esBancoDestacado(nombre){ const n = _normBanco(nombre); return _bancosDestacados.some(k => n.includes(k)); }
 
@@ -18241,17 +18241,347 @@ function _tablasVisibles() {
   return [...pg.querySelectorAll('table')].filter(t => t.offsetParent !== null && t.querySelector('td'));
 }
 
+// ============================================
+// EXPORTAR A EXCEL (v234) — escritor .xlsx propio (sin librerías externas: no depende de
+// internet ni de un CDN). Una solapa por tabla, con el nombre de lo que muestra (la propiedad,
+// la cuenta…), encabezado OFFIDA con filtros y fecha, colores por tipo de fila (renta verde,
+// gastos rojo, impuestos amarillo, totales gris), negativos en rojo, números como números y
+// columnas al ancho del contenido. Si algo falla, cae al export simple de antes.
+// ============================================
+const _XL_CRC = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+function _xlCrc32(u8) { let c = 0xFFFFFFFF; for (let i = 0; i < u8.length; i++) c = _XL_CRC[(c ^ u8[i]) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
+// ZIP sin compresión (STORE): suficiente para un .xlsx y sin dependencias
+function _xlZip(files) {
+  const enc = new TextEncoder(), parts = [], central = []; let off = 0;
+  const u16 = v => [v & 255, (v >>> 8) & 255], u32 = v => [v & 255, (v >>> 8) & 255, (v >>> 16) & 255, (v >>> 24) & 255];
+  files.forEach(f => {
+    const name = enc.encode(f.name), data = enc.encode(f.data), crc = _xlCrc32(data);
+    const lh = new Uint8Array([...u32(0x04034b50), ...u16(20), ...u16(0x0800), ...u16(0), ...u16(0), ...u16(0x21), ...u32(crc), ...u32(data.length), ...u32(data.length), ...u16(name.length), ...u16(0)]);
+    parts.push(lh, name, data);
+    central.push(new Uint8Array([...u32(0x02014b50), ...u16(20), ...u16(20), ...u16(0x0800), ...u16(0), ...u16(0), ...u16(0x21), ...u32(crc), ...u32(data.length), ...u32(data.length), ...u16(name.length), ...u16(0), ...u16(0), ...u16(0), ...u16(0), ...u32(0), ...u32(off)]), name);
+    off += lh.length + name.length + data.length;
+  });
+  const cdSize = central.reduce((a, b) => a + b.length, 0);
+  const end = new Uint8Array([...u32(0x06054b50), ...u16(0), ...u16(0), ...u16(files.length), ...u16(files.length), ...u32(cdSize), ...u32(off), ...u16(0)]);
+  return new Blob([...parts, ...central, end], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+}
+const _xlEsc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '');
+const _xlCol = n => { let s = ''; n++; while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); } return s; };
+/* sheets: [{name, rows:[{h, cells:[{v, st}]}], merges:['A1:D1'], cols:[ancho], freeze:{rows, cols}}]
+   st = {b, i, sz, color, fill, fmt, h:'left|center|right', wrap, top, bottom}  (colores 'RRGGBB') */
+function _xlsxEscribir(sheets) {
+  const fonts = ['<font><sz val="10"/><name val="Arial"/></font>'], fills = ['<fill><patternFill patternType="none"/></fill>', '<fill><patternFill patternType="gray125"/></fill>'];
+  const borders = ['<border><left/><right/><top/><bottom/><diagonal/></border>'], numFmts = [], xfs = ['<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'];
+  const idx = (arr, xml) => { let i = arr.indexOf(xml); if (i < 0) { arr.push(xml); i = arr.length - 1; } return i; };
+  const xfMap = {};
+  const estilo = st => {
+    if (!st) return 0;
+    const k = JSON.stringify(st); if (xfMap[k] != null) return xfMap[k];
+    const f = idx(fonts, `<font>${st.b ? '<b/>' : ''}${st.i ? '<i/>' : ''}<sz val="${st.sz || 10}"/>${st.color ? `<color rgb="FF${st.color}"/>` : ''}<name val="Arial"/></font>`);
+    const fi = st.fill ? idx(fills, `<fill><patternFill patternType="solid"><fgColor rgb="FF${st.fill}"/><bgColor indexed="64"/></patternFill></fill>`) : 0;
+    const ln = c => `<color rgb="FF${c}"/>`;
+    const bo = (st.top || st.bottom) ? idx(borders, `<border><left/><right/><top${st.top ? ` style="thin">${ln(st.top)}</top>` : '/>'}<bottom${st.bottom ? ` style="thin">${ln(st.bottom)}</bottom>` : '/>'}<diagonal/></border>`) : 0;
+    let nf = 0;
+    if (st.fmt) { let i = numFmts.indexOf(st.fmt); if (i < 0) { numFmts.push(st.fmt); i = numFmts.length - 1; } nf = 164 + i; }
+    const al = (st.h || st.wrap) ? `<alignment${st.h ? ` horizontal="${st.h}"` : ''} vertical="center"${st.wrap ? ' wrapText="1"' : ''}/>` : '<alignment vertical="center"/>';
+    xfs.push(`<xf numFmtId="${nf}" fontId="${f}" fillId="${fi}" borderId="${bo}" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1">${al}</xf>`);
+    return (xfMap[k] = xfs.length - 1);
+  };
+  const files = [];
+  sheets.forEach((sh, si) => {
+    let x = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">';
+    x += '<sheetPr><pageSetUpPr fitToPage="1"/></sheetPr><sheetViews><sheetView workbookViewId="0" showGridLines="0"' + (si === 0 ? ' tabSelected="1"' : '') + '>';
+    if (sh.freeze && (sh.freeze.rows || sh.freeze.cols)) {
+      const fr = sh.freeze.rows || 0, fc = sh.freeze.cols || 0;
+      x += `<pane${fc ? ` xSplit="${fc}"` : ''}${fr ? ` ySplit="${fr}"` : ''} topLeftCell="${_xlCol(fc)}${fr + 1}" activePane="${fr && fc ? 'bottomRight' : fr ? 'bottomLeft' : 'topRight'}" state="frozen"/>`;
+    }
+    x += '</sheetView></sheetViews><sheetFormatPr defaultRowHeight="15"/>';
+    if (sh.cols && sh.cols.length) x += '<cols>' + sh.cols.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join('') + '</cols>';
+    x += '<sheetData>';
+    sh.rows.forEach((row, ri) => {
+      if (!row) return;
+      x += `<row r="${ri + 1}"${row.h ? ` ht="${row.h}" customHeight="1"` : ''}>`;
+      (row.cells || []).forEach((c, ci) => {
+        if (!c) return;
+        const ref = _xlCol(ci) + (ri + 1), s = estilo(c.st);
+        if (c.v === null || c.v === undefined || c.v === '') { if (s) x += `<c r="${ref}" s="${s}"/>`; }
+        else if (typeof c.v === 'number' && isFinite(c.v)) x += `<c r="${ref}" s="${s}"><v>${c.v}</v></c>`;
+        else x += `<c r="${ref}" s="${s}" t="inlineStr"><is><t xml:space="preserve">${_xlEsc(c.v)}</t></is></c>`;
+      });
+      x += '</row>';
+    });
+    x += '</sheetData>';
+    if (sh.merges && sh.merges.length) x += `<mergeCells count="${sh.merges.length}">` + sh.merges.map(m => `<mergeCell ref="${m}"/>`).join('') + '</mergeCells>';
+    x += '<pageMargins left="0.4" right="0.4" top="0.5" bottom="0.5" header="0.3" footer="0.3"/><pageSetup paperSize="9" orientation="landscape" fitToWidth="1" fitToHeight="0"/></worksheet>';
+    files.push({ name: `xl/worksheets/sheet${si + 1}.xml`, data: x });
+  });
+  const styles = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+    + (numFmts.length ? `<numFmts count="${numFmts.length}">` + numFmts.map((f, i) => `<numFmt numFmtId="${164 + i}" formatCode="${_xlEsc(f)}"/>`).join('') + '</numFmts>' : '')
+    + `<fonts count="${fonts.length}">${fonts.join('')}</fonts><fills count="${fills.length}">${fills.join('')}</fills><borders count="${borders.length}">${borders.join('')}</borders>`
+    + '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
+    + `<cellXfs count="${xfs.length}">${xfs.join('')}</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`;
+  const ct = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'
+    + sheets.map((s, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('') + '</Types>';
+  const wbx = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><bookViews><workbookView activeTab="0"/></bookViews><sheets>'
+    + sheets.map((s, i) => `<sheet name="${_xlEsc(s.name)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('') + '</sheets></workbook>';
+  const wbr = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+    + sheets.map((s, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join('')
+    + `<Relationship Id="rId${sheets.length + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`;
+  const rels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>';
+  return _xlZip([{ name: '[Content_Types].xml', data: ct }, { name: '_rels/.rels', data: rels }, { name: 'xl/workbook.xml', data: wbx },
+    { name: 'xl/_rels/workbook.xml.rels', data: wbr }, { name: 'xl/styles.xml', data: styles }, ...files]);
+}
+
+const _xlLimpio = s => String(s || '').replace(/[ \s]+/g, ' ').trim();
+
+// Texto visible de una celda (sin botones de editar/borrar; los inputs aportan su valor)
+function _xlTextoCelda(td) {
+  const c = td.cloneNode(true);
+  c.querySelectorAll('input,select,textarea').forEach(e => {
+    const orig = e.id ? td.querySelector('#' + CSS.escape(e.id)) : null;
+    let v = '';
+    if (e.tagName === 'SELECT') { const src = orig || e; v = src.options && src.selectedIndex >= 0 ? src.options[src.selectedIndex].text : ''; }
+    else if (e.type !== 'checkbox' && e.type !== 'button') v = (orig || e).value || '';
+    e.replaceWith(document.createTextNode(v));
+  });
+  c.querySelectorAll('button,script,style,svg,canvas,.no-export').forEach(e => e.remove());
+  return _xlLimpio(c.textContent);
+}
+
+// Convierte el texto de la app en número (acepta 13,425 · 13.425 · 1.234,56 · $ · USD · % · (negativos)).
+// Devuelve null si no es un número puro: ese texto queda como texto.
+function _xlNumero(raw) {
+  let s = _xlLimpio(raw);
+  if (!s || /^[—–-]+$/.test(s)) return null;
+  let neg = false, pct = false;
+  if (/^\(.*\)$/.test(s)) { neg = true; s = s.slice(1, -1).trim(); }
+  if (/%$/.test(s)) { pct = true; s = s.slice(0, -1).trim(); }
+  const m = s.match(/^([+\-−]?)\s*(US\$|U\$S|USD|ARS|UYU|EUR|€|\$)?\s*([+\-−]?)\s*(\d[\d.,]*)\s*(USD|ARS|UYU|EUR|\$)?$/i);
+  if (!m) return null;
+  if (m[1] || m[3]) neg = neg || /[-−]/.test(m[1] + m[3]);
+  let d = m[4];
+  if (/^0\d/.test(d) && !/[.,]/.test(d)) return null;            // códigos con cero adelante (0410)
+  const hasDot = d.includes('.'), hasCom = d.includes(',');
+  let dec = 0;
+  if (hasDot && hasCom) {
+    const decSep = d.lastIndexOf('.') > d.lastIndexOf(',') ? '.' : ',';
+    const thou = decSep === '.' ? ',' : '.';
+    d = d.split(thou).join('');
+    dec = d.length - d.indexOf(decSep) - 1; d = d.replace(decSep, '.');
+  } else if (hasCom) {
+    if (/^\d{1,3}(,\d{3})+$/.test(d)) d = d.split(',').join('');
+    else if (/^\d+,\d+$/.test(d)) { dec = d.split(',')[1].length; d = d.replace(',', '.'); }
+    else return null;
+  } else if (hasDot) {
+    if (/^\d{1,3}(\.\d{3})+$/.test(d)) d = d.split('.').join('');
+    else if (/^\d+\.\d+$/.test(d)) dec = d.split('.')[1].length;
+    else return null;
+  }
+  let v = parseFloat(d);
+  if (!isFinite(v)) return null;
+  if (neg) v = -v;
+  const money = !!(m[2] || m[5]);
+  const dd = Math.min(dec, 4);
+  const base = '#,##0' + (dd ? '.' + '0'.repeat(dd) : '');
+  let fmt = money ? '"$"' + base + ';-"$"' + base : base + ';-' + base;
+  if (pct) { v = v / 100; fmt = '0' + (dd ? '.' + '0'.repeat(dd) : '') + '%'; }
+  return { v, fmt };
+}
+
+// Título de una tabla: caption, o el encabezado de su tarjeta (nombre de la propiedad, cuenta, etc.),
+// o el título de sección que tiene arriba.
+function _xlTituloTabla(t) {
+  const cap = t.querySelector('caption');
+  if (cap && _xlLimpio(cap.textContent)) return _xlLimpio(cap.textContent);
+  const quitar = n => { const c = n.cloneNode(true); c.querySelectorAll('button,select,input,textarea,script,style,canvas,svg,table,.no-export,p').forEach(e => e.remove()); c.querySelectorAll('*').forEach(e => e.append(' ')); return _xlLimpio(c.textContent); };
+  const wrap = t.closest('.table-wrap') || t;
+  const card = t.closest('.card');
+  if (card) {
+    let txt = '';
+    for (const n of card.children) {
+      if (n === wrap || n.contains(wrap)) break;
+      txt += ' ' + quitar(n);
+    }
+    txt = _xlLimpio(txt);
+    if (txt) return txt.length > 160 ? txt.slice(0, 157) + '…' : txt;
+  }
+  let el = card || wrap;
+  while (el && el.parentElement && !el.classList.contains('page')) {
+    let p = el.previousElementSibling;
+    while (p) {
+      if (p.matches && p.matches('.section-title,h1,h2,h3,h4')) return _xlLimpio(p.textContent);
+      p = p.previousElementSibling;
+    }
+    el = el.parentElement;
+    if (el.classList && el.classList.contains('tab-content')) {
+      const st = el.querySelector('.section-title,h2,h3');
+      if (st && !st.contains(t)) return _xlLimpio(st.textContent);
+    }
+  }
+  return '';
+}
+
+// Filtros que están aplicados en la pantalla (selects, buscadores y checks visibles fuera de las tablas)
+function _xlFiltros(pg) {
+  const out = [];
+  pg.querySelectorAll('select, input').forEach(e => {
+    if (e.offsetParent === null || e.closest('table') || e.closest('.modal') || e.closest('#export-controls')) return;
+    const box = e.closest('div');
+    const lab = _xlLimpio((e.id && pg.querySelector('label[for="' + CSS.escape(e.id) + '"]')?.textContent) || box?.querySelector('label')?.textContent || e.getAttribute('placeholder') || '');
+    if (e.tagName === 'SELECT') {
+      const o = e.options[e.selectedIndex]; if (!o || !o.value) return;
+      out.push((lab ? lab + ': ' : '') + _xlLimpio(o.text));
+    } else if (e.type === 'checkbox') {
+      if (!e.checked) return;
+      const l2 = _xlLimpio(e.closest('label')?.textContent || lab); if (l2) out.push(l2);
+    } else if (['text', 'search', 'number', 'date', 'month'].includes(e.type) && e.value) {
+      out.push((lab ? lab + ': ' : '') + e.value);
+    }
+  });
+  return [...new Set(out)];
+}
+
+// Pasa una tabla HTML a una grilla (respeta colspan / rowspan)
+function _xlGrilla(t) {
+  const filas = [...t.rows].filter(r => r.offsetParent !== null || !t.offsetParent);
+  const grid = [], merges = [], meta = [];
+  filas.forEach((tr, ri) => {
+    grid[ri] = grid[ri] || [];
+    const enHead = !!tr.closest('thead') || [...tr.cells].every(c => c.tagName === 'TH');
+    let ci = 0, nCel = 0;
+    [...tr.cells].forEach(td => {
+      while (grid[ri][ci] !== undefined) ci++;
+      const cs = Math.max(1, td.colSpan || 1), rs = Math.max(1, td.rowSpan || 1);
+      const txt = _xlTextoCelda(td);
+      const cls = td.className || '';
+      const st = td.getAttribute('style') || '';
+      const info = { txt, head: enHead || td.tagName === 'TH', bold: /\bbold\b/.test(cls) || /font-weight:\s*(600|700|bold)/.test(st), pos: /\bpositive\b/.test(cls), neg: /\bnegative\b/.test(cls), num: /\bnum\b/.test(cls), cs };
+      for (let r = 0; r < rs; r++) for (let c = 0; c < cs; c++) {
+        grid[ri + r] = grid[ri + r] || [];
+        grid[ri + r][ci + c] = (r === 0 && c === 0) ? info : null;
+      }
+      if (cs > 1 || rs > 1) merges.push([ri, ci, ri + rs - 1, ci + cs - 1]);
+      ci += cs; nCel++;
+    });
+    const trSt = tr.getAttribute('style') || '';
+    meta[ri] = { head: enHead, nCel, total: /border-top:\s*2px/.test(trSt) || /\b(total|tot)\b/i.test(tr.className || '') };
+  });
+  const nCols = Math.max(0, ...grid.map(r => r.length));
+  return { grid, merges, meta, nCols };
+}
+
+const _xlSinEmoji = s => _xlLimpio(String(s || '').replace(/[\p{Extended_Pictographic}\u{FE0F}\u{200D}\u{20E3}\u{1F1E6}-\u{1F1FF}⬇✎✕]/gu, ''));
+// Color de la fila según lo que dice su primera celda (como en la app)
+function _xlTipoFila(txt) {
+  const t = String(txt || '').toLowerCase();
+  if (/^(total|subtotal|neto|consolidado|resultado|saldo total)/.test(t)) return 'total';
+  if (/^(renta|ingreso|otro ingreso|rentas)/.test(t)) return 'renta';
+  if (/^(gasto|gastos)/.test(t)) return 'gasto';
+  if (/^(imp|impuesto)/.test(t)) return 'imp';
+  return '';
+}
+const _XL_TINTE = { renta: { fill: 'EAF5E4', color: '2E7D32' }, gasto: { fill: 'FBE9E7', color: 'C0392B' }, imp: { fill: 'FFF6D6', color: '8A6D00' }, total: { fill: 'E7E9EE', color: '1F2A44' } };
+// Nombre de solapa válido para Excel, único y de hasta 31 caracteres
+function _xlNombreHoja(base, usados) {
+  let n = _xlSinEmoji(base).replace(/[\[\]:*?\/\\]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 31) || 'Hoja';
+  let k = 2, cand = n;
+  while (usados.has(cand.toLowerCase())) { const suf = ' (' + k++ + ')'; cand = n.slice(0, 31 - suf.length) + suf; }
+  usados.add(cand.toLowerCase()); return cand;
+}
+
 function exportarExcel() {
-  if (typeof XLSX === 'undefined') return toast('Cargando librería de Excel… reintentá en un segundo', 'error');
   const tables = _tablasVisibles();
   if (!tables.length) return toast('No hay tablas para exportar en esta solapa', 'error');
+  try {
+    const pg = document.querySelector('.page.active');
+    const titulo = _xlSinEmoji(_pageTitle());
+    const tab = _xlSinEmoji(pg?.querySelector('.tabs .tab-btn.active')?.textContent || '');
+    const filtros = pg ? _xlFiltros(pg).map(_xlSinEmoji) : [];
+    const NAVY = '1F2A44', GOLD = 'C9A84C', HEAD = '2F3B52', GRIS = '8C8C8C', LINEA = 'D9D9D9';
+    const usados = new Set(), hojas = [];
+    tables.forEach((t, ti) => {
+      const { grid, merges, meta, nCols } = _xlGrilla(t);
+      if (!nCols) return;
+      const tt = _xlSinEmoji(_xlTituloTabla(t));
+      const nombre = _xlNombreHoja(tables.length === 1 ? (tab || titulo) : (tt || (ti === 0 ? 'Consolidado' : 'Tabla ' + (ti + 1))), usados);
+      const rows = [], mg = [], ancho = new Array(nCols).fill(0);
+      const medir = (c, txt, max) => { ancho[c] = Math.max(ancho[c], Math.min(String(txt || '').length, max)); };
+      const fila = (cells, h) => rows.push({ cells, h });
+      const ultima = _xlCol(nCols - 1);
+      // encabezado
+      fila([{ v: 'OFFIDA', st: { b: 1, sz: 16, color: GOLD } }, { v: titulo + (tab ? ' · ' + tab : ''), st: { b: 1, sz: 12, color: NAVY } }], 24);
+      if (nCols > 2) mg.push(`B1:${ultima}1`);
+      if (tt && tt !== titulo) { fila([{ v: tt, st: { b: 1, sz: 12, color: 'FFFFFF', fill: NAVY } }, ...Array(nCols - 1).fill({ v: '', st: { fill: NAVY } })], 22); mg.push(`A${rows.length}:${ultima}${rows.length}`); }
+      if (filtros.length) { fila([{ v: 'Filtros: ' + filtros.join(' · '), st: { sz: 9, color: '595959' } }]); mg.push(`A${rows.length}:${ultima}${rows.length}`); }
+      fila([{ v: 'Exportado el ' + _fechaHoy() + ' · valores en USD salvo que la tabla diga otra cosa', st: { sz: 9, i: 1, color: GRIS } }]); mg.push(`A${rows.length}:${ultima}${rows.length}`);
+      rows.push(null);
+      const r0 = rows.length;              // índice 0-based de la primera fila de la tabla
+      let nHead = 0;
+      grid.forEach((row, ri) => {
+        const m = meta[ri];
+        const esGrupo = !m.head && m.nCel === 1 && nCols > 2 && row[0] && row[0].cs >= nCols - 1;
+        const tipo = m.head ? '' : (m.total ? 'total' : _xlTipoFila(_xlSinEmoji(row[0]?.txt)));
+        const tinte = _XL_TINTE[tipo];
+        if (m.head) nHead++;
+        const cells = [];
+        for (let ci = 0; ci < nCols; ci++) {
+          const info = row[ci];
+          if (!info) { cells.push({ v: '', st: m.head ? { fill: HEAD } : esGrupo ? { fill: 'F3EEDF' } : tinte ? { fill: tinte.fill } : null }); continue; }
+          const txt = _xlSinEmoji(info.txt);
+          let st, v = txt;
+          if (m.head) { st = { b: 1, color: 'FFFFFF', fill: HEAD, h: 'center', wrap: 1, bottom: GOLD }; medir(ci, txt, 14); }
+          else if (esGrupo) { st = { b: 1, color: '7F6000', fill: 'F3EEDF' }; }
+          else {
+            const n = _xlNumero(txt);
+            const base = { bottom: tipo === 'total' ? null : LINEA };
+            if (tinte) { base.fill = tinte.fill; }
+            if (tipo === 'total') { base.b = 1; base.top = '7F7F7F'; }
+            if (n) {
+              v = n.v;
+              const fmt = n.fmt.includes('%') ? n.fmt.replace(/^(.*?)%$/, '$1%;[Red]-$1%') : n.fmt.replace(/;-(.*)$/, ';[Red]-$1');
+              st = { ...base, fmt, h: 'right', color: info.pos ? '2E7D32' : (tinte && ci === 0 ? tinte.color : undefined) };
+              medir(ci, txt + '  ', 22);
+            } else if (/^[—–-]+$/.test(txt)) { v = ''; st = { ...base }; }
+            else {
+              st = { ...base, h: info.num ? 'right' : 'left', wrap: txt.length > 45 ? 1 : 0, color: info.neg ? 'C00000' : info.pos ? '2E7D32' : (tinte && ci === 0 ? tinte.color : undefined) };
+              if (info.bold || tipo === 'total' || (tinte && ci === 0)) st.b = 1;
+              medir(ci, txt, 45);
+            }
+            Object.keys(st).forEach(k => st[k] === undefined || st[k] === null || st[k] === 0 ? delete st[k] : 0);
+          }
+          cells.push({ v, st });
+        }
+        fila(cells, m.head ? 30 : null);
+      });
+      merges.forEach(([a, b, c, d]) => mg.push(`${_xlCol(b)}${r0 + a + 1}:${_xlCol(d)}${r0 + c + 1}`));
+      const cols = ancho.map((w, i) => Math.max(i === 0 ? 14 : 9, Math.min(i === 0 ? 50 : 26, w + 3)));
+      hojas.push({ name: nombre, rows, merges: mg, cols, freeze: { rows: r0 + nHead, cols: 1 } });
+    });
+    if (!hojas.length) return toast('No hay datos para exportar', 'error');
+    const blob = _xlsxEscribir(hojas);
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'OFFIDA_' + _slugFile(titulo + (tab ? ' ' + tab : '')) + '.xlsx';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    toast('Excel exportado ✓ (' + hojas.length + (hojas.length === 1 ? ' solapa)' : ' solapas)'), 'success');
+  } catch (e) {
+    console.error('exportarExcel', e);
+    toast('No se pudo armar el Excel con formato: ' + (e.message || e) + ' — va el simple', 'error');
+    _exportarExcelBasico(tables);
+  }
+}
+
+// Export simple (el de antes), de respaldo si ExcelJS no carga
+function _exportarExcelBasico(tables) {
+  if (typeof XLSX === 'undefined') return toast('Cargando librería de Excel… reintentá en un segundo', 'error');
   const wb = XLSX.utils.book_new();
   tables.forEach((t, i) => {
     const ws = XLSX.utils.table_to_sheet(t, { raw: false });
     XLSX.utils.book_append_sheet(wb, ws, ('Tabla' + (i + 1)).slice(0, 31));
   });
   XLSX.writeFile(wb, 'OFFIDA_' + _slugFile(_pageTitle()) + '.xlsx');
-  toast('Excel exportado ✓', 'success');
+  toast('Excel exportado (formato simple) ✓', 'success');
 }
 
 function exportarPDF() {
@@ -18286,7 +18616,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20261008-232';
+const APP_VERSION = '20261013-234';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
