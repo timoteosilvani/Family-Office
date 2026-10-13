@@ -18,7 +18,7 @@
 <meta name="apple-mobile-web-app-title" content="OFFIDA">
 <meta name="theme-color" content="#0f0f0f">
 <title>Family Office</title>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.116.0"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <!-- Exportación: Excel (SheetJS) + PDF (jsPDF + autotable) -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
@@ -4439,7 +4439,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
 const { createClient } = supabase;
 const sb = createClient(
   'https://pvaqgdqdpuobnsdcystz.supabase.co',
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB2YXFnZHFkcHVvYm5zZGN5c3R6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgyNDAwMjgsImV4cCI6MjA5MzgxNjAyOH0.8gf2Mt690FVXauYuy3Z9LG0cbd5oPhaSvD7EuHY0Gu0'
+  'sb_publishable__ypYrvKApJTtaOgsBW1B4w_93MZRRaw'   // v235 — publishable key (reemplaza la legacy anon)
 );
 
 // ============================================
@@ -18616,7 +18616,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20261013-234';
+const APP_VERSION = '20261013-235';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
