@@ -10379,7 +10379,8 @@ const _chqViva = e => !(e.vendida === true || e.vendido === true ||
 
 async function _chqCompletitud(Y, M) {
   const per = _chqPeriodos(Y, M);
-  const anios = [...new Set(per.map(p => p.y))];
+  // v236 — se leen 12 meses para atrás (cruza el año) para detectar lo bimestral
+  const anios = [Y - 1, Y];
   const idxDe = (y, m) => y * 12 + (m - 1);
   const objetivo = idxDe(Y, M);
   const previos  = per.slice(0, 3).map(p => idxDe(p.y, p.m));
@@ -10390,7 +10391,7 @@ async function _chqCompletitud(Y, M) {
     sb.from('movimientos_bancos').select('banco_id,anio,mes').in('anio', anios).limit(LIM),
     sb.from('movimientos_propiedades').select('propiedad_id,anio,mes,total_renta_usd,total_gastos_usd,total_impuestos_usd').in('anio', anios).limit(LIM),
     sb.from('movimientos_sociedades').select('sociedad_id,anio,mes,aportes,impuestos,otros_gastos').in('anio', anios).limit(LIM),
-    sb.from('movimientos_autos').select('auto_id,anio,mes,total_usd').in('anio', anios).limit(LIM),
+    sb.from('movimientos_autos').select('auto_id,anio,mes,total_usd,patente,seguro,service,arreglos,otros_gastos').in('anio', anios).limit(LIM),
     sb.from('movimientos_pe').select('pe_id,anio,mes,utilidad,aporte_capital,gastos,impuestos').in('anio', anios).limit(LIM),
   ]);
 
@@ -10418,16 +10419,43 @@ async function _chqCompletitud(Y, M) {
   (ms.data ||[]).forEach(x => { const e = Is[x.sociedad_id]; if (!e) return;
     if (nz(x.aportes) || nz(x.impuestos) || nz(x.otros_gastos))
       marca('s|' + x.sociedad_id, x.anio, x.mes, e.nombre, 'Sociedades', 'movimiento'); });
+  // v236 — autos rubro por rubro: "falta seguro", "falta patente"… (antes decía sólo "gastos")
+  const _RUBA = [['patente','patente'],['seguro','seguro'],['service','service'],['arreglos','arreglos'],['otros_gastos','otros gastos']];
   (ma.data ||[]).forEach(x => { const e = Ia[x.auto_id]; if (!e) return;
-    if (nz(x.total_usd)) marca('a|' + x.auto_id, x.anio, x.mes, e.nombre, 'Autos', 'gastos'); });
+    let alguno = false;
+    _RUBA.forEach(([c, lbl]) => { if (nz(x[c])) { alguno = true; marca('a|' + x.auto_id + '|' + c, x.anio, x.mes, e.nombre, 'Autos', lbl); } });
+    if (!alguno && nz(x.total_usd)) marca('a|' + x.auto_id, x.anio, x.mes, e.nombre, 'Autos', 'gastos'); });
   (mpe.data||[]).forEach(x => { const e = Ie[x.pe_id]; if (!e) return;
     if (nz(x.utilidad) || nz(x.aporte_capital) || nz(x.gastos) || nz(x.impuestos))
       marca('e|' + x.pe_id, x.anio, x.mes, e.nombre, 'Private equity', 'movimiento'); });
 
+  /* v236 — BIMESTRAL (ABL de Martona 116 / 40, patentes de los autos de ARG).
+     En los 12 meses anteriores: al menos 3 apariciones seguidas cada 2 meses (misma paridad, sin huecos),
+     la última hace 1 o 2 meses, y como mucho 1 aparición fuera de ese ritmo. Si es bimestral, manda el ritmo:
+     se reclama sólo en el mes que le toca (aunque los 3 meses anteriores tengan 1 sola aparición) y no se
+     reclama en el mes que no le toca (aunque tenga 2 de 3). Si no, sigue la regla de 2 de los 3 meses. */
+  const _bimestral = s => {
+    let best = null;
+    for (const mx of [objetivo - 1, objetivo - 2]) {          // la última aparición: hace 1 o 2 meses
+      if (!s.has(mx)) continue;
+      let ini = mx; while (ini - 2 >= objetivo - 12 && s.has(ini - 2)) ini -= 2;
+      const n = (mx - ini) / 2 + 1; if (n < 3) continue;
+      let fuera = 0; for (let i = ini; i < objetivo; i++) if (s.has(i) && ((i - mx) % 2 !== 0)) fuera++;
+      if (fuera > 1) continue;                                 // aparece también en los otros meses
+      if (!best || n > best.n) best = { n, toca: (objetivo - mx) % 2 === 0 };
+    }
+    return best;
+  };
   const faltan = [], ok = [];
   Object.keys(meta).forEach(k => {
     const s = pres[k];
     const veces = previos.filter(i => s.has(i)).length;
+    const bi = _bimestral(s);
+    if (bi) {
+      if (!bi.toca) return;                       // bimestral y este mes no le toca
+      (s.has(objetivo) ? ok : faltan).push({ ...meta[k], veces, bimestral: bi.n, clave: k });
+      return;
+    }
     if (veces < 2) return;                        // no es habitual: no se reclama
     (s.has(objetivo) ? ok : faltan).push({ ...meta[k], veces, clave: k });
   });
@@ -10506,6 +10534,7 @@ async function renderChqCierre() {
       <div class="section-title" style="font-size:13px;margin:0 0 4px">Completitud</div>
       <p style="font-size:11px;color:var(--text3);margin:0 0 12px">
         Se reclama lo que apareció en <b>al menos 2 de los 3 meses anteriores</b> (${perTxt}) y este mes no está.
+        Lo <b>bimestral</b> (3 o más veces seguidas cada dos meses en el último año, como el ABL o las patentes) se reclama sólo en el mes que le toca.
         Lo esporádico no se reclama. MFL, vendidos y dados de baja quedan afuera.</p>
       <div style="display:flex;justify-content:flex-end;margin:-6px 0 8px">
         <button class="btn-secondary" style="padding:4px 12px;font-size:11px" onclick="chqCopiarFaltantes()">Copiar lista para mensaje</button></div>
@@ -10516,7 +10545,7 @@ async function renderChqCierre() {
           <td style="font-size:11px;color:var(--gold)">${f.grupo}</td>
           <td class="bold">${f.nombre}</td>
           <td>${f.rubro}</td>
-          <td class="num" style="color:var(--text3)">${f.veces} de 3</td>
+          <td class="num" style="color:var(--text3)">${f.bimestral ? `bimestral (${f.bimestral} seguidos)` : `${f.veces} de 3`}</td>
           <td style="text-align:center"><input type="checkbox" ${_okTabla ? '' : 'disabled'} title="Está bien que falte: no hace falta cargarlo"
               onchange="chqMarcarOk('${f.clave}',${Y},${M},this.checked)" style="cursor:pointer;width:15px;height:15px"></td></tr>`).join('')}
         </tbody></table></div>`
@@ -18616,7 +18645,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20261013-235';
+const APP_VERSION = '20261015-236';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
