@@ -10389,7 +10389,7 @@ async function _chqCompletitud(Y, M) {
   const B = await _rsocBase();
   const [mb, mp, ms, ma, mpe] = await Promise.all([
     sb.from('movimientos_bancos').select('banco_id,anio,mes').in('anio', anios).limit(LIM),
-    sb.from('movimientos_propiedades').select('propiedad_id,anio,mes,total_renta_usd,total_gastos_usd,total_impuestos_usd').in('anio', anios).limit(LIM),
+    sb.from('movimientos_propiedades').select('propiedad_id,anio,mes,total_renta_usd,total_gastos_usd,total_impuestos_usd,renta,otro_ingreso,gas,luz,cable,telefono,expensas,jardinero,limpieza,mantenimiento,alarma,deposito,comision,seguros,administracion,otros_gastos,arba_abl,municipalidad_tigre,property_tax,tributo_domiciliario,impuesto_primarias,contribucion_inmobiliaria,saneamiento,ascensor,otros_impuestos').in('anio', anios).limit(LIM),
     sb.from('movimientos_sociedades').select('sociedad_id,anio,mes,aportes,impuestos,otros_gastos').in('anio', anios).limit(LIM),
     sb.from('movimientos_autos').select('auto_id,anio,mes,total_usd,patente,seguro,service,arreglos,otros_gastos').in('anio', anios).limit(LIM),
     sb.from('movimientos_pe').select('pe_id,anio,mes,utilidad,aporte_capital,gastos,impuestos').in('anio', anios).limit(LIM),
@@ -10412,10 +10412,18 @@ async function _chqCompletitud(Y, M) {
 
   (mb.data ||[]).forEach(x => { const e = Ib[x.banco_id]; if (!e) return;
     marca('b|' + x.banco_id, x.anio, x.mes, e.nombre, 'Bancos', 'saldo del mes'); });
+  const _RUBP = [['renta','renta'], ['otro_ingreso','otro ingreso'], ['gas','gas'], ['luz','luz'], ['cable','cable'], ['telefono','teléfono'], ['expensas','expensas'], ['jardinero','jardinero'], ['limpieza','limpieza'], ['mantenimiento','mantenimiento'], ['alarma','alarma'], ['deposito','depósito'], ['comision','comisión'], ['seguros','seguros'], ['administracion','administración'], ['otros_gastos','otros gastos'], ['arba_abl','ARBA / ABL'], ['municipalidad_tigre','municipalidad de Tigre'], ['property_tax','property tax'], ['tributo_domiciliario','tributo domiciliario'], ['impuesto_primarias','impuesto de primaria'], ['contribucion_inmobiliaria','contribución inmobiliaria'], ['saneamiento','saneamiento'], ['ascensor','ascensor'], ['otros_impuestos','otros impuestos']];
   (mp.data ||[]).forEach(x => { const e = Ip[x.propiedad_id]; if (!e) return;
-    if (nz(x.total_renta_usd))     marca('p|' + x.propiedad_id + '|r', x.anio, x.mes, e.nombre, 'Propiedades', 'renta');
-    if (nz(x.total_gastos_usd))    marca('p|' + x.propiedad_id + '|g', x.anio, x.mes, e.nombre, 'Propiedades', 'gastos');
-    if (nz(x.total_impuestos_usd)) marca('p|' + x.propiedad_id + '|i', x.anio, x.mes, e.nombre, 'Propiedades', 'impuestos'); });
+    /* v238 — propiedades RUBRO POR RUBRO: "falta gas", "falta ABL"… Antes se miraba la sección entera
+       (gastos), así que con la expensa cargada no saltaba que faltaba el gas (11 de Septiembre 1399, sep-26).
+       Si una fila no tiene rubros (histórico cargado sólo con totales) se sigue mirando la sección. */
+    let alguno = false;
+    _RUBP.forEach(([c, lbl, sec]) => { if (nz(x[c])) { alguno = true; marca('p|' + x.propiedad_id + '|' + c, x.anio, x.mes, e.nombre, 'Propiedades', lbl); } });
+    if (!alguno) {
+      if (nz(x.total_renta_usd))     marca('p|' + x.propiedad_id + '|r', x.anio, x.mes, e.nombre, 'Propiedades', 'renta');
+      if (nz(x.total_gastos_usd))    marca('p|' + x.propiedad_id + '|g', x.anio, x.mes, e.nombre, 'Propiedades', 'gastos');
+      if (nz(x.total_impuestos_usd)) marca('p|' + x.propiedad_id + '|i', x.anio, x.mes, e.nombre, 'Propiedades', 'impuestos');
+    } });
   (ms.data ||[]).forEach(x => { const e = Is[x.sociedad_id]; if (!e) return;
     if (nz(x.aportes) || nz(x.impuestos) || nz(x.otros_gastos))
       marca('s|' + x.sociedad_id, x.anio, x.mes, e.nombre, 'Sociedades', 'movimiento'); });
@@ -18651,7 +18659,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20261015-237';
+const APP_VERSION = '20261019-238';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
