@@ -10792,6 +10792,8 @@ const _CHQ_ALIAS = {
   fontainebleau3405:'fontainebleau3405tresor',
   // v224 — en el COMPLETO 2026 la caja de JC se llama "CAJA CHICA Y GRANDE" (fila 70)
   cajachicaygrande:'cajajc',
+  // v239 — con la 1002 separada, el bloque viejo "JP MORGAN (JCFC Inc)" (sin número) es la 7335
+  jpmorganjcfcinc:'jpmorganjcfcinc7335',
 };
 /* v208 — MATCHEO MÁS ESTRICTO Y CON SINÓNIMOS.
    · Sinónimos: "BANK OF NEW YORK" = BNY · "M BENZ" / "MERCEDES BENZ" = MB · "PEOGEOT" = Peugeot.
@@ -11009,7 +11011,12 @@ function _chqLeerDetalle(wb, XL) {
       const k = /^invest/i.test(t) ? 'inv' : (/^cash/i.test(t) ? 'cash' : 'cred');
       // v232 — hasta el COMPLETO 2025 la BNY Brickell 2022 está DENTRO del bloque CHASE Brickell: su inversión y
       // su crédito (BONY) van a la cuenta 2022 de la app; el cash queda en la 1231. Desde 2026 tiene bloque propio.
-      const dest = (k !== 'cash' && /chase/i.test(cur) && /brickell/i.test(cur)) ? 'BNY Brickell Offida - 2022' : cur;
+      let dest = (k !== 'cash' && /chase/i.test(cur) && /brickell/i.test(cur)) ? 'BNY Brickell Offida - 2022' : cur;
+      // v239 — JP MORGAN (JCFC Inc) son dos cuentas en la app (Timoteo, 16/10): la 1002 (inversión) lleva
+      // "Invest. Account U$S 1002" y "Cash U$S 1002"; la 7335 (operativa, incluye la savings 1258) lleva "Cash US$ 7335".
+      // Hasta 2023 el COMPLETO tiene un solo renglón de cash: todo va a la 1002, igual que en la app.
+      // No toca el bloque "JP Morgan JCFC Inc 2 - 7850" (crédito).
+      if (/^jpmorganjcfcinc(7335)?$/.test(_chqN(cur)) && !/7335/.test(t)) dest = 'JP MORGAN (JCFC Inc) - 1002';
       out.banco[dest] = out.banco[dest] || {};
       // v213 — el "$" es la moneda local DEL BANCO: en un bloque URU (ITAU 4386) es peso uruguayo, no argentino.
       // El total de arriba del COMPLETO lo divide por la fila "PESOS UY"; el detalle tiene que hacer lo mismo.
@@ -18659,7 +18666,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20261019-238';
+const APP_VERSION = '20261019-239';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
