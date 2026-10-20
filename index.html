@@ -9386,6 +9386,10 @@ const _rcVendido = (x, Y) => {
   return ay ? ay <= Y : true;
 };
 
+/* v240 — orden del COMPLETO (Timoteo, 20/10): las cuentas de inversión van siempre en el orden de la hoja
+   BANCOS del COMPLETO, que es el nro. La JP Morgan 1002 se separó de la 7335 en la app (nro nuevo) pero en el
+   COMPLETO es el bloque nro 2: se ordena ahí. */
+const _nroCompleto = b => /^jpmorganjcfcinc1002$/.test(String(b.nombre||'').toLowerCase().replace(/[^a-z0-9]/g,'')) ? 2.5 : (b.nro ?? 9999);
 async function renderRepCliente() {
   const selC = document.getElementById('rc-cliente');
   if (selC && !selC.options.length)
@@ -9612,7 +9616,7 @@ async function renderRepCliente() {
   const _paisOrdB = ['ARG','URU','USA','ESP','PAR'];
   const _COLGB = `<colgroup><col style="width:40%"><col style="width:20%"><col style="width:20%"><col style="width:20%"></colgroup>`;
   const _BG_ULT = 'background:var(--gold-soft,#f7f0e2);color:var(--gold);font-weight:800';
-  const _tablaBk = grupo => {
+  const _tablaBk = (grupo, ordCompleto) => {
     if (!grupo.length) return '';
     const byP = {}; grupo.forEach(x => (byP[x.b.pais||'—'] = byP[x.b.pais||'—']||[]).push(x));
     const pss = Object.keys(byP).sort((a,b) => {
@@ -9624,7 +9628,7 @@ async function renderRepCliente() {
       <td class="num">${SG(g.reduce((s,x)=>s+x.c-x.i,0))}</td></tr>`;
     let out = '';
     pss.forEach(pz => {
-      const g = byP[pz].sort((x,y) => y.c - x.c);
+      const g = byP[pz].sort(ordCompleto ? ((x,y) => _nroCompleto(x.b) - _nroCompleto(y.b)) : ((x,y) => y.c - x.c));
       if (pss.length > 1) out += `<tr><td colspan="4" style="${_BANDA}">${pz}</td></tr>`;
       g.forEach(x => { const d = x.c - x.i;
         out += `<tr><td class="bold">${x.b.nombre}</td>
@@ -9649,7 +9653,7 @@ async function renderRepCliente() {
       ${_bkInv.length ? `<div style="font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--text3);font-weight:700;margin:2px 0 8px">Cuentas de inversión</div>
         <div class="table-wrap" style="margin-bottom:${_bkOper.length?'18px':'0'}"><table class="tbl-compacta" style="table-layout:fixed">${_COLGB}
           <thead><tr><th>Cuenta</th><th class="num">Saldo al 1/1</th><th class="num">Al cierre de ${Y}</th><th class="num">Variación</th></tr></thead>
-          <tbody>${_tablaBk(_bkInv)}</tbody></table></div>` : ''}
+          <tbody>${_tablaBk(_bkInv, true)}</tbody></table></div>` : ''}
       ${_bkOper.length ? `<div style="font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--text3);font-weight:700;margin:2px 0 8px">Cuentas operativas</div>
         <div class="table-wrap"><table class="tbl-compacta" style="table-layout:fixed">${_COLGB}
           <thead><tr><th>Cuenta</th><th class="num">Saldo al 1/1</th><th class="num">Al cierre de ${Y}</th><th class="num">Variación</th></tr></thead>
@@ -11017,6 +11021,9 @@ function _chqLeerDetalle(wb, XL) {
       // Hasta 2023 el COMPLETO tiene un solo renglón de cash: todo va a la 1002, igual que en la app.
       // No toca el bloque "JP Morgan JCFC Inc 2 - 7850" (crédito).
       if (/^jpmorganjcfcinc(7335)?$/.test(_chqN(cur)) && !/7335/.test(t)) dest = 'JP MORGAN (JCFC Inc) - 1002';
+      // v240 — el renglón Credit del bloque JP Morgan es el crédito 7850 (Timoteo, 20/10: 375.000 el 24/04/20 …
+      // cancelado el 07/11/23; vuelve en 2026). En la app es su propia cuenta.
+      if (/^jpmorganjcfcinc(7335)?$/.test(_chqN(cur)) && k === 'cred') dest = 'JP Morgan JCFC Inc 2 - 7850';
       out.banco[dest] = out.banco[dest] || {};
       // v213 — el "$" es la moneda local DEL BANCO: en un bloque URU (ITAU 4386) es peso uruguayo, no argentino.
       // El total de arriba del COMPLETO lo divide por la fila "PESOS UY"; el detalle tiene que hacer lo mismo.
@@ -12222,7 +12229,10 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
   const _COLG = extra => `<colgroup><col style="width:23%"><col style="width:13%"><col style="width:13%"><col style="width:13%">${
     extra.map(() => `<col style="width:${(38/extra.length).toFixed(2)}%">`).join('')}</colgroup>`;
   const _BG_MES = 'background:var(--gold-soft,#f7f0e2);color:var(--gold);font-weight:800';
-  const _tablaCuentas = (grupo, cols, filaExtra) => {
+  // v240 — relleno de las columnas de la derecha en subtotales y totales: verde claro si suma, rojo claro si resta.
+  const _BG_POS = 'background:#E2F0D9', _BG_NEG = 'background:#F8D7DA';
+  const _bgSigno = v => v > 0.5 ? _BG_POS : (v < -0.5 ? _BG_NEG : '');
+  const _tablaCuentas = (grupo, cols, filaExtra, ordCompleto) => {
     if (!grupo.length) return [];
     const byP = {}; grupo.forEach(x => (byP[x.b.pais||'—'] = byP[x.b.pais||'—']||[]).push(x));
     const paises = _ordPais(Object.keys(byP));
@@ -12233,10 +12243,10 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
       <td class="num">${$m(g.reduce((s,x)=>s+x.i,0))}</td>
       <td class="num">${$m(g.reduce((s,x)=>s+x.a,0))}</td>
       <td class="num" style="${_BG_MES}">${$m(g.reduce((s,x)=>s+x.c,0))}</td>
-      ${cols.map(cl => `<td class="num">${cl.tot(g)}</td>`).join('')}</tr>`;
+      ${cols.map(cl => `<td class="num" style="${cl.sgn ? _bgSigno(cl.sgn(g)) : ''}">${cl.tot(g)}</td>`).join('')}</tr>`;
     const out = [];
     paises.forEach(pz => {
-      const g = byP[pz].sort((x,y) => y.c - x.c);
+      const g = byP[pz].sort(ordCompleto ? ((x,y) => _nroCompleto(x.b) - _nroCompleto(y.b)) : ((x,y) => y.c - x.c));
       if (paises.length > 1) out.push(_fGrupo(pz, nCols));
       g.forEach(x => {
         out.push(`<tr>
@@ -12382,48 +12392,46 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
   const _inv  = _bDat.filter(x => x.b.es_operativa !== true);
 
   // Operativas: bajo cada cuenta, el detalle por propiedad de lo cobrado y lo pagado.
+  // v240 — una fila por propiedad, con lo cobrado debajo de "Cobrado" y lo pagado debajo de "Pagado"
+  // (antes iba todo en una celda y los importes caían debajo de "Gastos personales"). Sin el rótulo de arriba.
+  const _subFila = (txt, celdas, nCols) => `<tr>
+      <td style="padding:2px 6px 2px 26px;color:var(--text3);font-size:11px">${txt}</td>
+      ${Array.from({ length: nCols - 1 }, (_, i) => `<td class="num" style="padding:2px 6px;font-size:11px">${celdas[i + 1] || ''}</td>`).join('')}</tr>`;
   const _detProp = (x, nCols) => {
     const ids = Object.keys(x.lk).filter(id => x.lk[id].cobro > 0.5 || x.lk[id].pago > 0.5);
     if (!ids.length) return '';
-    const filas = ids
+    return ids
       .map(id => ({ nom:(_propById[id]||{}).nombre||'—', ...x.lk[id] }))
       .sort((a,b) => (b.cobro+b.pago) - (a.cobro+a.pago))
-      .map(d => `<div style="display:flex;justify-content:space-between;gap:12px;padding:2px 0">
-        <span style="color:var(--text3)">${d.nom}</span>
-        <span style="white-space:nowrap">
-          ${d.cobro>0.5?`<span style="color:var(--esp)">+${$m(d.cobro).slice(1)}</span>`:''}
-          ${d.cobro>0.5&&d.pago>0.5?'<span style="color:var(--text3)"> · </span>':''}
-          ${d.pago>0.5?`<span style="color:var(--usa)">−${$m(d.pago).slice(1)}</span>`:''}
-        </span></div>`).join('');
-    return `<tr><td colspan="${nCols}" style="padding:4px 10px 10px 26px;border-bottom:1px solid var(--border);font-size:11px">
-      <div style="color:var(--text3);font-size:9.5px;letter-spacing:.7px;text-transform:uppercase;margin-bottom:4px">Cobrado y pagado por propiedad</div>
-      ${filas}</td></tr>`;
+      .map(d => _subFila(d.nom, { 4: d.cobro>0.5 ? `<span style="color:var(--esp)">+${$m(d.cobro).slice(1)}</span>` : '',
+                                   5: d.pago>0.5 ? `<span style="color:var(--usa)">−${$m(d.pago).slice(1)}</span>` : '' }, nCols)).join('');
   };
-  // Cuentas de inversion: bajo cada cuenta, los aportes y retiros del mes.
+  // Cuentas de inversion: bajo cada cuenta, los aportes y retiros del mes, debajo de "Aportes netos".
   const _detCap = (x, nCols) => {
     if (x.ap < 0.5 && x.re < 0.5) return '';
-    return `<tr><td colspan="${nCols}" style="padding:4px 10px 10px 26px;border-bottom:1px solid var(--border);font-size:11px">
-      ${x.ap>0.5?`<div style="display:flex;justify-content:space-between"><span style="color:var(--text3)">Aportes del mes</span><span style="color:var(--esp)">+${$m(x.ap).slice(1)}</span></div>`:''}
-      ${x.re>0.5?`<div style="display:flex;justify-content:space-between"><span style="color:var(--text3)">Retiros del mes</span><span style="color:var(--usa)">−${$m(x.re).slice(1)}</span></div>`:''}
-      </td></tr>`;
+    return (x.ap>0.5 ? _subFila('Aportes del mes', { 4: `<span style="color:var(--esp)">+${$m(x.ap).slice(1)}</span>` }, nCols) : '')
+         + (x.re>0.5 ? _subFila('Retiros del mes', { 4: `<span style="color:var(--usa)">−${$m(x.re).slice(1)}</span>` }, nCols) : '');
   };
 
   const _colsOper = [
     { val:x=>x.cobro>0.5?'<span style="color:var(--esp)">+'+$m(x.cobro).slice(1)+'</span>':'—',
-      tot:g=>{const v=g.reduce((s,x)=>s+x.cobro,0); return v>0.5?'+'+$m(v).slice(1):'—';} },
+      tot:g=>{const v=g.reduce((s,x)=>s+x.cobro,0); return v>0.5?'+'+$m(v).slice(1):'—';},
+      sgn:g=>g.reduce((s,x)=>s+x.cobro,0) },
     { val:x=>x.pago>0.5?'<span style="color:var(--usa)">−'+$m(x.pago).slice(1)+'</span>':'—',
-      tot:g=>{const v=g.reduce((s,x)=>s+x.pago,0); return v>0.5?'−'+$m(v).slice(1):'—';} },
+      tot:g=>{const v=g.reduce((s,x)=>s+x.pago,0); return v>0.5?'−'+$m(v).slice(1):'—';},
+      sgn:g=>-g.reduce((s,x)=>s+x.pago,0) },
     { val:x=>Math.abs(x.personales)<0.5?'—':(x.personales>0?'−':'+')+$m(Math.abs(x.personales)).slice(1),
       css:x=>'color:'+(Math.abs(x.personales)<0.5?'var(--text3)':(x.personales>0?'var(--usa)':'var(--esp)')),
-      tot:g=>{const v=g.reduce((s,x)=>s+x.personales,0); return Math.abs(v)<0.5?'—':(v>0?'−':'+')+$m(Math.abs(v)).slice(1);} },
+      tot:g=>{const v=g.reduce((s,x)=>s+x.personales,0); return Math.abs(v)<0.5?'—':(v>0?'−':'+')+$m(Math.abs(v)).slice(1);},
+      sgn:g=>-g.reduce((s,x)=>s+x.personales,0) },
   ];
   const _colsInv = [
     { val:x=>Math.abs(x.ap-x.re)<0.5?'—':_dash(x.ap-x.re),
       css:x=>'color:'+(Math.abs(x.ap-x.re)<0.5?'var(--text3)':col(x.ap-x.re)),
-      tot:g=>_dash(g.reduce((s,x)=>s+x.ap-x.re,0)) },
+      tot:g=>_dash(g.reduce((s,x)=>s+x.ap-x.re,0)), sgn:g=>g.reduce((s,x)=>s+x.ap-x.re,0) },
     { val:x=>Math.abs(x.rend)<0.5?'—':_dash(x.rend),
       css:x=>'color:'+(Math.abs(x.rend)<0.5?'var(--text3)':col(x.rend)),
-      tot:g=>_dash(g.reduce((s,x)=>s+x.rend,0)) },
+      tot:g=>_dash(g.reduce((s,x)=>s+x.rend,0)), sgn:g=>g.reduce((s,x)=>s+x.rend,0) },
   ];
 
   const _hdrBase = ['Cuenta','Saldo al 1/1',_hdrPrev,_hdrCie];
@@ -12434,8 +12442,8 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
         <div style="font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--text3);font-weight:700;margin:2px 0 8px">Cuentas de inversión</div>
         <div class="table-wrap" style="margin-bottom:${_oper.length?'14px':'0'}"><table class="tbl-compacta" style="table-layout:fixed">
           ${_COLG(['Aportes netos','Rendimiento'])}
-          <thead><tr>${[..._hdrBase,'Aportes netos','Rendimiento'].map((h,i)=>`<th${i?' class="num"':''}>${h}</th>`).join('')}</tr></thead>
-          <tbody>${_tablaCuentas(_inv, _colsInv, _detCap).join('')}</tbody>
+          <thead><tr>${[..._hdrBase,'Aportes netos','Rendimiento mensual'].map((h,i)=>`<th${i?' class="num"':''}>${h}</th>`).join('')}</tr></thead>
+          <tbody>${_tablaCuentas(_inv, _colsInv, _detCap, true).join('')}</tbody>
         </table></div>` : ''}
       ${_oper.length ? `
         <div style="font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--text3);font-weight:700;margin:2px 0 8px">Cuentas operativas</div>
@@ -12467,9 +12475,7 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
       })()}
       <p class="nota-pie" style="font-size:11px;color:var(--text3);margin:12px 0 0;padding-top:9px;border-top:1px solid var(--border)">
         En las cuentas de inversión el <b>rendimiento</b> es lo que se movió el saldo descontando aportes y retiros:
-        una transferencia no es resultado.
-        En las operativas, lo cobrado y lo pagado salen del linkeo de cada rubro con su cuenta; lo que el saldo se
-        movió y esos cobros y pagos no explican figura como <b>gastos personales</b>.</p>
+        una transferencia no es resultado.</p>
     </div>`;
 
   /* ── AUTOS ── */
@@ -18666,7 +18672,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20261019-239';
+const APP_VERSION = '20261020-240';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
