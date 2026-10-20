@@ -9401,7 +9401,10 @@ function _fuentesHTML(anio, mes) {
                    : `sin tipo de cambio cargado para ${anio}`;
   return `<p class="rep-fuentes" style="font-size:9.5px;color:var(--text3);margin:18px 0 0;line-height:1.45">Fuentes: saldos de los extractos
     bancarios al cierre · ${tcTxt} · propiedades, autos y private equity a la valuación anual cargada (a costo cuando no hay
-    valuación) · rentas y gastos según lo registrado en la app.</p>`;
+    valuación) · rentas y gastos según lo registrado en la app.</p>
+    <p class="rep-aviso" style="font-size:9.5px;color:var(--text3);margin:6px 0 0;line-height:1.45">Aviso legal: informe preparado por
+    Offida con extractos bancarios y registros provistos por el cliente. No es un estado contable auditado ni constituye
+    asesoramiento de inversión, legal o impositivo. Las valuaciones de propiedades, autos y private equity son estimaciones.</p>`;
 }
 
 async function renderRepCliente() {
@@ -9729,17 +9732,16 @@ async function renderRepCliente() {
     .filter(x => x.c && (Math.abs(x.c.aportado)>0.5 || Math.abs(x.c.tenencia)>0.5));
   const _peVivas = _peTodas.filter(x => !x.c.finalizada).sort((a,b) => b.c.tenencia - a.c.tenencia);
   const _peFin   = _peTodas.filter(x =>  x.c.finalizada).sort((a,b) => b.c.aportado - a.c.aportado);
+  // v242 — tabla de múltiplos en vez de tarjetas (boceto del 20/10)
+  const _peM = _peMultHTML(_peTodas, F);
   const _peHTML = !_peTodas.length ? '' : `
     ${_peVivas.length ? `<div class="card" style="margin-bottom:14px">
       <div class="section-title" style="font-size:13px;margin:0 0 12px">Private equity · ${_peVivas.length}</div>
-      ${offTarjetas(_peVivas.map(_peTarjeta))}
-      ${_peResumen(_peVivas, 'Total private equity', false)}
+      ${_peM.vivas}
     </div>` : ''}
     ${_peFin.length ? `<div class="card" style="margin-bottom:14px">
-      <div class="section-title" style="font-size:13px;margin:0 0 4px">Private equity finalizado · ${_peFin.length}</div>
-      <p style="font-size:11px;color:var(--text3);margin:0 0 12px">Posiciones terminadas. No valen nada hoy y no suman al patrimonio.</p>
-      ${offTarjetas(_peFin.map(_peTarjeta))}
-      ${_peResumen(_peFin, 'Total finalizado', true)}
+      <div class="section-title" style="font-size:13px;margin:0 0 12px">Private equity finalizado · ${_peFin.length}</div>
+      ${_peM.fin}
     </div>` : ''}`;
 
   /* ── AUTOS, con valor de compra (v188) ── */
@@ -12046,7 +12048,7 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
        cuanto vale cada barra, el eje de la izquierda dice los montos. */
     const piso = min - (max - min || max*0.04) * 0.35;
     // PADT deja aire arriba para que la etiqueta mas alta del eje no se corte.
-    const PADL = 60, PADT = 10, W = 420, H = 150, padB = 20;
+    const PADL = 60, PADT = 10, W = 760, H = 150, padB = 20;   // v242 — ancho completo
     const alto = H - padB - PADT;
     const ancho = W - PADL;
     const paso = ancho/_serieMes.length, an = Math.min(paso*0.56, 46);
@@ -12578,28 +12580,22 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
       ${tr > 0.5 ? `<p style="font-size:11px;color:var(--text3);margin:6px 0 0">El resultado incluye ${$m(tr)} traspasados a otras posiciones (no cobrados).</p>` : ''}`;
   };
 
+  // v242 — tabla de múltiplos en vez de tarjetas (boceto del 20/10)
+  const _peM = _peMultHTML(_peTodas, $m, share);
   const _peHTML = !_peTodas.length ? '' : `
     <div class="card" style="margin-bottom:16px">
       <div class="section-title" style="margin-bottom:12px">Private equity · ${_peVivas.length}</div>
-      ${_peVivas.length ? `${offTarjetas(_peVivas.map(_peTarjeta))}
-      ${_peResumen(_peVivas, 'Total private equity', false)}` : '<p style="font-size:12px;color:var(--text3)">Sin posiciones activas.</p>'}
-      <p style="font-size:11px;color:var(--text3);margin:12px 0 0">
-        La valuación es la plata efectivamente puesta menos lo devuelto, salvo que haya una
-        valuación cargada. Las distribuciones son resultado del año y no bajan la tenencia.</p>
+      ${_peVivas.length ? _peM.vivas : '<p style="font-size:12px;color:var(--text3)">Sin posiciones activas.</p>'}
     </div>
     ${_peFin.length ? `<div class="card" style="margin-bottom:16px">
-      <div class="section-title" style="margin-bottom:4px">Private equity finalizado · ${_peFin.length}</div>
-      <p style="font-size:11px;color:var(--text3);margin:0 0 12px">
-        Posiciones terminadas. No valen nada hoy y no suman al patrimonio: se muestran para que
-        quede el resultado de cada una.</p>
-      ${offTarjetas(_peFin.map(_peTarjeta))}
-      ${_peResumen(_peFin, 'Total finalizado', true)}
+      <div class="section-title" style="margin-bottom:12px">Private equity finalizado · ${_peFin.length}</div>
+      ${_peM.fin}
     </div>` : ''}`;
 
   // El detalle arranca en pagina nueva: la primera hoja queda con la foto del mes.
   const detalleHTML = [
     _tabla(`Propiedades · ${_propsOrd.length}`, ['Propiedad','País','Valor','Renta neta del mes'], filasProps,
-           'La renta neta es del mes; el valor es la valuación anual.', 'pgbreak'),
+           `La renta neta es del mes; el valor es la tasación de 12/${anio - 1}.`, 'pgbreak'),
     _cuentasHTML,
     _edHTML,   // v202 — etapa D
     _peHTML,   // v187 — con break-inside:avoid en .card ya no se parte al medio
@@ -12616,6 +12612,40 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
   const _rendTot = _inv.reduce((s,x)=>s+x.rend,0);
 
   const _capNeto = _apTot - _reTot;
+
+  /* v242 — RENDIMIENTO % DE LAS CUENTAS DE INVERSIÓN (Timoteo, 20/10). Dietz simple por mes, sobre el cash
+     (sin crédito, igual que la tabla): rendimiento ÷ (saldo inicial + aportes netos / 2). Los meses se
+     encadenan: el del período (m1..m2) y el del año (enero..m2). Sin saldo inicial no hay %, dice "—". */
+  const _flw = {};
+  (apR.data||[]).forEach(a => { if (!a.fecha || +String(a.fecha).slice(0,4) !== anio) return;
+    const m = +String(a.fecha).slice(5,7), v = Math.abs(Number(a.monto)||0) * (a.tipo === 'retiro' ? -1 : 1);
+    const f = _flw[a.banco_id] = _flw[a.banco_id] || {}; f[m] = (f[m]||0) + v; });
+  const _invB = bancos.filter(b => b.es_operativa !== true);
+  const _cIni = (bid, m) => (m > 1 && netoAt(bid, m-1).mes) ? _cashAt(bid, m-1) : ((prevDic[bid]||0) + _credIni(bid));
+  const _rMes = m => { let num = 0, den = 0;
+    _invB.forEach(b => { const a = _cIni(b.id, m), c = netoAt(b.id, m).mes ? _cashAt(b.id, m) : a, f = (_flw[b.id]||{})[m] || 0;
+      num += c - a - f; den += a + f/2; });
+    return den > 0.5 ? num/den : null; };
+  const _chain = (d, h) => { let g = 1, ok = false; for (let m = d; m <= h; m++) { const r = _rMes(m); if (r == null) continue; g *= 1 + r; ok = true; } return ok ? g - 1 : null; };
+  const _rPer = _chain(m1, m2), _rYTD = _chain(1, m2);
+  const _pct = r => (r >= 0 ? '+' : '−') + Math.abs(r*100).toFixed(1) + '%';   // mismo formato que la variación del mes
+
+  /* v242 — PATRIMONIO POR PAÍS (boceto del 20/10). El país es el del activo: una cuenta en Nueva York es USA
+     aunque el titular sea argentino. Mismos valores que "Por tipo de activo": suma el mismo total. */
+  const _PAIS_NOM = { ARG:'Argentina', URU:'Uruguay', USA:'Estados Unidos', ESP:'España', PAR:'Paraguay' };
+  const _porPais = {};
+  const _addP = (pz, v) => { const k = pz || '—'; _porPais[k] = (_porPais[k]||0) + v; };
+  props.forEach(p => _addP(p.pais, (Number(p[_vY])||0) * share(p)));
+  bancos.forEach(b => _addP(b.pais, netoAt(b.id, m2).neto));
+  pe.forEach(p => { let t = 0; try { t = peCalc(p, anio).tenencia || 0; } catch(e) {} _addP(p.pais, t * share(p)); });
+  autos.forEach(a => _addP(a.pais, (Number(a[_vY])||0) * share(a)));
+  const PAISES = Object.entries(_porPais).map(([k, v]) => ({ n: _PAIS_NOM[k] || (k === '—' ? 'Sin país' : k), v }))
+    .filter(t => Math.abs(t.v) > 0.5).sort((a,b) => b.v - a.v);
+  const filasPais = PAISES.map((t, i) => `<tr>
+      <td style="font-weight:600;white-space:nowrap"><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${DONUT_COL[i % DONUT_COL.length]};margin-right:6px"></span>${t.n}</td>
+      <td class="num">${$m(t.v)}</td>
+      <td class="num" style="color:var(--text3)">${(patTotal ? t.v/patTotal*100 : 0).toFixed(1)}%</td></tr>`).join('');
+
   const frases = [
     `El patrimonio de ${cliNom} cerró ${label} en <b>${$m(patTotal)}</b>${patPrev?`, ${sg(varMes)}${$m(Math.abs(varMes)).slice(1)} contra el cierre del mes anterior (${sg(varMes)}${Math.abs(varPct).toFixed(1)}%)`:''}.`,
     // v185 — lo primero que hay que decir de una variacion es si es resultado o
@@ -12630,7 +12660,7 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
       ? `La caja ${varBancos>=0?'subió':'bajó'} <b>${$m(Math.abs(varBancos))}</b> y cerró en ${$m(bancosMes)}.`
       : `La caja cerró en <b>${$m(bancosMes)}</b>.`,
     Math.abs(_rendTot) > 0.5
-      ? `Las cuentas de inversión ${_rendTot>=0?'rindieron':'perdieron'} <b>${$m(Math.abs(_rendTot))}</b>, ya descontados los aportes y retiros.`
+      ? `Las cuentas de inversión ${_rendTot>=0?'rindieron':'perdieron'} <b>${$m(Math.abs(_rendTot))}</b>${_rPer!=null?' ('+_pct(_rPer)+')':''}, ya descontados los aportes y retiros.`
       : null,
     Math.abs(_perTot) > 0.5
       ? `Quedaron <b>${$m(Math.abs(_perTot))}</b> de movimiento en las cuentas operativas que los cobros y pagos de propiedades no explican${_perTot>0?': gastos y transferencias personales':' (ingresos sin identificar)'}.`
@@ -12639,25 +12669,25 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
   ].filter(Boolean);
 
   cont.innerHTML = `
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:12px">
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px">
       ${kpi('Patrimonio al cierre', $m(patTotal), label)}
       ${kpi('Variación del mes', (patPrev?sg(varMes)+$m(Math.abs(varMes)).slice(1):'—'),
             (patPrev?sg(varMes)+Math.abs(varPct).toFixed(1)+'%':'sin mes previo'), col(varMes))}
       ${kpi('Renta neta del mes', $m(netaMes), 'Propiedades', col(netaMes))}
+      ${kpi('Rendimiento inversiones', _rPer==null ? '—' : _pct(_rPer),
+            (_rPer==null ? 'sin saldo inicial' : (esMensual ? 'en el mes' : 'en el período')) + (_rYTD!=null && m2>1 ? ' · ' + _pct(_rYTD) + ' en el año' : ''),
+            _rPer==null ? '' : col(_rPer))}
     </div>
 
     ${/* v190 — el grafico y la composicion van LADO A LADO. Apilados, "El mes
           en breve" no llegaba a entrar en la primera hoja; asi sobran ~270px
           y la foto del mes queda completa en la pagina 1. En pantalla angosta
           la grilla se apila sola. */''}
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:12px;margin-bottom:12px;align-items:start">
-    ${_barrasMes}
-
+    ${/* v242 — boceto del 20/10: el mes a mes ocupa todo el ancho y abajo van, lado a lado, tipo de activo y país. */''}
+    ${_barrasMes ? `<div style="margin-bottom:12px">${_barrasMes}</div>` : ''}
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px;align-items:start">
     <div class="card no-corta" style="margin:0">
       <div class="section-title" style="margin-bottom:10px">Por tipo de activo · ${label}</div>
-      ${/* v190 — el donut va DEBAJO de la tabla y centrado: a media pagina el
-            flex no le dejaba lugar y se montaba encima de las columnas. */''}
-      <div>
       <div class="table-wrap"><table class="tbl-compacta">
         <thead><tr><th>Tipo</th><th class="num">Valor</th><th class="num">%</th><th class="num">Var. mes</th></tr></thead>
         <tbody>${filasTipo}</tbody>
@@ -12668,13 +12698,25 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
           <td class="num" style="font-weight:700;color:${col(varMes)}">${patPrev?sg(varMes)+$m(Math.abs(varMes)).slice(1):'—'}</td>
         </tr></tfoot>
       </table></div>
-      <div style="display:flex;justify-content:center;margin-top:8px">${donut(TIPOS, 108)}</div>
-      </div>
-      <p style="font-size:10.5px;color:var(--text3);margin:9px 0 0;padding-top:8px;border-top:1px solid var(--border)">
-        Propiedades, private equity y autos se valúan una vez al año: dentro del mes no se mueven, así que la
-        variación mensual del patrimonio es el movimiento de la caja.</p>
+      <div style="display:flex;justify-content:center;margin-top:8px">${donut(TIPOS, 104)}</div>
+    </div>
+    <div class="card no-corta" style="margin:0">
+      <div class="section-title" style="margin-bottom:10px">Por país · ${label}</div>
+      <div class="table-wrap"><table class="tbl-compacta">
+        <thead><tr><th>País</th><th class="num">Valor</th><th class="num">%</th></tr></thead>
+        <tbody>${filasPais}</tbody>
+        <tfoot><tr style="border-top:2px solid var(--border2)">
+          <td style="font-weight:700">Total</td>
+          <td class="num" style="font-weight:700">${$m(patTotal)}</td>
+          <td class="num" style="color:var(--text3)">100%</td></tr></tfoot>
+      </table></div>
+      <div style="display:flex;justify-content:center;margin-top:8px">${donut(PAISES, 104)}</div>
     </div>
     </div>
+    <p style="font-size:10.5px;color:var(--text3);margin:8px 0 12px">
+      Propiedades, private equity y autos se valúan una vez al año: dentro del mes no se mueven, así que la
+      variación mensual del patrimonio es el movimiento de la caja. El país es el del activo (una cuenta en
+      Nueva York es USA aunque el titular sea argentino).</p>
 
     <div class="card no-corta" style="margin-bottom:16px">
       <div class="section-title" style="margin-bottom:10px">El mes en breve</div>
@@ -13488,6 +13530,83 @@ async function peValCargar(force) {
   return _peVal;
 }
 
+/* v242 — PRIVATE EQUITY CON MÚLTIPLOS (boceto aprobado por Timoteo, 20/10). Reemplaza las tarjetas en el
+   mensual y en el patrimonial. Vivas: aportado, distribuido, valor hoy, DPI (distribuido ÷ aportado) y TVPI
+   ((distribuido + valor hoy) ÷ aportado), con una barra contra el 1,0×. Finalizadas: recuperado (con lo
+   traspasado), resultado y múltiplo. Devuelve { vivas, fin } en HTML, sin la tarjeta de afuera. */
+function _peMultHTML(items, $f, sh) {
+  sh = sh || (() => 1);
+  const X = v => v.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '×';
+  const SG = v => Math.abs(v) < 0.5 ? '$0' : (v > 0 ? '+' : '−') + $f(Math.abs(v));
+  const CV = v => Math.abs(v) < 0.5 ? '' : (v > 0 ? 'color:var(--esp)' : 'color:var(--usa)');
+  const lblT = t => (typeof PE_TIPOS !== 'undefined' && PE_TIPOS[t]) ? PE_TIPOS[t].lbl.toLowerCase() : (t || '');
+  const mult = (n, d) => d > 0.5 ? n / d : null;
+  const TH = (hs) => `<thead><tr>${hs.map((h, i) => `<th${i > (hs[1] === 'Tipo' ? 1 : 0) ? ' class="num"' : ''}>${h}</th>`).join('')}</tr></thead>`;
+  const viv = items.filter(x => !x.c.finalizada).map(x => { const k = sh(x.p);
+    const ap = x.c.aportado * k, di = x.c.distribuido * k, te = x.c.tenencia * k; return { ...x, ap, di, te, tot: di + te }; })
+    .sort((a, b) => b.te - a.te);
+  const fin = items.filter(x => x.c.finalizada).map(x => { const k = sh(x.p);
+    const ap = x.c.aportado * k, di = x.c.distribuido * k, tr = (x.c.traspaso || 0) * k; return { ...x, ap, di, tr, rec: di + tr, res: di + tr - ap }; })
+    .sort((a, b) => b.ap - a.ap);
+  let vivas = '', finH = '';
+  if (viv.length) {
+    const T = viv.reduce((s, x) => ({ ap: s.ap + x.ap, di: s.di + x.di, te: s.te + x.te }), { ap: 0, di: 0, te: 0 });
+    const MX = Math.max(1.5, ...viv.map(x => (mult(x.tot, x.ap) || 0) * 1.05));
+    const fila = x => { const dpi = mult(x.di, x.ap), tv = mult(x.tot, x.ap);
+      return `<tr><td style="font-weight:600">${x.p.nombre || '—'}</td><td style="color:var(--text3)">${lblT(x.c.tipo)}</td>
+        <td class="num">${$f(x.ap)}</td><td class="num">${x.di > 0.5 ? $f(x.di) : '—'}</td>
+        <td class="num">${$f(x.te)}${x.c.aCosto ? ' <span style="font-size:9px;color:var(--text3)">a costo</span>' : ''}</td>
+        <td class="num">${$f(x.tot)}</td><td class="num">${dpi == null ? '—' : X(dpi)}</td>
+        <td class="num" style="font-weight:700;${tv == null ? 'color:var(--text3)' : (tv >= 1 ? 'color:var(--esp)' : 'color:var(--usa)')}">${tv == null ? '—' : X(tv)}</td>
+        <td class="num">${x.c.desde || '—'}</td></tr>`; };
+    const barra = x => { if (!(x.ap > 0.5)) return '';
+      return `<div style="display:grid;grid-template-columns:140px 1fr 52px;gap:8px;align-items:center;font-size:10.5px;margin:4px 0">
+        <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${x.p.nombre || '—'}</span>
+        <div style="position:relative"><div style="height:7px;background:var(--bg3);border-radius:4px;overflow:hidden;display:flex">
+          <i style="display:block;height:100%;width:${(x.di / x.ap / MX * 100).toFixed(1)}%;background:#0e9c8d"></i>
+          <i style="display:block;height:100%;width:${(x.te / x.ap / MX * 100).toFixed(1)}%;background:#a87316"></i></div>
+          <div style="position:absolute;left:${(100 / MX).toFixed(1)}%;top:-3px;bottom:-3px;border-left:1.5px solid var(--text)"></div></div>
+        <span class="num" style="font-weight:700">${X(x.tot / x.ap)}</span></div>`; };
+    const sw = c => `<span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${c};margin-right:5px"></span>`;
+    vivas = `<div class="table-wrap"><table class="tbl-compacta">
+        ${TH(['Posición', 'Tipo', 'Aportado', 'Distribuido', 'Valor hoy', 'Total', 'DPI', 'TVPI', 'Desde'])}
+        <tbody>${viv.map(fila).join('')}</tbody>
+        <tfoot><tr style="font-weight:700;border-top:1.5px solid var(--border2)"><td colspan="2">Total</td>
+          <td class="num">${$f(T.ap)}</td><td class="num">${$f(T.di)}</td><td class="num">${$f(T.te)}</td><td class="num">${$f(T.di + T.te)}</td>
+          <td class="num">${T.ap > 0.5 ? X(T.di / T.ap) : '—'}</td>
+          <td class="num" style="${T.ap > 0.5 ? ((T.di + T.te) / T.ap >= 1 ? 'color:var(--esp)' : 'color:var(--usa)') : ''}">${T.ap > 0.5 ? X((T.di + T.te) / T.ap) : '—'}</td><td></td></tr></tfoot>
+      </table></div>
+      <div style="font-size:10px;color:var(--text3);display:flex;flex-wrap:wrap;gap:14px;margin:10px 0 2px">
+        <span>${sw('#0e9c8d')}distribuido (ya cobrado)</span><span>${sw('#a87316')}valor hoy</span><span>la línea es el 1,0×: lo aportado</span></div>
+      ${viv.map(barra).join('')}
+      <p style="font-size:10.5px;color:var(--text3);margin:10px 0 0;line-height:1.45">
+        <b>DPI</b> = distribuido ÷ aportado: cuánto de lo puesto ya volvió en efectivo (1,0× = se recuperó todo).
+        <b>TVPI</b> = (distribuido + valor hoy) ÷ aportado: cuánto vale todo lo que generó la posición por cada dólar puesto.
+        En un préstamo el valor hoy es el capital pendiente más el interés devengado; en una participación sin valuación,
+        el costo ("a costo"), y ahí el TVPI no agrega información.</p>`;
+  }
+  if (fin.length) {
+    const T = fin.reduce((s, x) => ({ ap: s.ap + x.ap, rec: s.rec + x.rec, tr: s.tr + x.tr }), { ap: 0, rec: 0, tr: 0 });
+    const fila = x => { const m = mult(x.rec, x.ap);
+      const an = (x.c.anioCierre && x.c.desde) ? (x.c.anioCierre - x.c.desde || '<1') : '—';
+      const nota = x.tr > 0.5 ? ' · traspasada' + (x.c.traspasoA ? ' a ' + x.c.traspasoA : '') : (x.p.incobrable === true ? ' · incobrable' : '');
+      return `<tr><td style="font-weight:600">${x.p.nombre || '—'}${nota ? `<span style="color:var(--text3);font-size:10px;font-weight:400">${nota}</span>` : ''}</td>
+        <td class="num">${$f(x.ap)}</td><td class="num">${$f(x.rec)}</td>
+        <td class="num" style="${CV(x.res)}">${SG(x.res)}</td>
+        <td class="num" style="font-weight:700;${m != null && m < 1 ? 'color:var(--usa)' : ''}">${m == null ? '—' : X(m)}</td>
+        <td class="num">${an}</td></tr>`; };
+    finH = `<div class="table-wrap"><table class="tbl-compacta">
+        ${TH(['Posición', 'Aportado', 'Recuperado', 'Resultado', 'Múltiplo', 'Años'])}
+        <tbody>${fin.map(fila).join('')}</tbody>
+        <tfoot><tr style="font-weight:700;border-top:1.5px solid var(--border2)"><td>Total</td><td class="num">${$f(T.ap)}</td><td class="num">${$f(T.rec)}</td>
+          <td class="num" style="${CV(T.rec - T.ap)}">${SG(T.rec - T.ap)}</td><td class="num">${T.ap > 0.5 ? X(T.rec / T.ap) : '—'}</td><td></td></tr></tfoot>
+      </table></div>
+      <p style="font-size:10.5px;color:var(--text3);margin:10px 0 0">Posiciones terminadas: no valen nada hoy y no suman al patrimonio.
+        Recuperado = distribuciones cobradas${T.tr > 0.5 ? ' más lo traspasado a otra posición (' + $f(T.tr) + ', que la otra posición tiene como aporte)' : ''}.</p>`;
+  }
+  return { vivas, fin: finH };
+}
+
 function peCalc(p, anio, hist) {
   const h    = hist || _peHistDe(p.nombre) || { byY: {} };
   const byY  = h.byY || {};
@@ -13512,7 +13631,9 @@ function peCalc(p, anio, hist) {
     if (y === anio) { distAnio = d.ut || 0; apAnio = d.ap || 0; }
   });
 
-  const R = { tipo, aportado, distribuido, distAnio, apAnio,
+  // v242 — año de entrada (primer año con capital puesto), para la tabla de múltiplos
+  const _desde = años.find(y => ((byY[y] || {}).ia || 0) + ((byY[y] || {}).ap || 0) > 0.5) || null;
+  const R = { tipo, aportado, distribuido, distAnio, apAnio, desde: _desde,
               tenencia: 0, resReal: 0, resNoReal: 0, capRiesgo: 0,
               aCosto: false, nota: '', metLbl: '', metVal: null,
               finalizada: false, anioCierre: null };
@@ -18699,7 +18820,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20261020-241';
+const APP_VERSION = '20261020-242';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
