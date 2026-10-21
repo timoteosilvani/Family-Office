@@ -7672,13 +7672,15 @@ function renderBancos(paisFiltro) {
   const mesesAbr = ['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
   const tbody = document.getElementById('tbody-bancos');
 
-  tbody.innerHTML = rows.map(b => {
+  /* v244 — JP MORGAN (JCFC Inc): una sola cuenta, la nro 2, con sus dos partes adentro (7335 operativa y 1002
+     inversión). Cada parte tiene su propio botón de operativa / inversión, su ✎ y su 🗑. */
+  const _fila = (b, parte) => {
     const u = usdMap[b.id]; const mv = movMap[b.id];
     const mesTxt = mv ? `<span style="color:var(--text3);font-size:10px"> ${mesesAbr[mv.mes]}</span>` : '';
-    const dest = _esBancoDestacado(b.nombre);
+    const dest = !parte && _esBancoDestacado(b.nombre);
     return `<tr class="row-${colPais[b.pais]||'arg'}">
-      <td style="color:var(--text3)">${b.nro||'—'}</td>
-      <td class="bold" style="${dest?'font-weight:800':''}">${dest?'<span style="color:var(--gold);margin-right:4px" title="Cuenta destacada">•</span>':''}${b.nombre}<span onclick="abrirCuentaEdit('${b.id}',event)" title="Editar nombre, N°, titular y país" style="cursor:pointer;margin-left:6px;opacity:.45;font-size:12px">&#9998;</span>${mesTxt} <span onclick="toggleOperativa('${b.id}',${b.es_operativa?'true':'false'})" title="Click para cambiar: Inversión / Operativa" style="cursor:pointer;font-size:9px;font-weight:600;border-radius:4px;padding:1px 5px;margin-left:4px;${b.es_operativa?'background:var(--gold-soft);color:var(--gold);border:1px solid var(--gold)':'background:var(--bg2);color:var(--text3);border:1px solid var(--border)'}">${b.es_operativa?'⚙ OPERATIVA':'💼 INVERSIÓN'}</span></td>
+      <td style="color:var(--text3)">${parte ? '' : (b.nro||'—')}</td>
+      <td class="bold" style="${dest?'font-weight:800':''}${parte?';padding-left:26px;font-weight:500':''}">${dest?'<span style="color:var(--gold);margin-right:4px" title="Cuenta destacada">•</span>':''}${parte ? '↳ ' + parte : b.nombre}<span onclick="abrirCuentaEdit('${b.id}',event)" title="Editar nombre, N°, titular y país" style="cursor:pointer;margin-left:6px;opacity:.45;font-size:12px">&#9998;</span>${mesTxt} <span onclick="toggleOperativa('${b.id}',${b.es_operativa?'true':'false'})" title="Click para cambiar: Inversión / Operativa" style="cursor:pointer;font-size:9px;font-weight:600;border-radius:4px;padding:1px 5px;margin-left:4px;${b.es_operativa?'background:var(--gold-soft);color:var(--gold);border:1px solid var(--gold)':'background:var(--bg2);color:var(--text3);border:1px solid var(--border)'}">${b.es_operativa?'⚙ OPERATIVA':'💼 INVERSIÓN'}</span></td>
       <td>${b.titular}</td>
       <td><span class="badge badge-${colPais[b.pais]||'arg'}">${b.pais}</span></td>
       <td class="num">$${fmt(u?.inv||0)}</td>
@@ -7688,6 +7690,24 @@ function renderBancos(paisFiltro) {
       <td class="num bold">$${fmt(u?.neto||0)}</td>
       <td class="admin-only" style="text-align:center"><button onclick="borrarCuentaBanco('${b.id}')" title="Dar de baja / borrar cuenta" style="background:none;border:none;cursor:pointer;color:var(--text3);font-size:13px;padding:0 4px">🗑</button></td>
     </tr>`;
+  };
+  const _jp = { '7335': rows.find(b => _jpmParte(b) === '7335'), '1002': rows.find(b => _jpmParte(b) === '1002') };
+  const _jpJuntas = !!(_jp['7335'] && _jp['1002']);
+  const _filaBloque = () => { const a = _jp['7335'], z = _jp['1002'];
+    const S = k => (usdMap[a.id]?.[k]||0) + (usdMap[z.id]?.[k]||0);
+    return `<tr class="row-${colPais[a.pais]||'arg'}">
+      <td style="color:var(--text3)">${a.nro||'—'}</td>
+      <td class="bold">${JPM_BLOQUE}</td>
+      <td>${a.titular}</td>
+      <td><span class="badge badge-${colPais[a.pais]||'arg'}">${a.pais}</span></td>
+      <td class="num">$${fmt(S('inv'))}</td><td class="num">$${fmt(S('cash'))}</td>
+      <td class="num" style="color:var(--text2)">$${fmt(S('sub'))}</td><td class="num negative">$${fmt(S('cred'))}</td>
+      <td class="num bold">$${fmt(S('neto'))}</td><td class="admin-only"></td></tr>`
+      + _fila(a, '7335') + _fila(z, '1002'); };
+  let _jpHecho = false;
+  tbody.innerHTML = rows.map(b => {
+    if (_jpJuntas && _jpmParte(b)) { if (_jpHecho) return ''; _jpHecho = true; return _filaBloque(); }
+    return _fila(b, null);
   }).join('') || '';
 
   // Totals (Neto = Inv + Cash - Credito de ESTE cuadro, recalculado por fila)
@@ -9210,13 +9230,13 @@ async function renderRepSociedad() {
     const Y = await _rsocAnio(y), Ys = String(y), Y0 = String(y - 1);
     const vP = n => Number(B.ph[n]?.valores?.[Ys]) || 0;
     const vA = n => Number(B.ah[n]?.valores?.[Ys]) || 0;
-    const vB = (n, yy) => { const v = B.bh[n]?.byY?.[yy]; return v ? (Number(v.n) || 0) : null; };
+    const vB = (b, yy) => { const v = B.bhB(b)?.byY?.[yy]; return v ? (Number(v.n) || 0) : null; };
     const nt = m => m ? (Number(bancoMovUSD(m).neto) || 0) : null;
     const resB = b => {
-      const mF = (Y.ban || {})[b.id], fin = nt(mF) ?? vB(b.nro, Ys);
+      const mF = (Y.ban || {})[b.id], fin = nt(mF) ?? vB(b, Ys);
       if (fin === null) return { saldo:0, rend:0, cred:0 };
       const cred = mF ? (Number(bancoMovUSD(mF).cred) || 0) : 0;
-      let ini = nt((Y.banPrev || {})[b.id]) ?? vB(b.nro, Y0);
+      let ini = nt((Y.banPrev || {})[b.id]) ?? vB(b, Y0);
       if (ini === null) { const m0 = (Y.banIni || {})[b.id]; if (m0) ini = nt(m0); }
       if (b.es_operativa || ini === null) return { saldo:fin, rend:0, cred };
       return { saldo:fin, rend: fin - ini - (Y.ap[b.id]||0), cred };
@@ -9390,7 +9410,18 @@ const _rcVendido = (x, Y) => {
 /* v240 — orden del COMPLETO (Timoteo, 20/10): las cuentas de inversión van siempre en el orden de la hoja
    BANCOS del COMPLETO, que es el nro. La JP Morgan 1002 se separó de la 7335 en la app (nro nuevo) pero en el
    COMPLETO es el bloque nro 2: se ordena ahí. */
-const _nroCompleto = b => /^jpmorganjcfcinc1002$/.test(String(b.nombre||'').toLowerCase().replace(/[^a-z0-9]/g,'')) ? 2.5 : (b.nro ?? 9999);
+/* v244 — JP MORGAN (JCFC Inc) es UNA cuenta, la nro 2, en DOS PARTES (Timoteo, 21/10), como el bloque del COMPLETO:
+   la 7335 (operativa: Cash 7335 + Credit) y la 1002 (inversión: Invest 1002 + Cash 1002). En la base son dos filas de
+   `bancos` con nro 2, cada una con sus saldos, aportes y transferencias (las transferencias entre las dos son aportes y
+   retiros de capital de la parte de inversión: no se borran). En la pantalla de Bancos se ven juntas bajo el nombre del
+   bloque; en los informes, cada una en su listado. */
+const JPM_BLOQUE = 'JP MORGAN (JCFC Inc) - 7335 - 1002';
+const _jpmParte = b => { const n = String((b && b.nombre) || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  return n === 'jpmorganjcfcinc1002' ? '1002' : (n === 'jpmorganjcfcinc7335' || n === 'jpmorganjcfcinc73351002') ? '7335' : null; };
+// Nombre de la cuenta en los informes
+const _bNom = b => { const p = _jpmParte(b); return p ? 'JP Morgan ' + p : ((b && b.nombre) || '—'); };
+const _bConNom = b => ({ ...b, nombre: _bNom(b) });
+const _nroCompleto = b => (b.nro ?? 9999);
 /* v241 — FUENTES, chiquito al pie de cada informe (Timoteo, 20/10). El tipo de cambio es el del mes
    de cierre; si ese mes no tiene, el último cargado del año, y lo dice. */
 function _fuentesHTML(anio, mes) {
@@ -9498,7 +9529,7 @@ async function renderRepCliente() {
     const va = autos.reduce((a,x) => a + (Number((B.ah[x.nro]||{}).valores?.[String(y)]) || (y===Y ? Number(x['valor_'+y])||0 : 0)), 0);
     const ve = pes.reduce((a,x) => { let t=0; try { t = peCalc(x, y).tenencia || 0; } catch(e){} return a + t; }, 0);
     const vb = (y === Y) ? vB
-             : bancos.reduce((a,b) => a + (Number(((B.bh[b.nro]||{}).byY||{})[String(y)]?.n) || 0), 0);
+             : bancos.reduce((a,b) => a + (Number(((B.bhB(b)||{}).byY||{})[String(y)]?.n) || 0), 0);
     const tot = vp + vb + ve + va;
     if (tot > 0.5 || y === Y) _serie.push({ y, prop:vp, banco:vb, pe:ve, autos:va, tot });
   }
@@ -9626,7 +9657,7 @@ async function renderRepCliente() {
      el cash es neto + cred. */
   const _crD  = (dat,b) => { const m = dat.ban && dat.ban[b.id]; return m ? (Number(bancoMovUSD(m).cred)||0) : 0; };
   const _cashD = (dat,b) => { const m = dat.ban && dat.ban[b.id]; return m ? (Number(bancoMovUSD(m).neto)||0) + _crD(dat,b) : 0; };
-  const _bkDat = bancos.map(b => ({ b,
+  const _bkDat = bancos.map(_bConNom).map(b => ({ b,   // v244 — "JP Morgan 7335 / 1002"
       i: _cashD(Dp,b), credI: _crD(Dp,b),
       c: _cashD(D,b),  cred:  _crD(D,b) }))
     .filter(x => Math.abs(x.i) > 0.5 || Math.abs(x.c) > 0.5);
@@ -10191,6 +10222,13 @@ async function _rsocBase() {
   (typeof PROP_HIST_DATA   !== 'undefined' ? PROP_HIST_DATA   : []).forEach(x => _RSOC.ph[x.nro]  = x);
   (typeof AUTOS_HIST_DATA  !== 'undefined' ? AUTOS_HIST_DATA  : []).forEach(x => _RSOC.ah[x.nro]  = x);
   (typeof BANCOS_HIST_DATA !== 'undefined' ? BANCOS_HIST_DATA : []).forEach(x => _RSOC.bh[x.nro]  = x);
+  /* v244 — HISTÓRICO DE UNA CUENTA: por NOMBRE, como hidratarBancosHist. Por nro fallaba: la base y el hardcode
+     numeran distinto, y con la JP Morgan en dos partes (las dos nro 2) la historia de la nro 2 se sumaba dos veces.
+     Si el nombre no está en el historial, se usa el nro sólo cuando ninguna otra cuenta de la base lo comparte. */
+  const _bhN = s => String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
+  const _nroCnt = {}; _RSOC.bancos.forEach(b => { _nroCnt[b.nro] = (_nroCnt[b.nro] || 0) + 1; });
+  _RSOC.bhB = b => { const H = typeof BANCOS_HIST_DATA !== 'undefined' ? BANCOS_HIST_DATA : [];
+    return H.find(x => _bhN(x.nombre) === _bhN(b.nombre)) || (_nroCnt[b.nro] === 1 ? _RSOC.bh[b.nro] : null) || null; };
   (typeof PE_HIST_DATA     !== 'undefined' ? PE_HIST_DATA     : []).forEach(x => _RSOC.peh[x.nro] = x);
   return _RSOC;
 }
@@ -10857,6 +10895,8 @@ const _CHQ_ALIAS = {
   cajachicaygrande:'cajajc',
   // v239 — con la 1002 separada, el bloque viejo "JP MORGAN (JCFC Inc)" (sin número) es la 7335
   jpmorganjcfcinc:'jpmorganjcfcinc7335',
+  // v244 — en el COMPLETO el bloque se llama "JP MORGAN (JCFC Inc) - 7335 - 1002"; su cash 7335 y su credit van a la 7335
+  jpmorganjcfcinc73351002:'jpmorganjcfcinc7335',
 };
 /* v208 — MATCHEO MÁS ESTRICTO Y CON SINÓNIMOS.
    · Sinónimos: "BANK OF NEW YORK" = BNY · "M BENZ" / "MERCEDES BENZ" = MB · "PEOGEOT" = Peugeot.
@@ -11078,10 +11118,10 @@ function _chqLeerDetalle(wb, XL) {
       // v239 — JP MORGAN (JCFC Inc) son dos cuentas en la app (Timoteo, 16/10): la 1002 (inversión) lleva
       // "Invest. Account U$S 1002" y "Cash U$S 1002"; la 7335 (operativa, incluye la savings 1258) lleva "Cash US$ 7335".
       // Hasta 2023 el COMPLETO tiene un solo renglón de cash: todo va a la 1002, igual que en la app.
-      if (/^jpmorganjcfcinc(7335)?$/.test(_chqN(cur)) && !/7335/.test(t)) dest = 'JP MORGAN (JCFC Inc) - 1002';
+      if (/^jpmorganjcfcinc(7335|73351002)?$/.test(_chqN(cur)) && !/7335/.test(t)) dest = 'JP MORGAN (JCFC Inc) - 1002';
       // v241 — el renglón Credit del bloque JP Morgan es el crédito (ex cuenta 7850, dada de baja el 20/10): va en la
       // 7335, la cuenta del bloque, igual que en el COMPLETO.
-      if (/^jpmorganjcfcinc(7335)?$/.test(_chqN(cur)) && k === 'cred') dest = cur;
+      if (/^jpmorganjcfcinc(7335|73351002)?$/.test(_chqN(cur)) && k === 'cred') dest = cur;
       out.banco[dest] = out.banco[dest] || {};
       // v213 — el "$" es la moneda local DEL BANCO: en un bloque URU (ITAU 4386) es peso uruguayo, no argentino.
       // El total de arriba del COMPLETO lo divide por la fila "PESOS UY"; el detalle tiene que hacer lo mismo.
@@ -11427,7 +11467,7 @@ async function loadChequeo() {
   const vAuto = n => Number(B.ah[n]?.valores?.[Ys]) || 0;
   const vBanc = b => { const m = (D.ban || {})[b.id];
     if (m) return Number(bancoMovUSD(m).neto) || 0;
-    const h = B.bh[b.nro]?.byY?.[Ys]; return h ? (Number(h.n) || 0) : 0; };
+    const h = B.bhB(b)?.byY?.[Ys]; return h ? (Number(h.n) || 0) : 0; };
 
   // ── el universo, agrupado de tres formas distintas
   // `_paisNorm` vive adentro de otra funcion, asi que no es global: se replica.
@@ -11588,7 +11628,7 @@ async function renderRepSoc() {
   const Ys = String(ANIO), Y0 = String(ANIO - 1);
   const vProp = n => Number(B.ph[n]?.valores?.[Ys]) || 0;
   const vAuto = n => Number(B.ah[n]?.valores?.[Ys]) || 0;
-  const vBan  = (n, yy) => { const v = B.bh[n]?.byY?.[yy]; return v ? (Number(v.n) || 0) : null; };
+  const vBan  = (b, yy) => { const v = B.bhB(b)?.byY?.[yy]; return v ? (Number(v.n) || 0) : null; };
 
   // renta de una propiedad: movimientos del año y, si no hay, el historico anual
   const resProp = p => Y.prop[p.id] || Y.propNro[p.nro] || { renta:0, gastos:0, imp:0, neto:0, src:null };
@@ -11600,7 +11640,7 @@ async function renderRepSoc() {
   const _neto = m => m ? (Number(bancoMovUSD(m).neto) || 0) : null;
   const resBan = b => {
     const mFin = _mov(b, 'ban');
-    const fin  = _neto(mFin) ?? vBan(b.nro, Ys);
+    const fin  = _neto(mFin) ?? vBan(b, Ys);
     if (fin === null) return { saldo:0, rend:0, cred:0, vivo:false, desde:null };
     const vivo = mFin !== null;
     const cred = mFin ? (Number(bancoMovUSD(mFin).cred) || 0) : 0;
@@ -11609,7 +11649,7 @@ async function renderRepSoc() {
     // (se abrió en julio, por ejemplo) no hay cierre previo y el inicial es el
     // PRIMER mes con dato de este año: la cuenta arranca ahí y ese saldo es
     // capital que entra, no rendimiento.
-    let ini = _neto(_mov(b, 'banPrev')) ?? vBan(b.nro, Y0), desde = null;
+    let ini = _neto(_mov(b, 'banPrev')) ?? vBan(b, Y0), desde = null;
     if (ini === null) { const m0 = _mov(b, 'banIni');
       if (m0) { ini = _neto(m0); desde = Number(m0.mes); } }
     if (b.es_operativa || ini === null) return { saldo:fin, rend:0, cred, vivo, desde };
@@ -11960,7 +12000,7 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
   ]);
   const props = (propsR.data||[]).map(p=>conTitAnio(p, anio)).filter(p=>titFilter.includes(p.titular) && p.activa!==false && p.vendida!==true).filter(cuentaFO);
   const pe = (peR.data||[]).filter(cuentaFO), autos = (autosR.data||[]).map(a=>conTitAnio(a, anio)).filter(a=>titFilter.includes(a.titular)).filter(cuentaFO),
-        bancos = (bancosR.data||[]).filter(b=>b.activo!==false).filter(cuentaFO);
+        bancos = (bancosR.data||[]).filter(b=>b.activo!==false).filter(cuentaFO).map(_bConNom);   // v244 — "JP Morgan 7335 / 1002"
   const bancoIds = bancos.map(b=>b.id), propIds = props.map(p=>p.id);
 
   await peValCargar();   // v183 — sin esto peCalc ignora las valuaciones manuales
@@ -12363,7 +12403,7 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
       for (const m of _edVig) {
         const R = await cmLineas(anio, m);
         const tcM = (tcFor(anio, m) || {}).ars_usd || 0;
-        (R.bancos || []).forEach(b => _bn[b.id] = b.nombre);
+        (R.bancos || []).forEach(b => _bn[b.id] = _bNom(b));
         R.lineas.forEach(l => { if (l.cuenta && E[l.cuenta]) E[l.cuenta].lines.push({ ...l, _tc: tcM }); });
         R.trs.forEach(r => [r.banco_origen_id, r.banco_destino_id].forEach(id => { if (id && E[id] && !E[id].trs.some(z => z.id === r.id && z.fecha === r.fecha)) E[id].trs.push({ ...r, _tc: tcM }); }));
       }
@@ -12886,9 +12926,9 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
         rendimientoBancos += rend;
         // v231 — crédito al inicio y al cierre: con crédito, el % sobre el neto se amplifica; se informa también sobre lo invertido
         const cBeg = inicial[b.id] ? (Number(bancoMovUSD(inicial[b.id]).cred)||0) : 0, cEnd = Number(bancoMovUSD(m).cred)||0;
-        bancosDietz.push({ nombre:b.nombre, oper:false, vBeg, vEnd, cBeg, cEnd, apSem:(apSem[b.id]||0), apTot:(apTot[b.id]||0), varTot, rend, movCap:(apSem[b.id]||0), aportes:aportesOrd });
+        bancosDietz.push({ nombre:_bNom(b), oper:false, vBeg, vEnd, cBeg, cEnd, apSem:(apSem[b.id]||0), apTot:(apTot[b.id]||0), varTot, rend, movCap:(apSem[b.id]||0), aportes:aportesOrd });
       } else {
-        bancosDietz.push({ nombre:b.nombre, oper:true, vBeg, vEnd, apSem:0, apTot:(apTot[b.id]||0), varTot, rend:0, movCap:varTot, aportes:aportesOrd });
+        bancosDietz.push({ nombre:_bNom(b), oper:true, vBeg, vEnd, apSem:0, apTot:(apTot[b.id]||0), varTot, rend:0, movCap:varTot, aportes:aportesOrd });
       }
     });
     // Serie mensual (dic 2025 -> jun 2026) para el gráfico de evolución de bancos
@@ -13099,6 +13139,8 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
     </div>`;
   }
 
+  // v244 — cuadrito de color de cada fila, el mismo del donut (Timoteo, 21/10)
+  const _sw = i => `<span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${OFF_CAT[i % OFF_CAT.length]};margin-right:6px"></span>`;
   cont.innerHTML = `
     <style>
       .rep-doc{--esp:#2f9e63;--usa:#c0605f;--navy:#0f2a43;--gold:#A8842F;font-size:11px;}
@@ -13184,14 +13226,16 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;page-break-inside:avoid;break-inside:avoid">
       <div class="card"><div class="section-title" style="font-size:14px;margin-bottom:12px">Distribución por tipo de activo</div>
         <div class="table-wrap"><table><thead><tr><th>Activo</th><th class="num">Valor</th><th class="num">%</th></tr></thead><tbody>
-        ${clases.map(c=>`<tr><td>${c.n}</td><td class="num">$${fmt(c.act)}</td><td class="num">${pct(c.act)}</td></tr>`).join('')}
+        ${clases.map((c,i)=>`<tr><td>${_sw(i)}${c.n}</td><td class="num">$${fmt(c.act)}</td><td class="num">${pct(c.act)}</td></tr>`).join('')}
         <tr style="${OFF_TOT_CSS}"><td>Total</td><td class="num">$${fmt(patrimonioActual)}</td><td class="num">100%</td></tr>
-        </tbody></table></div></div>
+        </tbody></table></div>
+        <div style="display:flex;justify-content:center;margin-top:8px">${offDonut(clases.map(c=>({n:c.n,v:c.act})), 104)}</div></div>
       <div class="card"><div class="section-title" style="font-size:14px;margin-bottom:12px">Distribución por país</div>
         <div class="table-wrap"><table><thead><tr><th>País</th><th class="num">Valor</th><th class="num">%</th></tr></thead><tbody>
-        ${['USA','ARG','URU','ESP'].map(k=>`<tr><td>${paisNom[k]}</td><td class="num">$${fmt(pais[k]||0)}</td><td class="num">${pct(pais[k]||0)}</td></tr>`).join('')}
+        ${['USA','ARG','URU','ESP'].map((k,i)=>`<tr><td>${_sw(i)}${paisNom[k]}</td><td class="num">$${fmt(pais[k]||0)}</td><td class="num">${pct(pais[k]||0)}</td></tr>`).join('')}
         <tr style="${OFF_TOT_CSS}"><td>Total</td><td class="num">$${fmt(patrimonioActual)}</td><td class="num">100%</td></tr>
-        </tbody></table></div></div>
+        </tbody></table></div>
+        <div style="display:flex;justify-content:center;margin-top:8px">${offDonut(['USA','ARG','URU','ESP'].map(k=>({n:paisNom[k],v:pais[k]||0})), 104)}</div></div>
     </div>
     <div class="card" style="margin:12px 0 10px"><div class="section-title" style="font-size:14px;margin-bottom:8px">Evolución patrimonial</div><div style="height:150px"><canvas id="rep-ch-evol"></canvas></div></div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
@@ -18896,7 +18940,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20261021-243';
+const APP_VERSION = '20261021-244';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
