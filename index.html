@@ -5109,6 +5109,8 @@ function rubroPropUSD(m, campo, secMon) {
    Inline y sin Chart.js: los informes se imprimen abriendo una ventana nueva
    con el mismo HTML, y un <canvas> no se copia — llegaria en blanco.
    `items` es [{v}] o [[label, valor]]. */
+/* v243 — estilo único de las filas de TOTAL en todos los informes (Timoteo, 21/10). */
+const OFF_TOT_CSS = 'background:#F3EAD3;font-weight:700;border-top:2px solid #A8842F;color:#0F3160';
 const OFF_CAT = ['#a87316','#0e9c8d','#2f6dbd','#c85043','#7a4fa3','#b5851f'];
 function offDonut(items, size, hole) {
   size = size || 136; hole = hole || 0.58;
@@ -9558,7 +9560,7 @@ async function renderRepCliente() {
       ${sub ? `<div style="font-size:10px;color:var(--text3);margin-top:3px">${sub}</div>` : ''}</div>`;
   const _BANDA = 'background:var(--gold-soft,#f7f0e2);color:var(--gold);font-size:10px;letter-spacing:1px;text-transform:uppercase;font-weight:700;padding:7px 10px';
   const _SUB = 'background:var(--bg3);font-weight:700';
-  const _TOT = 'background:var(--bg3);font-weight:700;border-top:2px solid var(--border2);font-size:13px;color:var(--gold)';
+  const _TOT = OFF_TOT_CSS;   // v243 — mismo total en todos los informes
 
   /* v188 — COLORES POR PAIS fijos, pedidos por Timoteo: USA rojo, ARG azul,
      URU amarillo. Son los mismos en el cuadro, en la torta y en la barra
@@ -9678,11 +9680,11 @@ async function renderRepCliente() {
       <div class="table-wrap" style="margin-top:12px"><table class="tbl-compacta" style="table-layout:fixed">${_COLGB}<tbody>
         ${(() => { const ti = _bkDat.reduce((s,x)=>s+x.i,0) - _bkDat.reduce((s,x)=>s+x.credI,0);
                    const tcash = _bkDat.reduce((s,x)=>s+x.c,0), tf = tcash - _crTot;
-          return `<tr style="background:var(--gold-soft,#f7f0e2);border-top:2px solid var(--gold)">
-          <td style="font-weight:800;color:var(--gold);font-size:13px">TOTAL BANCOS</td>
-          <td class="num" style="font-weight:700;color:var(--gold);font-size:13px">${F(ti)}</td>
-          <td class="num" style="font-weight:800;color:var(--gold);font-size:13px">${F(tf)}</td>
-          <td class="num" style="font-weight:700;color:var(--gold);font-size:13px">${SG(tf - ti)}</td></tr>
+          return `<tr style="${OFF_TOT_CSS}">
+          <td>TOTAL BANCOS</td>
+          <td class="num">${F(ti)}</td>
+          <td class="num">${F(tf)}</td>
+          <td class="num">${SG(tf - ti)}</td></tr>
         ${_crTot > 0.5 ? `<tr><td colspan="4" style="padding:5px 10px;font-size:11px;color:var(--text3);border:0">
           Cash ${F(tcash)} menos ${F(_crTot)} de crédito utilizado. Los subtotales de arriba suman sólo el cash:
           el crédito es deuda y se descuenta una sola vez, acá.</td></tr>` : ''}`; })()}
@@ -9908,7 +9910,7 @@ async function renderRepCliente() {
       <div class="table-wrap"><table class="tbl-compacta">
         <thead><tr><th></th><th>Propiedad</th><th>País</th><th class="num">Valor</th><th class="num">Renta neta</th><th class="num">Yield</th></tr></thead>
         <tbody>${filasDet}</tbody></table></div>
-      <p style="font-size:11px;color:var(--text3);margin:10px 0 0">● con contrato vigente · ○ sin contrato. El yield es la renta neta del año sobre el valor del activo.</p>
+      <p style="font-size:11px;color:var(--text3);margin:10px 0 0">● con contrato vigente · ○ sin contrato. El yield es la renta neta del año sobre el valor del activo. Valuación: tasación de enero de ${Y} (las propiedades se tasan a principio de cada año).</p>
     </div>
 
     ${_bkHTML}
@@ -9988,7 +9990,7 @@ async function _exportarPDF(opt) {
   w.document.write(`<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>${opt.titulo} — ${cliNom}</title>
   <style>
     :root{--navy:#0F2A43;--green:#2f9e63;--red:#c0605f;--teal:#2E9B8F;--border:#e4e7ec;--text:#1a1a1a;--text2:#444;--text3:#888;--esp:#2f9e63;--usa:#c0605f;--gold:#A8842F;--gold-soft:#f5efe0;--bg2:#f7f7f5;--bg:#fff;}
-    *{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact;} body{font-family:Helvetica,Arial,sans-serif;color:var(--text);margin:0;padding:14px;font-size:11px;line-height:1.35;}
+    *{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact;} body{font-family:Helvetica,Arial,sans-serif;color:var(--text);margin:0 auto;padding:0;width:190mm;font-size:11px;line-height:1.35;}
     .card{border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:16px;page-break-inside:avoid;background:var(--bg);}
     .table-wrap{overflow:visible;} table{width:100%;border-collapse:collapse;font-size:11.5px;} th{color:var(--navy);font-size:10px;text-transform:uppercase;letter-spacing:.5px;font-weight:700;}
     th,td{padding:6px 8px;text-align:left;border-bottom:1px solid var(--border);} .num{text-align:right;font-variant-numeric:tabular-nums;} .negative{color:var(--usa);} .positive{color:var(--esp);}
@@ -9999,7 +10001,12 @@ async function _exportarPDF(opt) {
     .loader,.spinner,.rep-head{display:none!important;}
     input{border:none!important;background:transparent!important;font-size:11.5px;font-family:inherit;color:var(--text);text-align:right;padding:0;width:auto!important;-moz-appearance:textfield;} input::-webkit-outer-spin-button,input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
     h1{color:var(--navy);font-size:22px;margin:0 0 3px;letter-spacing:-.3px;} .hdr{border-bottom:3px solid var(--navy);padding-bottom:9px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:flex-end;}
-    @page{size:A4 portrait;margin:1cm;} .pgbreak{page-break-before:always;break-before:page;}
+    /* v243 — SIN ENCABEZADO NI PIE DEL NAVEGADOR (Timoteo, 21/10). Chrome (131+) deja de imprimir su
+       fecha/título arriba y su URL/"página x de y" abajo cuando la página define sus propias cajas de margen.
+       La de arriba va vacía y la de abajo lleva el número de hoja. */
+    @page{size:A4 portrait;margin:10mm 10mm 12mm;@top-center{content:"";}@bottom-center{content:counter(page);font-size:9px;color:#888;font-family:Helvetica,Arial,sans-serif;}}
+    .pgbreak{page-break-before:always;break-before:page;}
+    .hoja-fija{break-inside:avoid;page-break-inside:avoid;}
     /* v187 — un cuadro que no entra completo baja entero a la pagina siguiente.
        Antes pasaba que Bancos arrancaba al pie: se veian los encabezados y todo
        el contenido quedaba en la hoja de atras. La regla break-inside:avoid es
@@ -10033,13 +10040,44 @@ async function _exportarPDF(opt) {
     tbody tr:first-child{page-break-before:avoid;break-before:avoid;}
     .card > p:last-child,.nota-pie{page-break-before:avoid;break-before:avoid;}
     .no-corta{page-break-inside:avoid;break-inside:avoid;}
-    @media print{body{padding:0;}}
+    @media print{body{padding:0;width:auto;margin:0;}}
   </style></head><body>
   <div class="hdr"><div style="display:flex;align-items:center;gap:12px"><img src="${OFFIDA_LOGO}" style="height:54px;width:auto"><div><div style="font-family:Georgia,'Times New Roman',serif;font-size:22px;letter-spacing:3px;color:#A8842F;font-weight:700;line-height:1">OFFIDA</div><h1 style="font-size:18px;margin:3px 0 0">${opt.titulo}</h1><div style="color:var(--text3);font-size:12px">${cliNom} \u00b7 ${opt.subtitulo} \u00b7 Cifras en USD</div></div></div><div style="color:var(--text3);font-size:11px;text-align:right">Generado ${new Date().toLocaleDateString('es-AR')}</div></div>
   ${htmlBody}
+  <script>
+  /* v243 — AJUSTE A LA HOJA ANTES DE IMPRIMIR (Timoteo, 21/10).
+     El body mide en pantalla lo mismo que la hoja impresa (190 mm), así que lo que se mide acá es lo que
+     sale en papel. Alto útil de A4 con 10 + 12 mm de margen = 275 mm.
+     · .hoja-fija (la primera hoja del mensual, las dos primeras del semestral): tiene que entrar entera;
+       si no entra, se achica con zoom lo justo.
+     · Un cuadro (.card) no se corta entre hojas: si entra, el navegador lo baja entero a la hoja siguiente
+       (break-inside:avoid). Si mide más que una hoja, se achica hasta 80 %; si ni así entra, arranca en hoja
+       nueva y se corta (no hay otra). */
+  (function () {
+    var H = 275 * 96 / 25.4 - 4;
+    function alto(el) { return el.getBoundingClientRect().height; }
+    function ajustar() {
+      var hdr = document.querySelector('body > .hdr');
+      var hojas = document.querySelectorAll('.hoja-fija');
+      for (var i = 0; i < hojas.length; i++) {
+        var el = hojas[i], extra = 0;
+        if (i === 0 && hdr && !el.classList.contains('pgbreak')) { var cs = getComputedStyle(hdr); extra = alto(hdr) + parseFloat(cs.marginBottom || 0); }
+        for (var k = 0; k < 3; k++) { var h = alto(el); if (h + extra <= H) break;
+          var z = (parseFloat(el.style.zoom) || 1) * (H - extra) / (h); el.style.zoom = Math.max(0.6, Math.floor(z * 1000) / 1000); }
+      }
+      var cards = document.querySelectorAll('.card');
+      for (var j = 0; j < cards.length; j++) { var c = cards[j];
+        if (c.closest('.hoja-fija')) continue;
+        var hc = alto(c); if (hc <= H) continue;
+        if (H / hc >= 0.8) c.style.zoom = Math.floor(H / hc * 1000) / 1000;
+        else { c.style.breakBefore = 'page'; c.style.pageBreakBefore = 'always'; } }
+    }
+    function listo() { try { ajustar(); } catch (e) {} setTimeout(function () { try { window.focus(); window.print(); } catch (e) {} }, 150); }
+    if (document.readyState === 'complete') setTimeout(listo, 50); else window.addEventListener('load', function () { setTimeout(listo, 50); });
+  })();
+  <\/script>
   </body></html>`);
   w.document.close();
-  setTimeout(() => { try { w.focus(); w.print(); } catch(e){} }, 500);
 }
 
 const REP_CLIENTES = [
@@ -12117,32 +12155,44 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
   // Resaltados: el pais es una banda, el subtotal una fila tenue, el total una fila fuerte.
   const _fGrupo = (txt, n) => `<tr><td colspan="${n}" style="background:var(--gold-soft,#f6efe0);color:var(--gold);font-size:10px;letter-spacing:1px;text-transform:uppercase;font-weight:700;padding:7px 10px;border-bottom:1px solid var(--border2)">${txt}</td></tr>`;
   const _BG_SUB = 'background:var(--bg3);font-weight:600';
-  const _BG_TOT = 'background:var(--bg3);font-weight:700;border-top:2px solid var(--border2)';
+  /* v243 — TODAS LAS FILAS DE TOTAL IGUALES (Timoteo, 21/10): fondo dorado claro, negrita y raya dorada
+     arriba. Lo usan propiedades, cuentas, TOTAL BANCOS, PE, autos y las tablas de la primera hoja. */
+  const _BG_TOT = OFF_TOT_CSS;
   const _dash = v => Math.abs(v) < 0.5 ? '—' : sg(v) + $m(Math.abs(v)).slice(1);
   const _mesLbl = ['','enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
 
   /* ── PROPIEDADES: de renta / no renta, con subtotal de cada grupo ── */
-  const _netaProp = {};
+  /* v243 — Renta y Gastos e impuestos en columnas propias (Timoteo, 21/10): Renta − Gastos e impuestos = Renta neta,
+     fila por fila y en los subtotales. */
+  const _rProp = {}, _gProp = {};
   (mpR.data||[]).forEach(m => { const sh = share({ titular:_titOf[m.propiedad_id] });
-    _netaProp[m.propiedad_id] = (_netaProp[m.propiedad_id]||0) +
-      ((m.total_renta_usd||0) - (m.total_gastos_usd||0) - (m.total_impuestos_usd||0)) * sh; });
-  const _propsOrd = props.map(p => ({ p, v:(Number(p[_vY])||0)*share(p), n:_netaProp[p.id]||0 }))
+    _rProp[m.propiedad_id] = (_rProp[m.propiedad_id]||0) + (m.total_renta_usd||0) * sh;
+    _gProp[m.propiedad_id] = (_gProp[m.propiedad_id]||0) + ((m.total_gastos_usd||0) + (m.total_impuestos_usd||0)) * sh; });
+  const _propsOrd = props.map(p => { const r = _rProp[p.id]||0, g = _gProp[p.id]||0; return { p, v:(Number(p[_vY])||0)*share(p), r, g, n:r - g }; })
                          .sort((a,b) => (a.p.nro||9999) - (b.p.nro||9999));
-  const _filaProp = ({p,v,n}) => `<tr>
+  const _cR = r => Math.abs(r)<0.5 ? '<span style="color:var(--text3)">—</span>' : `<span style="color:var(--esp)">+${$m(r).slice(1)}</span>`;
+  const _cG = g => Math.abs(g)<0.5 ? '<span style="color:var(--text3)">—</span>' : `<span style="color:var(--usa)">−${$m(g).slice(1)}</span>`;
+  const _filaProp = ({p,v,r,g,n}) => `<tr>
       <td style="font-weight:600">${p.nombre||'—'}</td>
       <td class="num" style="color:var(--text3)">${p.pais||'—'}</td>
       <td class="num">${$m(v)}</td>
+      <td class="num">${_cR(r)}</td>
+      <td class="num">${_cG(g)}</td>
       <td class="num" style="color:${Math.abs(n)<0.5?'var(--text3)':col(n)}">${_dash(n)}</td></tr>`;
-  const _sub = (lbl, v, n, css) => `<tr style="${css}">
+  const _sub = (lbl, v, r, g, n, css) => `<tr style="${css}">
       <td colspan="2">${lbl}</td>
       <td class="num">${$m(v)}</td>
+      <td class="num">${_cR(r)}</td>
+      <td class="num">${_cG(g)}</td>
       <td class="num" style="color:${Math.abs(n)<0.5?'var(--text3)':col(n)}">${_dash(n)}</td></tr>`;
   const _gR = _propsOrd.filter(x => tipoEn(x.p, anio) === 'R'), _gN = _propsOrd.filter(x => tipoEn(x.p, anio) !== 'R');   // v225
   const _sumV = a => a.reduce((s,x)=>s+x.v,0), _sumN = a => a.reduce((s,x)=>s+x.n,0);
+  const _sumR = a => a.reduce((s,x)=>s+x.r,0), _sumG = a => a.reduce((s,x)=>s+x.g,0);
+  const _subG = (lbl, a, css) => _sub(lbl, _sumV(a), _sumR(a), _sumG(a), _sumN(a), css);
   const filasProps = !_propsOrd.length ? [] : [
-    ..._gR.length ? [_fGrupo('De renta', 4), ..._gR.map(_filaProp), _sub('Subtotal de renta', _sumV(_gR), _sumN(_gR), _BG_SUB)] : [],
-    ..._gN.length ? [_fGrupo('No renta', 4), ..._gN.map(_filaProp), _sub('Subtotal no renta', _sumV(_gN), _sumN(_gN), _BG_SUB)] : [],
-    _sub('Total propiedades', _sumV(_propsOrd), _sumN(_propsOrd), _BG_TOT + ';font-size:13px;color:var(--gold)'),
+    ..._gR.length ? [_fGrupo('De renta', 6), ..._gR.map(_filaProp), _subG('Subtotal de renta', _gR, _BG_SUB)] : [],
+    ..._gN.length ? [_fGrupo('No renta', 6), ..._gN.map(_filaProp), _subG('Subtotal no renta', _gN, _BG_SUB)] : [],
+    _subG('Total propiedades', _propsOrd, _BG_TOT),
   ];
 
   /* ── LINKEO: que cuenta cobro y que cuenta pago, propiedad por propiedad ──
@@ -12455,73 +12505,81 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
   ];
 
   const _hdrBase = ['Cuenta','Saldo al 1/1',_hdrPrev,_hdrCie];
+  /* v243 — CADA TABLA DE CUENTAS ES SU PROPIO CUADRO (Timoteo, 21/10): inversión y operativas iban en un
+     solo .card que medía más de una hoja y el navegador lo partía. Separadas, cada una entra y, si no
+     cabe al pie, baja entera a la hoja siguiente. TOTAL BANCOS va al pie del último cuadro. */
+  const _totBancos = (() => {
+    // v187 — TOTAL de bancos: inversion + operativas, y ACA si se resta el credito, que es deuda.
+    if (!_bDat.length) return '';
+    const ti = _bDat.reduce((s,x)=>s+x.i,0)     - _bDat.reduce((s,x)=>s+x.credI,0);
+    const ta = _bDat.reduce((s,x)=>s+x.a,0)     - _bDat.reduce((s,x)=>s+x.credA,0);
+    const tcash = _bDat.reduce((s,x)=>s+x.c,0), tc = _bDat.reduce((s,x)=>s+x.cred,0);
+    return `<div class="table-wrap" style="margin-top:12px"><table class="tbl-compacta" style="table-layout:fixed">
+      ${_COLG(['',''])}
+      <tbody>
+        <tr style="${_BG_TOT}">
+          <td>TOTAL BANCOS</td>
+          <td class="num">${$m(ti)}</td>
+          <td class="num">${$m(ta)}</td>
+          <td class="num">${$m(tcash - tc)}</td>
+          <td></td><td></td></tr>
+        ${tc > 0.5 ? `<tr><td colspan="6" style="padding:5px 10px;font-size:11px;color:var(--text3);border:0">
+          Cash ${$m(tcash)} menos ${$m(tc)} de crédito utilizado. Los subtotales de arriba suman
+          sólo el cash: el crédito es deuda y se descuenta una sola vez, acá.</td></tr>` : ''}
+      </tbody></table></div>`;
+  })();
   const _cuentasHTML = (!_oper.length && !_inv.length) ? '' : `
-    <div class="card" style="margin-bottom:16px">
-      <div class="section-title" style="margin-bottom:12px">Cuentas de banco</div>
-      ${_inv.length ? `
-        <div style="font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--text3);font-weight:700;margin:2px 0 8px">Cuentas de inversión</div>
-        <div class="table-wrap" style="margin-bottom:${_oper.length?'14px':'0'}"><table class="tbl-compacta" style="table-layout:fixed">
-          ${_COLG(['Aportes netos','Rendimiento'])}
-          <thead><tr>${[..._hdrBase,'Aportes netos','Rendimiento mensual'].map((h,i)=>`<th${i?' class="num"':''}>${h}</th>`).join('')}</tr></thead>
-          <tbody>${_tablaCuentas(_inv, _colsInv, _detCap, true).join('')}</tbody>
-        </table></div>` : ''}
-      ${_oper.length ? `
-        <div style="font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--text3);font-weight:700;margin:2px 0 8px">Cuentas operativas</div>
-        <div class="table-wrap"><table class="tbl-compacta" style="table-layout:fixed">
-          ${_COLG(['Cobrado','Pagado','Gastos personales'])}
-          <thead><tr>${[..._hdrBase,'Cobrado','Pagado','Gastos personales'].map((h,i)=>`<th${i?' class="num"':''}>${h}</th>`).join('')}</tr></thead>
-          <tbody>${_tablaCuentas(_oper, _colsOper, _detProp).join('')}</tbody>
-        </table></div>` : ''}
-      ${(() => {
-        // v187 — TOTAL de bancos: inversion + operativas, y ACA si se resta el
-        // credito, que es deuda. Los totales de arriba muestran plata disponible.
-        if (!_bDat.length) return '';
-        const ti = _bDat.reduce((s,x)=>s+x.i,0)     - _bDat.reduce((s,x)=>s+x.credI,0);
-        const ta = _bDat.reduce((s,x)=>s+x.a,0)     - _bDat.reduce((s,x)=>s+x.credA,0);
-        const tcash = _bDat.reduce((s,x)=>s+x.c,0), tc = _bDat.reduce((s,x)=>s+x.cred,0);
-        return `<div class="table-wrap" style="margin-top:12px"><table class="tbl-compacta" style="table-layout:fixed">
-          ${_COLG(['',''])}
-          <tbody>
-            <tr style="background:var(--gold-soft,#f7f0e2);border-top:2px solid var(--gold)">
-              <td style="font-weight:800;color:var(--gold);font-size:13px">TOTAL BANCOS</td>
-              <td class="num" style="font-weight:700;color:var(--gold)">${$m(ti)}</td>
-              <td class="num" style="font-weight:700;color:var(--gold)">${$m(ta)}</td>
-              <td class="num" style="font-weight:800;color:var(--gold);font-size:13px">${$m(tcash - tc)}</td>
-              <td></td><td></td></tr>
-            ${tc > 0.5 ? `<tr><td colspan="6" style="padding:5px 10px;font-size:11px;color:var(--text3);border:0">
-              Cash ${$m(tcash)} menos ${$m(tc)} de crédito utilizado. Los subtotales de arriba suman
-              sólo el cash: el crédito es deuda y se descuenta una sola vez, acá.</td></tr>` : ''}
-          </tbody></table></div>`;
-      })()}
+    ${_inv.length ? `<div class="card" style="margin-bottom:16px">
+      <div class="section-title" style="margin-bottom:12px">Cuentas de banco · inversión</div>
+      <div class="table-wrap"><table class="tbl-compacta" style="table-layout:fixed">
+        ${_COLG(['Aportes netos','Rendimiento'])}
+        <thead><tr>${[..._hdrBase,'Aportes netos','Rendimiento mensual'].map((h,i)=>`<th${i?' class="num"':''}>${h}</th>`).join('')}</tr></thead>
+        <tbody>${_tablaCuentas(_inv, _colsInv, _detCap, true).join('')}</tbody>
+      </table></div>
+      ${_oper.length ? '' : _totBancos}
       <p class="nota-pie" style="font-size:11px;color:var(--text3);margin:12px 0 0;padding-top:9px;border-top:1px solid var(--border)">
-        En las cuentas de inversión el <b>rendimiento</b> es lo que se movió el saldo descontando aportes y retiros:
-        una transferencia no es resultado.</p>
-    </div>`;
+        El <b>rendimiento</b> es lo que se movió el saldo descontando aportes y retiros: una transferencia no es resultado.</p>
+    </div>` : ''}
+    ${_oper.length ? `<div class="card" style="margin-bottom:16px">
+      <div class="section-title" style="margin-bottom:12px">Cuentas de banco · operativas</div>
+      <div class="table-wrap"><table class="tbl-compacta" style="table-layout:fixed">
+        ${_COLG(['Cobrado','Pagado','Gastos personales'])}
+        <thead><tr>${[..._hdrBase,'Cobrado','Pagado','Gastos personales'].map((h,i)=>`<th${i?' class="num"':''}>${h}</th>`).join('')}</tr></thead>
+        <tbody>${_tablaCuentas(_oper, _colsOper, _detProp).join('')}</tbody>
+      </table></div>
+      ${_totBancos}
+    </div>` : ''}`;
 
   /* ── AUTOS ── */
-  const _gAuto = {};
-  (maR.data||[]).forEach(m => { _gAuto[m.auto_id] = (_gAuto[m.auto_id]||0) + (Number(m.total_usd)||0); });
+  const _gAuto = {}, _gAutoMes = {};
+  (maR.data||[]).forEach(m => { _gAuto[m.auto_id] = (_gAuto[m.auto_id]||0) + (Number(m.total_usd)||0);
+    // v243 — gastos sólo del mes (o del período) del informe, en su propia columna
+    if (m.mes >= m1 && m.mes <= m2) _gAutoMes[m.auto_id] = (_gAutoMes[m.auto_id]||0) + (Number(m.total_usd)||0); });
+  const _gaHay = (maR.data||[]).length > 0;   // con sólo el histórico anual no hay mes: la columna dice —
   const _idByNro = {}; autos.forEach(a => { if (a.nro!=null) _idByNro[a.nro] = a.id; });
   (gaR.data||[]).forEach(g => { const id = _idByNro[g.nro];
     if (id && !(id in _gAuto)) _gAuto[id] = Number(g.total_usd)||0; });
   const filasAutos = autos
-    .map(a => ({ a, vc:(Number(a.valor_compra)||0)*share(a), v:(Number(a[_vY])||0)*share(a), g:(_gAuto[a.id]||0)*share(a) }))
+    .map(a => ({ a, vc:(Number(a.valor_compra)||0)*share(a), v:(Number(a[_vY])||0)*share(a), g:(_gAuto[a.id]||0)*share(a), gm:(_gAutoMes[a.id]||0)*share(a) }))
     .filter(x => Math.abs(x.v)>0.5 || Math.abs(x.vc)>0.5 || Math.abs(x.g)>0.5)
     .sort((x,y) => y.v - x.v)
-    .map(({a,vc,v,g}) => `<tr>
+    .map(({a,vc,v,g,gm}) => `<tr>
       <td style="font-weight:600">${a.nombre||'—'}</td>
       <td class="num" style="color:var(--text3)">${Math.abs(vc)<0.5 ? '—' : $m(vc)}</td>
       <td class="num">${$m(v)}</td>
-      <td class="num" style="color:${Math.abs(g)<0.5?'var(--text3)':'var(--usa)'}">${Math.abs(g)<0.5 ? '—' : '−'+$m(g)}</td></tr>`);
+      <td class="num" style="color:${Math.abs(gm)<0.5?'var(--text3)':'var(--usa)'}">${Math.abs(gm)<0.5 ? '—' : '−'+$m(gm).slice(1)}</td>
+      <td class="num" style="color:${Math.abs(g)<0.5?'var(--text3)':'var(--usa)'}">${Math.abs(g)<0.5 ? '—' : '−'+$m(g).slice(1)}</td></tr>`);
   const _nAutos = filasAutos.length;
   if (_nAutos) {
     const tvc = autos.reduce((s,a)=>s+(Number(a.valor_compra)||0)*share(a),0);
     const tg  = autos.reduce((s,a)=>s+(_gAuto[a.id]||0)*share(a),0);
+    const tgm = autos.reduce((s,a)=>s+(_gAutoMes[a.id]||0)*share(a),0);
     filasAutos.push(`<tr style="${_BG_TOT}">
       <td>Total autos</td>
       <td class="num">${Math.abs(tvc)<0.5?'—':$m(tvc)}</td>
       <td class="num">${$m(vAutos)}</td>
-      <td class="num" style="color:${Math.abs(tg)<0.5?'var(--text3)':'var(--usa)'}">${Math.abs(tg)<0.5?'—':'−'+$m(tg)}</td></tr>`);
+      <td class="num" style="color:${Math.abs(tgm)<0.5?'var(--text3)':'var(--usa)'}">${Math.abs(tgm)<0.5?'—':'−'+$m(tgm).slice(1)}</td>
+      <td class="num" style="color:${Math.abs(tg)<0.5?'var(--text3)':'var(--usa)'}">${Math.abs(tg)<0.5?'—':'−'+$m(tg).slice(1)}</td></tr>`);
   }
 
   /* ── PRIVATE EQUITY (v187) ───────────────────────────────────────────────
@@ -12594,12 +12652,13 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
 
   // El detalle arranca en pagina nueva: la primera hoja queda con la foto del mes.
   const detalleHTML = [
-    _tabla(`Propiedades · ${_propsOrd.length}`, ['Propiedad','País','Valor','Renta neta del mes'], filasProps,
-           `La renta neta es del mes; el valor es la tasación de 12/${anio - 1}.`, 'pgbreak'),
+    _tabla(`Propiedades · ${_propsOrd.length}`, ['Propiedad','País','Valor','Renta','Gastos e impuestos','Renta neta del mes'], filasProps,
+           `Renta, gastos e impuestos son del ${esMensual ? 'mes' : 'período'}. El valor es la tasación de enero de ${anio} (las propiedades se tasan a principio de cada año).`, 'pgbreak'),
     _cuentasHTML,
     _edHTML,   // v202 — etapa D
     _peHTML,   // v187 — con break-inside:avoid en .card ya no se parte al medio
-    _tabla(`Autos · ${_nAutos}`, ['Vehículo','Valor de compra','Valor actual',`Gastos ${anio} a ${_mesLbl[m2]}`], filasAutos, ''),
+    _tabla(`Autos · ${_nAutos}`, ['Vehículo','Valor de compra','Valor actual', esMensual ? MESNOM[m2] : `Gastos ${_mesLbl[m1]}–${_mesLbl[m2]}`, `Gastos ${anio} a ${_mesLbl[m2]}`], filasAutos,
+           _gaHay ? '' : 'Sólo hay gastos anuales cargados para este año: sin detalle por mes.'),
   ].join('');
 
   /* ── DE DONDE SALIO EL RESULTADO ──
@@ -12669,6 +12728,7 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
   ].filter(Boolean);
 
   cont.innerHTML = `
+    <div class="hoja-fija">
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px">
       ${kpi('Patrimonio al cierre', $m(patTotal), label)}
       ${kpi('Variación del mes', (patPrev?sg(varMes)+$m(Math.abs(varMes)).slice(1):'—'),
@@ -12691,7 +12751,7 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
       <div class="table-wrap"><table class="tbl-compacta">
         <thead><tr><th>Tipo</th><th class="num">Valor</th><th class="num">%</th><th class="num">Var. mes</th></tr></thead>
         <tbody>${filasTipo}</tbody>
-        <tfoot><tr style="border-top:2px solid var(--border2)">
+        <tfoot><tr style="${OFF_TOT_CSS}">
           <td style="font-weight:700">Total</td>
           <td class="num" style="font-weight:700">${$m(patTotal)}</td>
           <td class="num" style="color:var(--text3)">100%</td>
@@ -12705,7 +12765,7 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
       <div class="table-wrap"><table class="tbl-compacta">
         <thead><tr><th>País</th><th class="num">Valor</th><th class="num">%</th></tr></thead>
         <tbody>${filasPais}</tbody>
-        <tfoot><tr style="border-top:2px solid var(--border2)">
+        <tfoot><tr style="${OFF_TOT_CSS}">
           <td style="font-weight:700">Total</td>
           <td class="num" style="font-weight:700">${$m(patTotal)}</td>
           <td class="num" style="color:var(--text3)">100%</td></tr></tfoot>
@@ -12721,6 +12781,7 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
     <div class="card no-corta" style="margin-bottom:16px">
       <div class="section-title" style="margin-bottom:10px">El mes en breve</div>
       ${frases.map(f=>`<p style="margin:5px 0;font-size:13px;line-height:1.45">• ${f}</p>`).join('')}
+    </div>
     </div>
 
     ${detalleHTML}
@@ -13064,8 +13125,19 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
       .rep-doc .rep-kpi .v{font-size:15px;font-weight:700;}
       .rep-doc .rep-kpi .s{font-size:8.5px;color:var(--text3);margin-top:2px;}
       .rep-doc .rep-head{background:var(--navy);color:#fff;border-radius:9px;padding:11px 16px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;}
+      /* v243 — LAS DOS PRIMERAS HOJAS CON LETRA MÁS GRANDE (Timoteo, 21/10). Cada una es una .hoja-fija:
+         al exportar, si no entra en la hoja, se achica lo justo (ver _exportarPDF). */
+      .rep-doc .rep-ini{font-size:12.5px;}
+      .rep-doc .rep-ini table{font-size:11.5px!important;} .rep-doc .rep-ini th,.rep-doc .rep-ini td{padding:4px 7px!important;}
+      .rep-doc .rep-ini table th{font-size:9.5px!important;}
+      .rep-doc .rep-ini .section-title{font-size:13.5px!important;padding:7px 11px!important;}
+      .rep-doc .rep-ini .rep-kpi .l{font-size:9.5px;} .rep-doc .rep-ini .rep-kpi .v{font-size:19px;} .rep-doc .rep-ini .rep-kpi .s{font-size:10px;}
+      .rep-doc .rep-ini [style*="font-size:10px"]{font-size:11.5px!important;}
+      .rep-doc .rep-ini [style*="font-size:11px"]{font-size:12.5px!important;}
+      .rep-doc .rep-ini [style*="font-size:12px"]{font-size:13.5px!important;}
     </style>
     <div class="rep-doc">
+    <div class="hoja-fija rep-ini">
     <div class="rep-head">
       <div><div style="font-size:16px;font-weight:700">${cliNom}</div><div style="font-size:11px;opacity:.75">Informe ${PER_LBL} · Cifras en USD</div></div>
       <div style="font-size:11px;opacity:.7;text-align:right">al ${FECHA_CIERRE}</div>
@@ -13086,7 +13158,7 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
         <thead><tr><th>Activo</th><th class="num">Invertido</th><th class="num">Cierre ${ANIO-1}</th><th class="num">Actual</th><th class="num">Var. período</th><th class="num">Var. histórica</th></tr></thead>
         <tbody>
         ${clases.map(c=>{const vs=c.act-c.cie, vh=c.act-c.inv; return `<tr><td>${c.n}</td><td class="num">$${fmt(c.inv)}</td><td class="num">$${fmt(c.cie)}</td><td class="num">$${fmt(c.act)}</td><td class="num" style="color:${vs>=0?'var(--esp)':'var(--usa)'}">${vs>=0?'+':''}$${fmt(vs)}</td><td class="num" style="color:${vh>=0?'var(--esp)':'var(--usa)'}">${vh>=0?'+':''}$${fmt(vh)}</td></tr>`}).join('')}
-        <tr style="font-weight:600;border-top:2px solid var(--border)"><td>Total</td><td class="num">$${fmt(totInv)}</td><td class="num">$${fmt(totCie)}</td><td class="num">$${fmt(patrimonioActual)}</td><td class="num" style="color:${(patrimonioActual-totCie)>=0?'var(--esp)':'var(--usa)'}">${(patrimonioActual-totCie)>=0?'+':''}$${fmt(patrimonioActual-totCie)}</td><td class="num" style="color:${acumulado>=0?'var(--esp)':'var(--usa)'}">${acumulado>=0?'+':''}$${fmt(acumulado)}</td></tr>
+        <tr style="${OFF_TOT_CSS}"><td>Total</td><td class="num">$${fmt(totInv)}</td><td class="num">$${fmt(totCie)}</td><td class="num">$${fmt(patrimonioActual)}</td><td class="num" style="color:${(patrimonioActual-totCie)>=0?'var(--esp)':'var(--usa)'}">${(patrimonioActual-totCie)>=0?'+':''}$${fmt(patrimonioActual-totCie)}</td><td class="num" style="color:${acumulado>=0?'var(--esp)':'var(--usa)'}">${acumulado>=0?'+':''}$${fmt(acumulado)}</td></tr>
         </tbody></table></div>
       <p style="color:var(--text3);font-size:10px;margin-top:5px">Invertido = capital aportado (valor de compra de propiedades · aportes a cuentas de inversión · inversión en PE). La variación de bancos incluye movimientos de capital.</p>
     </div>
@@ -13103,7 +13175,7 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
           <td class="num">$${fmt(prestUSD(p))}</td>
           <td class="num">${p.tasa!=null?p.tasa+'%':'—'}</td>
           <td style="font-size:11px">${p.fecha_vencimiento||'—'}</td></tr>`).join('')}
-        <tr style="font-weight:600;border-top:2px solid var(--border)">
+        <tr style="${OFF_TOT_CSS}">
           <td colspan="4">Total deuda</td><td class="num">$${fmt(deudaTotal)}</td>
           <td class="num" colspan="2" style="color:${apalColor}">${apalancamiento.toFixed(1)}% apalanc.</td></tr>
         </tbody></table></div>
@@ -13113,12 +13185,12 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
       <div class="card"><div class="section-title" style="font-size:14px;margin-bottom:12px">Distribución por tipo de activo</div>
         <div class="table-wrap"><table><thead><tr><th>Activo</th><th class="num">Valor</th><th class="num">%</th></tr></thead><tbody>
         ${clases.map(c=>`<tr><td>${c.n}</td><td class="num">$${fmt(c.act)}</td><td class="num">${pct(c.act)}</td></tr>`).join('')}
-        <tr style="font-weight:600;border-top:2px solid var(--border)"><td>Total</td><td class="num">$${fmt(patrimonioActual)}</td><td class="num">100%</td></tr>
+        <tr style="${OFF_TOT_CSS}"><td>Total</td><td class="num">$${fmt(patrimonioActual)}</td><td class="num">100%</td></tr>
         </tbody></table></div></div>
       <div class="card"><div class="section-title" style="font-size:14px;margin-bottom:12px">Distribución por país</div>
         <div class="table-wrap"><table><thead><tr><th>País</th><th class="num">Valor</th><th class="num">%</th></tr></thead><tbody>
         ${['USA','ARG','URU','ESP'].map(k=>`<tr><td>${paisNom[k]}</td><td class="num">$${fmt(pais[k]||0)}</td><td class="num">${pct(pais[k]||0)}</td></tr>`).join('')}
-        <tr style="font-weight:600;border-top:2px solid var(--border)"><td>Total</td><td class="num">$${fmt(patrimonioActual)}</td><td class="num">100%</td></tr>
+        <tr style="${OFF_TOT_CSS}"><td>Total</td><td class="num">$${fmt(patrimonioActual)}</td><td class="num">100%</td></tr>
         </tbody></table></div></div>
     </div>
     <div class="card" style="margin:12px 0 10px"><div class="section-title" style="font-size:14px;margin-bottom:8px">Evolución patrimonial</div><div style="height:150px"><canvas id="rep-ch-evol"></canvas></div></div>
@@ -13126,7 +13198,10 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
       <div class="card" style="margin:0"><div class="section-title" style="font-size:14px;margin-bottom:8px">Composición por activo</div><div style="height:150px"><canvas id="rep-ch-comp"></canvas></div></div>
       <div class="card" style="margin:0"><div class="section-title" style="font-size:14px;margin-bottom:8px">Evolución bancos · ${PER_NOMBRE}</div><div style="height:150px"><canvas id="rep-ch-bancos"></canvas></div></div>
     </div>
-    <div class="card pgbreak" style="margin-top:16px">
+    </div>
+    ${/* v243 — hoja 2: histórico + resumen + "¿Dónde se generó el resultado?" (antes era la hoja 3). */''}
+    <div class="hoja-fija rep-ini pgbreak">
+    <div class="card" style="margin-top:0">
       <div class="section-title" style="font-size:14px;margin-bottom:12px">Patrimonio histórico y composición</div>
       <div class="table-wrap"><table class="rep-big">
         <thead><tr><th>Año</th><th class="num">Propiedades</th><th class="num">Bancos</th><th class="num">Priv. Equity</th><th class="num">Total</th></tr></thead>
@@ -13135,7 +13210,7 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
         </tbody></table></div>
     </div>
     <div class="rep-h2">Resumen</div>
-    <div class="card" style="margin-top:20px">
+    <div class="card" style="margin-top:10px">
       <div class="section-title" style="font-size:14px;margin-bottom:14px">Resumen por tipo de activo</div>
       <div style="display:grid;grid-template-columns:repeat(${autos.length?4:3},1fr);gap:16px">
         <div style="border:1px solid var(--border);border-top:3px solid var(--navy);border-radius:8px;padding:14px">
@@ -13175,19 +13250,20 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
         </div>` : ''}
       </div>
     </div>
-    <div class="card pgbreak" style="margin-top:20px">
+    <div class="card" style="margin-top:12px">
       <div class="section-title rep-narrow" style="font-size:14px;margin-bottom:12px">¿Dónde se generó el resultado del ${PER_NOMBRE}?</div>
       <div class="table-wrap rep-narrow"><table><thead><tr><th>Componente</th><th class="num">Resultado</th></tr></thead><tbody>
         <tr><td>Renta neta de propiedades<br><span style="font-size:11px;color:var(--text3)">Alquileres cobrados, netos de gastos e impuestos</span></td><td class="num" style="color:${rentaNeta>=0?'var(--esp)':'var(--usa)'}">${rentaNeta>=0?'+':''}$${fmt(rentaNeta)}</td></tr>
         <tr><td>Rendimiento de cuentas de inversión<br><span style="font-size:11px;color:var(--text3)">Ganancia financiera (Dietz), neta de aportes de capital</span></td><td class="num" style="color:${rendimientoBancos>=0?'var(--esp)':'var(--usa)'}">${rendimientoBancos>=0?'+':''}$${fmt(rendimientoBancos)}</td></tr>
-        <tr style="font-weight:600;border-top:2px solid var(--border)"><td>Resultado económico total del ${PER_NOMBRE}</td><td class="num" style="color:${resultadoSemestre>=0?'var(--esp)':'var(--usa)'}">${resultadoSemestre>=0?'+':''}$${fmt(resultadoSemestre)}</td></tr>
+        <tr style="${OFF_TOT_CSS}"><td>Resultado económico total del ${PER_NOMBRE}</td><td class="num" style="color:${resultadoSemestre>=0?'var(--esp)':'var(--usa)'}">${resultadoSemestre>=0?'+':''}$${fmt(resultadoSemestre)}</td></tr>
       </tbody></table></div>
       ${bancosDietz.length ? `<div class="section-title" style="font-size:13px;margin:18px 0 8px">Desglose de la variación de bancos</div>
       <div class="table-wrap"><table><thead><tr><th>Cuenta</th><th class="num">S. inicial</th><th class="num">S. final</th><th class="num">Variación</th><th class="num">Rendimiento</th><th class="num">Mov. capital</th></tr></thead><tbody>
         ${bancosDietz.map(d=>`<tr><td>${d.nombre}${d.oper?' <span style="font-size:9px;color:var(--text3)">(operativa)</span>':''}</td><td class="num">$${fmt(d.vBeg)}</td><td class="num">$${fmt(d.vEnd)}</td><td class="num" style="color:${d.varTot>=0?'var(--esp)':'var(--usa)'}">${d.varTot>=0?'+':''}$${fmt(d.varTot)}</td><td class="num" style="color:${d.rend>=0?'var(--esp)':'var(--usa)'}">${d.oper?'—':(d.rend>=0?'+':'')+'$'+fmt(d.rend)}</td><td class="num">${d.movCap>=0?'+':''}$${fmt(d.movCap)}</td></tr>`).join('')}
-        <tr style="font-weight:600;border-top:2px solid var(--border)"><td>Total</td><td class="num">$${fmt(bancosDietz.reduce((a,d)=>a+d.vBeg,0))}</td><td class="num">$${fmt(bancosDietz.reduce((a,d)=>a+d.vEnd,0))}</td><td class="num">${(()=>{const v=bancosDietz.reduce((a,d)=>a+d.varTot,0);return (v>=0?'+':'')+'$'+fmt(v)})()}</td><td class="num" style="color:${rendimientoBancos>=0?'var(--esp)':'var(--usa)'}">${rendimientoBancos>=0?'+':''}$${fmt(rendimientoBancos)}</td><td class="num">${(()=>{const v=bancosDietz.reduce((a,d)=>a+d.movCap,0);return (v>=0?'+':'')+'$'+fmt(v)})()}</td></tr>
+        <tr style="${OFF_TOT_CSS}"><td>Total</td><td class="num">$${fmt(bancosDietz.reduce((a,d)=>a+d.vBeg,0))}</td><td class="num">$${fmt(bancosDietz.reduce((a,d)=>a+d.vEnd,0))}</td><td class="num">${(()=>{const v=bancosDietz.reduce((a,d)=>a+d.varTot,0);return (v>=0?'+':'')+'$'+fmt(v)})()}</td><td class="num" style="color:${rendimientoBancos>=0?'var(--esp)':'var(--usa)'}">${rendimientoBancos>=0?'+':''}$${fmt(rendimientoBancos)}</td><td class="num">${(()=>{const v=bancosDietz.reduce((a,d)=>a+d.movCap,0);return (v>=0?'+':'')+'$'+fmt(v)})()}</td></tr>
       </tbody></table></div>
       <p style="color:var(--text3);font-size:11px;margin-top:10px">De la variación total de bancos, solo el <b>Rendimiento</b> es ganancia genuina. Los <b>Mov. de capital</b> (aportes, y en las cuentas operativas las rentas/transferencias) aumentan el saldo pero no son resultado del período.</p>` : ''}
+    </div>
     </div>
     <div class="land-zone">
     <div class="rep-h2 pgbreak">Propiedades</div>
@@ -13199,7 +13275,7 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
         ${propsRenta.map(p=>{ const d=propDet[p.id]; const sh=share(p); const vi=(vProp(p,ANIO-1)||vProp(p,ANIO))*sh; const rs=vi>0?(d.netoSem/vi*100):0;
           return `<tr><td>${p.nombre}</td><td class="num">$${fmt((Number(p.valor_compra)||0)*sh)}</td><td class="num">$${fmt(vProp(p,ANIO)*sh)}</td><td class="num">$${fmt(d.rentaSem)}</td><td class="num negative">$${fmt(d.gastosSem)}</td><td class="num" style="color:${d.netoSem>=0?'var(--esp)':'var(--usa)'}">${d.netoSem>=0?'+':''}$${fmt(d.netoSem)}</td><td class="num">${rs.toFixed(2)}%</td></tr>`;
         }).join('') || '<tr><td colspan="7" style="color:var(--text3)">Sin movimientos de alquiler en el período</td></tr>'}
-        <tr style="font-weight:600;border-top:2px solid var(--border)"><td>Total</td><td></td><td></td><td class="num">$${fmt(totRentaSem)}</td><td class="num negative">$${fmt(totGastosSem)}</td><td class="num" style="color:${totNetoSem>=0?'var(--esp)':'var(--usa)'}">${totNetoSem>=0?'+':''}$${fmt(totNetoSem)}</td><td></td></tr>
+        <tr style="${OFF_TOT_CSS}"><td>Total</td><td></td><td></td><td class="num">$${fmt(totRentaSem)}</td><td class="num negative">$${fmt(totGastosSem)}</td><td class="num" style="color:${totNetoSem>=0?'var(--esp)':'var(--usa)'}">${totNetoSem>=0?'+':''}$${fmt(totNetoSem)}</td><td></td></tr>
         </tbody></table></div>
       <p style="color:var(--text3);font-size:11px;margin-top:8px">Rentabilidad del período = renta neta del ${PER_NOMBRE} sobre el valor de inicio del período.</p>
     </div>
@@ -13212,7 +13288,7 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
         ${cartera.map(p=>{ const sh=share(p); const vc=(Number(p.valor_compra)||0)*sh; const vv=(Number(p.valor_venta)||0)*sh; const va=vProp(p,ANIO)*sh; const d=propDet[p.id]||{netoAcum:0}; const valoriz=va-vc; const netoEcon=valoriz+d.netoAcum; const valPct=vc>0?((va/vc-1)*100):0;
           return `<tr><td>${paisB(p.pais)} ${p.nombre}</td><td class="num" style="font-size:11px">${p.fecha_compra||'—'}</td><td class="num">$${fmt(vc)}</td><td class="num">${vv>0?'$'+fmt(vv):'—'}</td><td class="num">$${fmt(va)}</td><td class="num" style="color:${d.netoAcum>=0?'var(--esp)':'var(--usa)'}">${d.netoAcum!==0?(d.netoAcum>=0?'+':'')+'$'+fmt(d.netoAcum):'—'}</td><td class="num" style="color:${valoriz>=0?'var(--esp)':'var(--usa)'}">${vc>0?(valPct>=0?'+':'')+valPct.toFixed(1)+'%':'—'}</td><td class="num" style="color:${netoEcon>=0?'var(--esp)':'var(--usa)'}">${(vc>0||d.netoAcum!==0)?(netoEcon>=0?'+':'')+'$'+fmt(netoEcon):'—'}</td></tr>`;
         }).join('')}
-        <tr style="font-weight:700;border-top:2px solid var(--navy)"><td>Total</td><td></td><td class="num">$${fmt(totVC)}</td><td class="num">${totVV>0?'$'+fmt(totVV):'—'}</td><td class="num">$${fmt(totVA)}</td><td class="num" style="color:${totRN>=0?'var(--esp)':'var(--usa)'}">${totRN>=0?'+':''}$${fmt(totRN)}</td><td></td><td class="num" style="color:${totNE>=0?'var(--esp)':'var(--usa)'}">${totNE>=0?'+':''}$${fmt(totNE)}</td></tr>
+        <tr style="${OFF_TOT_CSS}"><td>Total</td><td></td><td class="num">$${fmt(totVC)}</td><td class="num">${totVV>0?'$'+fmt(totVV):'—'}</td><td class="num">$${fmt(totVA)}</td><td class="num" style="color:${totRN>=0?'var(--esp)':'var(--usa)'}">${totRN>=0?'+':''}$${fmt(totRN)}</td><td></td><td class="num" style="color:${totNE>=0?'var(--esp)':'var(--usa)'}">${totNE>=0?'+':''}$${fmt(totNE)}</td></tr>
         </tbody></table></div>
       <p style="color:var(--text3);font-size:11px;margin-top:8px">Neto económico = valorización + renta neta acumulada. Renta neta acumulada = histórico anual + ${PER_NOMBRE} en curso.</p>
     </div>
@@ -13257,7 +13333,7 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
         const pc=(!d.oper&&d.vBeg>0)?((d.rend/d.vBeg*100).toFixed(2)+'%'):'—';
         const pcG=conCred&&gB>0?`<div style="font-size:9px;color:var(--text3);font-weight:400;white-space:nowrap">${(d.rend/gB*100).toFixed(2)}% s/invertido</div>`:'';
         return `<tr><td>${d.nombre}${d.oper?' <span style="font-size:8px;color:var(--text3)">(op)</span>':''}${conCred?' <span title="Cuenta con crédito" style="color:var(--gold)">*</span>':''}</td><td class="num">$${fmt(d.vBeg)}</td><td class="num">${d.apSem>=0?'+':''}$${fmt(d.apSem)}</td><td class="num">$${fmt(d.vEnd)}</td><td class="num" style="color:${d.rend>=0?'var(--esp)':'var(--usa)'}">${d.oper?'—':(d.rend>=0?'+':'')+'$'+fmt(d.rend)}</td><td class="num">${pc}${pcG}</td></tr>`}).join('')}
-      ${(()=>{const inv=bancosDietz.filter(d=>!d.oper);const si=inv.reduce((a,d)=>a+d.vBeg,0),ap=inv.reduce((a,d)=>a+d.apSem,0),sf=inv.reduce((a,d)=>a+d.vEnd,0);return `<tr style="font-weight:700;border-top:2px solid var(--navy)"><td>Total inv.</td><td class="num">$${fmt(si)}</td><td class="num">${ap>=0?'+':''}$${fmt(ap)}</td><td class="num">$${fmt(sf)}</td><td class="num" style="color:${rendimientoBancos>=0?'var(--esp)':'var(--usa)'}">${rendimientoBancos>=0?'+':''}$${fmt(rendimientoBancos)}</td><td class="num"></td></tr>`})()}
+      ${(()=>{const inv=bancosDietz.filter(d=>!d.oper);const si=inv.reduce((a,d)=>a+d.vBeg,0),ap=inv.reduce((a,d)=>a+d.apSem,0),sf=inv.reduce((a,d)=>a+d.vEnd,0);return `<tr style="${OFF_TOT_CSS}"><td>Total inv.</td><td class="num">$${fmt(si)}</td><td class="num">${ap>=0?'+':''}$${fmt(ap)}</td><td class="num">$${fmt(sf)}</td><td class="num" style="color:${rendimientoBancos>=0?'var(--esp)':'var(--usa)'}">${rendimientoBancos>=0?'+':''}$${fmt(rendimientoBancos)}</td><td class="num"></td></tr>`})()}
       </tbody></table></div>
       ${bancosDietz.some(d=>!d.oper&&((d.cBeg||0)>0.5||(d.cEnd||0)>0.5)) ? `<p style="font-size:10.5px;color:var(--text3);margin:10px 0 0;line-height:1.45"><span style="color:var(--gold)">*</span> <b>Cuentas con crédito.</b> Parte de lo invertido se financia con un préstamo del propio banco, y el saldo que se informa es neto de esa deuda. Por eso el rendimiento sobre el saldo neto se amplifica, para arriba y para abajo: si la cartera gana o pierde un 5% y la cuenta tiene un crédito parecido a su saldo neto, el resultado sobre el neto se acerca al doble. Debajo se muestra también el rendimiento sobre lo invertido (saldo neto más crédito), que es lo que rindió la cartera. El interés del crédito se suma a la deuda todos los meses y ya está descontado del resultado.</p>` : ''}
       </div>
@@ -13272,7 +13348,7 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
       <div class="section-title" style="font-size:14px;margin-bottom:10px">Rendimiento desde el ingreso</div>
       <div class="table-wrap"><table><thead><tr><th>Cuenta</th><th class="num">Aportado</th><th class="num">V. actual</th><th class="num">Rend.</th><th class="num">%</th></tr></thead><tbody>
       ${bancosDietz.filter(d=>!d.oper).map(d=>{const ri=d.vEnd-d.apTot; const pi=d.apTot>0?(ri/d.apTot*100):0; return `<tr><td>${d.nombre}</td><td class="num">$${fmt(d.apTot)}</td><td class="num">$${fmt(d.vEnd)}</td><td class="num" style="color:${ri>=0?'var(--esp)':'var(--usa)'}">${ri>=0?'+':''}$${fmt(ri)}</td><td class="num" style="color:${ri>=0?'var(--esp)':'var(--usa)'}">${pi>=0?'+':''}${pi.toFixed(1)}%</td></tr>`}).join('')}
-      ${(()=>{const dd=bancosDietz.filter(d=>!d.oper);const ta=dd.reduce((a,d)=>a+d.apTot,0),va=dd.reduce((a,d)=>a+d.vEnd,0),ri=va-ta;return `<tr style="font-weight:700;border-top:2px solid var(--navy)"><td>Total</td><td class="num">$${fmt(ta)}</td><td class="num">$${fmt(va)}</td><td class="num" style="color:${ri>=0?'var(--esp)':'var(--usa)'}">${ri>=0?'+':''}$${fmt(ri)}</td><td class="num">${ta>0?(ri>=0?'+':'')+(ri/ta*100).toFixed(1)+'%':'—'}</td></tr>`})()}
+      ${(()=>{const dd=bancosDietz.filter(d=>!d.oper);const ta=dd.reduce((a,d)=>a+d.apTot,0),va=dd.reduce((a,d)=>a+d.vEnd,0),ri=va-ta;return `<tr style="${OFF_TOT_CSS}"><td>Total</td><td class="num">$${fmt(ta)}</td><td class="num">$${fmt(va)}</td><td class="num" style="color:${ri>=0?'var(--esp)':'var(--usa)'}">${ri>=0?'+':''}$${fmt(ri)}</td><td class="num">${ta>0?(ri>=0?'+':'')+(ri/ta*100).toFixed(1)+'%':'—'}</td></tr>`})()}
       </tbody></table></div>
       <p style="color:var(--text3);font-size:10px;margin-top:6px">Rendimiento desde el ingreso = valor actual − total aportado.</p>
       </div></div>` : '<div></div>'}
@@ -13290,7 +13366,7 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
           <td class="num" style="color:${t.resReal>=0?'var(--esp)':'var(--usa)'}">${t.resReal?(t.resReal>=0?'+':'-')+'$'+fmt(Math.abs(t.resReal)):'—'}</td>
           <td class="num" style="color:${t.resNoReal>=0?'var(--esp)':'var(--usa)'}">${t.resNoReal?(t.resNoReal>=0?'+':'-')+'$'+fmt(Math.abs(t.resNoReal)):'—'}</td></tr>`;
       }).join('')}
-      ${(()=>{const t=peCalcTot(pe,ANIO,share);return `<tr style="font-weight:700;border-top:2px solid var(--border)"><td>Total</td><td class="num">${pe.length}</td>
+      ${(()=>{const t=peCalcTot(pe,ANIO,share);return `<tr style="${OFF_TOT_CSS}"><td>Total</td><td class="num">${pe.length}</td>
         <td class="num">$${fmt(t.aportado)}</td><td class="num">$${fmt(t.tenencia)}</td>
         <td class="num">${t.resReal?(t.resReal>=0?'+':'-')+'$'+fmt(Math.abs(t.resReal)):'—'}</td>
         <td class="num">${t.resNoReal?(t.resNoReal>=0?'+':'-')+'$'+fmt(Math.abs(t.resNoReal)):'—'}</td></tr>`})()}
@@ -13330,7 +13406,7 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
       ${autoAnios.length ? `<div class="table-wrap"><table><thead><tr><th>Vehículo</th>${autoAnios.map(y=>`<th class="num">${y}</th>`).join('')}<th class="num">Total</th></tr></thead><tbody>
       ${autos.map(a=>{ const g=autoGastos[a.id]||{}; const sh=share(a); const tot=autoAnios.reduce((s,y)=>s+((g[y]||0)*sh),0);
         return `<tr><td>${a.nombre}</td>${autoAnios.map(y=>`<td class="num negative">${g[y]?'$'+fmt(g[y]*sh):'—'}</td>`).join('')}<td class="num bold negative">${tot?'$'+fmt(tot):'—'}</td></tr>`;}).join('')}
-      <tr style="font-weight:700;border-top:2px solid var(--navy)"><td>Total</td>${autoAnios.map(y=>{const t=autos.reduce((s,a)=>s+((autoGastos[a.id]||{})[y]||0)*share(a),0);return `<td class="num">$${fmt(t)}</td>`;}).join('')}<td class="num">$${fmt(autosGastoTot)}</td></tr>
+      <tr style="${OFF_TOT_CSS}"><td>Total</td>${autoAnios.map(y=>{const t=autos.reduce((s,a)=>s+((autoGastos[a.id]||{})[y]||0)*share(a),0);return `<td class="num">$${fmt(t)}</td>`;}).join('')}<td class="num">$${fmt(autosGastoTot)}</td></tr>
       </tbody></table></div>` : '<p style="color:var(--text3);font-size:12px">Sin gastos de autos cargados todavía. La tabla se completa a medida que cargás movimientos por año.</p>'}
     </div>` : ''}
 
@@ -13571,7 +13647,7 @@ function _peMultHTML(items, $f, sh) {
     vivas = `<div class="table-wrap"><table class="tbl-compacta">
         ${TH(['Posición', 'Tipo', 'Aportado', 'Distribuido', 'Valor hoy', 'Total', 'DPI', 'TVPI', 'Desde'])}
         <tbody>${viv.map(fila).join('')}</tbody>
-        <tfoot><tr style="font-weight:700;border-top:1.5px solid var(--border2)"><td colspan="2">Total</td>
+        <tfoot><tr style="${OFF_TOT_CSS}"><td colspan="2">Total</td>
           <td class="num">${$f(T.ap)}</td><td class="num">${$f(T.di)}</td><td class="num">${$f(T.te)}</td><td class="num">${$f(T.di + T.te)}</td>
           <td class="num">${T.ap > 0.5 ? X(T.di / T.ap) : '—'}</td>
           <td class="num" style="${T.ap > 0.5 ? ((T.di + T.te) / T.ap >= 1 ? 'color:var(--esp)' : 'color:var(--usa)') : ''}">${T.ap > 0.5 ? X((T.di + T.te) / T.ap) : '—'}</td><td></td></tr></tfoot>
@@ -13598,7 +13674,7 @@ function _peMultHTML(items, $f, sh) {
     finH = `<div class="table-wrap"><table class="tbl-compacta">
         ${TH(['Posición', 'Aportado', 'Recuperado', 'Resultado', 'Múltiplo', 'Años'])}
         <tbody>${fin.map(fila).join('')}</tbody>
-        <tfoot><tr style="font-weight:700;border-top:1.5px solid var(--border2)"><td>Total</td><td class="num">${$f(T.ap)}</td><td class="num">${$f(T.rec)}</td>
+        <tfoot><tr style="${OFF_TOT_CSS}"><td>Total</td><td class="num">${$f(T.ap)}</td><td class="num">${$f(T.rec)}</td>
           <td class="num" style="${CV(T.rec - T.ap)}">${SG(T.rec - T.ap)}</td><td class="num">${T.ap > 0.5 ? X(T.rec / T.ap) : '—'}</td><td></td></tr></tfoot>
       </table></div>
       <p style="font-size:10.5px;color:var(--text3);margin:10px 0 0">Posiciones terminadas: no valen nada hoy y no suman al patrimonio.
@@ -18820,7 +18896,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20261020-242';
+const APP_VERSION = '20261021-243';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
