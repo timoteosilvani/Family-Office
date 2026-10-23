@@ -9440,6 +9440,19 @@ function _fuentesHTML(anio, mes) {
     asesoramiento de inversión, legal o impositivo. Las valuaciones de propiedades, autos y private equity son estimaciones.</p>`;
 }
 
+/* v245 — PATRIMONIO DE UN TITULAR EN UN AÑO ANTERIOR. Una sola fuente para los tres reportes (y la solapa
+   Patrimonio histórico): hasta 2025 sale de los derivados (titular de cada año, verificados contra la solapa PATRIMONIO
+   del COMPLETO); desde 2026 hay que mirar los movimientos vivos, así que devuelve null y cada reporte usa lo suyo.
+   2017 no tiene bancos en el COMPLETO: se usa 2018, igual que Patrimonio histórico. */
+let _patHistCache = null;
+function patHistTit(tit, y) {
+  if (y > 2025) return null;
+  if (!_patHistCache) _patHistCache = { P: derivePropsHistByTit(), A: deriveActivosByTit() };
+  const { P, A } = _patHistCache, yb = y === 2017 ? 2018 : y;
+  if (tit === 'H') return { prop:0, banco:0, pe:0, autos:0 };   // H arranca en 2026 (v182)
+  return { prop:(P[tit]||{})[y]||0, banco:(A.banco[tit]||{})[yb]||0, pe:(A.pe[tit]||{})[y]||0, autos:(A.autos[tit]||{})[y]||0 };
+}
+
 async function renderRepCliente() {
   const selC = document.getElementById('rc-cliente');
   if (selC && !selC.options.length)
@@ -9463,7 +9476,7 @@ async function renderRepCliente() {
       // impuestos. Vienen en moneda nativa: se convierten con rubroPropUSD().
       sb.from('movimientos_propiedades').select('*').eq('anio', Y).limit(5000).then(r=>r.data||[], ()=>[]),
       // Aportes de capital de TODOS los años: es el "invertido" de una cuenta.
-      sb.from('aportes_bancos').select('banco_id,tipo,monto').limit(9000).then(r=>r.data||[], ()=>[]),
+      sb.from('aportes_bancos').select('banco_id,tipo,monto,fecha').limit(9000).then(r=>r.data||[], ()=>[]),
     ]);
   } catch (e) { cont.innerHTML = `<div class="card" style="color:var(--usa)">No se pudieron leer los datos: ${e.message}</div>`; return; }
 
@@ -9524,12 +9537,13 @@ async function renderRepCliente() {
      solo rellena diciembre — y se usa el ultimo mes cargado, igual que arriba. */
   const _phN = {}; (B.ph||{}) && Object.values(B.ph||{}).forEach(o => _phN[o.nro] = o);
   const _serie = [];
+  /* v245 — LOS AÑOS ANTERIORES SALEN DE patHistTit (Timoteo, 23/10): el mismo cálculo que Patrimonio histórico y el
+     semestral, con el titular DE CADA AÑO. Antes se tomaban los activos que el cliente tiene HOY y se los valuaba en
+     todos los años: FC daba 7,7 M en 2018 contra 3,0 M de la solapa PATRIMONIO del COMPLETO. El año del reporte
+     sigue saliendo de los activos de hoy, igual que el resto de este reporte. */
   for (let y = 2017; y <= Y; y++) {
-    const vp = props.reduce((a,p) => a + (Number((B.ph[p.nro]||{}).valores?.[String(y)]) || (y===Y ? Number(p['valor_'+y])||0 : 0)), 0);
-    const va = autos.reduce((a,x) => a + (Number((B.ah[x.nro]||{}).valores?.[String(y)]) || (y===Y ? Number(x['valor_'+y])||0 : 0)), 0);
-    const ve = pes.reduce((a,x) => { let t=0; try { t = peCalc(x, y).tenencia || 0; } catch(e){} return a + t; }, 0);
-    const vb = (y === Y) ? vB
-             : bancos.reduce((a,b) => a + (Number(((B.bhB(b)||{}).byY||{})[String(y)]?.n) || 0), 0);
+    const _h = y < Y ? patHistTit(CLI, y) : null;
+    const vp = _h ? _h.prop : vP, va = _h ? _h.autos : vA, ve = _h ? _h.pe : vE, vb = _h ? _h.banco : vB;
     const tot = vp + vb + ve + va;
     if (tot > 0.5 || y === Y) _serie.push({ y, prop:vp, banco:vb, pe:ve, autos:va, tot });
   }
@@ -9657,10 +9671,27 @@ async function renderRepCliente() {
      el cash es neto + cred. */
   const _crD  = (dat,b) => { const m = dat.ban && dat.ban[b.id]; return m ? (Number(bancoMovUSD(m).cred)||0) : 0; };
   const _cashD = (dat,b) => { const m = dat.ban && dat.ban[b.id]; return m ? (Number(bancoMovUSD(m).neto)||0) + _crD(dat,b) : 0; };
+  /* v245 — RENDIMIENTO DE LAS CUENTAS DE INVERSIÓN (Timoteo, 23/10): la variación del saldo mezclaba los aportes y
+     retiros con lo que rindió la cuenta. Ahora: rendimiento = cierre − saldo al 1/1 − aportes netos del año, y el %
+     por Dietz modificado: rendimiento ÷ (saldo al 1/1 + cada aporte ponderado por los días que estuvo invertido). */
+  const _apY = {};
+  (apHist||[]).forEach(a => { if (!a.fecha || +String(a.fecha).slice(0,4) !== Y) return;
+    (_apY[a.banco_id] = _apY[a.banco_id] || []).push({ f: String(a.fecha).slice(0,10), v: (a.tipo==='retiro' ? -1 : 1) * Math.abs(Number(a.monto)||0) }); });
+  const _bkRend = (b, i, c) => {
+    const fl = _apY[b.id] || [], ap = fl.reduce((s,x)=>s+x.v,0), rend = c - i - ap;
+    const m = D.ban && D.ban[b.id] ? (D.ban[b.id].mes || 12) : 12;
+    const t0 = Date.UTC(Y, 0, 1), t1 = Date.UTC(Y, m, 1), T = (t1 - t0) || 1;
+    const den = i + fl.reduce((s,x) => s + x.v * Math.max(0, Math.min(1, (t1 - Date.parse(x.f + 'T00:00:00Z')) / T)), 0);
+    return { ap, rend, den, pct: den > 0.5 ? rend / den * 100 : null };
+  };
   const _bkDat = bancos.map(_bConNom).map(b => ({ b,   // v244 — "JP Morgan 7335 / 1002"
       i: _cashD(Dp,b), credI: _crD(Dp,b),
       c: _cashD(D,b),  cred:  _crD(D,b) }))
-    .filter(x => Math.abs(x.i) > 0.5 || Math.abs(x.c) > 0.5);
+    .filter(x => Math.abs(x.i) > 0.5 || Math.abs(x.c) > 0.5)
+    .map(x => ({ ...x, ...(x.b.es_operativa === true ? {} : _bkRend(x.b, x.i, x.c)) }));
+  const _pcB = v => v == null ? '—' : (v >= 0 ? '+' : '−') + Math.abs(v).toFixed(1) + '%';
+  const _rendG = g => { let num = 0, den = 0; g.forEach(x => { num += x.rend || 0; den += x.den || 0; });
+    return den > 0.5 ? num / den * 100 : null; };
   const _bkOper = _bkDat.filter(x => x.b.es_operativa === true);
   const _bkInv  = _bkDat.filter(x => x.b.es_operativa !== true);
   const _paisOrdB = ['ARG','URU','USA','ESP','PAR'];
@@ -9672,21 +9703,38 @@ async function renderRepCliente() {
     const pss = Object.keys(byP).sort((a,b) => {
       const ia=_paisOrdB.indexOf(a), ib=_paisOrdB.indexOf(b);
       return (ia<0?99:ia)-(ib<0?99:ib) || a.localeCompare(b); });
-    const _ln = (lbl, g, css) => `<tr style="${css}"><td>${lbl}</td>
+    const _inv = grupo.length && grupo[0].b.es_operativa !== true;   // v245 — inversión: aportes netos, rendimiento y %
+    const _ln = (lbl, g, css) => _inv ? `<tr style="${css}"><td>${lbl}</td>
+      <td class="num">${F(g.reduce((s,x)=>s+x.i,0))}</td>
+      <td class="num">${SG(g.reduce((s,x)=>s+(x.ap||0),0))}</td>
+      <td class="num" style="${_BG_ULT}">${F(g.reduce((s,x)=>s+x.c,0))}</td>
+      <td class="num">${SG(g.reduce((s,x)=>s+(x.rend||0),0))}</td>
+      <td class="num">${_pcB(_rendG(g))}</td></tr>`
+      : `<tr style="${css}"><td>${lbl}</td>
       <td class="num">${F(g.reduce((s,x)=>s+x.i,0))}</td>
       <td class="num" style="${_BG_ULT}">${F(g.reduce((s,x)=>s+x.c,0))}</td>
       <td class="num">${SG(g.reduce((s,x)=>s+x.c-x.i,0))}</td></tr>`;
     let out = '';
     pss.forEach(pz => {
       const g = byP[pz].sort(ordCompleto ? ((x,y) => _nroCompleto(x.b) - _nroCompleto(y.b)) : ((x,y) => y.c - x.c));
-      if (pss.length > 1) out += `<tr><td colspan="4" style="${_BANDA}">${pz}</td></tr>`;
+      if (pss.length > 1) out += `<tr><td colspan="${_inv?6:4}" style="${_BANDA}">${pz}</td></tr>`;
       g.forEach(x => { const d = x.c - x.i;
-        out += `<tr><td class="bold">${x.b.nombre}</td>
+        out += _inv ? `<tr><td class="bold">${x.b.nombre}</td>
+          <td class="num" style="color:var(--text3)">${F(x.i)}</td>
+          <td class="num" style="color:${Math.abs(x.ap||0)<0.5?'var(--text3)':CV(x.ap)}">${Math.abs(x.ap||0)<0.5?'—':SG(x.ap)}</td>
+          <td class="num">${F(x.c)}</td>
+          <td class="num" style="color:${Math.abs(x.rend||0)<0.5?'var(--text3)':CV(x.rend)}">${SG(x.rend||0)}</td>
+          <td class="num" style="color:${x.pct==null?'var(--text3)':CV(x.pct)}">${_pcB(x.pct)}</td></tr>`
+          : `<tr><td class="bold">${x.b.nombre}</td>
           <td class="num" style="color:var(--text3)">${F(x.i)}</td>
           <td class="num">${F(x.c)}</td>
           <td class="num" style="color:${Math.abs(d)<0.5?'var(--text3)':CV(d)}">${SG(d)}</td></tr>`;
         if (x.cred > 0.5 || x.credI > 0.5)
-          out += `<tr><td style="padding-left:26px;color:var(--text3);font-size:11px">↳ crédito</td>
+          out += _inv ? `<tr><td style="padding-left:26px;color:var(--text3);font-size:11px">↳ crédito</td>
+            <td class="num" style="color:var(--usa);font-size:11px">${x.credI>0.5?'−'+F(x.credI).slice(1):'—'}</td><td></td>
+            <td class="num" style="color:var(--usa);font-size:11px">${x.cred>0.5?'−'+F(x.cred).slice(1):'—'}</td>
+            <td></td><td></td></tr>`
+          : `<tr><td style="padding-left:26px;color:var(--text3);font-size:11px">↳ crédito</td>
             <td class="num" style="color:var(--usa);font-size:11px">${x.credI>0.5?'−'+F(x.credI).slice(1):'—'}</td>
             <td class="num" style="color:var(--usa);font-size:11px">${x.cred>0.5?'−'+F(x.cred).slice(1):'—'}</td>
             <td></td></tr>`;
@@ -9701,8 +9749,8 @@ async function renderRepCliente() {
     <div class="card" style="margin-bottom:14px">
       <div class="section-title" style="font-size:13px;margin:0 0 12px">Bancos</div>
       ${_bkInv.length ? `<div style="font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--text3);font-weight:700;margin:2px 0 8px">Cuentas de inversión</div>
-        <div class="table-wrap" style="margin-bottom:${_bkOper.length?'18px':'0'}"><table class="tbl-compacta" style="table-layout:fixed">${_COLGB}
-          <thead><tr><th>Cuenta</th><th class="num">Saldo al 1/1</th><th class="num">Al cierre de ${Y}</th><th class="num">Variación</th></tr></thead>
+        <div class="table-wrap" style="margin-bottom:${_bkOper.length?'18px':'0'}"><table class="tbl-compacta" style="table-layout:fixed"><colgroup><col style="width:28%"><col style="width:15%"><col style="width:14%"><col style="width:15%"><col style="width:16%"><col style="width:12%"></colgroup>
+          <thead><tr><th>Cuenta</th><th class="num">Saldo al 1/1</th><th class="num">Aportes netos</th><th class="num">Al cierre de ${Y}</th><th class="num">Rendimiento</th><th class="num">%</th></tr></thead>
           <tbody>${_tablaBk(_bkInv, true)}</tbody></table></div>` : ''}
       ${_bkOper.length ? `<div style="font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--text3);font-weight:700;margin:2px 0 8px">Cuentas operativas</div>
         <div class="table-wrap"><table class="tbl-compacta" style="table-layout:fixed">${_COLGB}
@@ -12453,8 +12501,13 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
           G.v += cL(l); G.n++; G.act.push(l.act.nombre); G.rub.push((LK_NOM[l.rubro] || l.rubro).toLowerCase());
         });
         Object.entries(grp).sort((a, b) => Math.abs(b[1].v) - Math.abs(a[1].v)).forEach(([g, G]) => {
+          /* v245 — cuando son pocos activos (hasta 3) se nombra el activo, con el rubro entre paréntesis: un gasto grande
+             de autos dice qué auto fue, no "otros gastos". Con muchas propiedades se siguen listando los rubros. */
+          const _acts = [...new Set(G.act)];
           const det = g === 'Rentas cobradas' || g.startsWith('Private') || g === 'Sociedades' || g === 'Cobros'
-            ? _lista(G.act) : _lista(G.rub) + ` (${G.n} pago${G.n === 1 ? '' : 's'})`;
+            ? _lista(G.act)
+            : (_acts.length <= 3 ? _acts.map(a => a + ' (' + [...new Set(G.rub.filter((r, i) => G.act[i] === a))].join(', ') + ')').join(', ')
+                                 : _lista(G.rub)) + ` (${G.n} pago${G.n === 1 ? '' : 's'})`;
           L.push({ k: G.v >= 0 ? '+' : '−', txt: `${g} · ${det}`, v: G.v });
         });
         const sA = ars ? _cashARS(_movArsAt(x.b.id, m1 - 1)) : x.a;
@@ -12465,6 +12518,19 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
         // la tabla de arriba (en USD) pasa a decir lo mismo que el bloque
         x.cobro = e.lines.filter(l => l.dir === 'cobro').reduce((s, l) => s + l.usd, 0);
         x.pago  = e.lines.filter(l => l.dir === 'pago').reduce((s, l) => s + l.usd, 0);
+        /* v245 — DETALLE DE LO COBRADO Y LO PAGADO (Timoteo, 23/10): un renglón gris por activo, de TODOS los tipos
+           (propiedades, autos, sociedades, PE), y las transferencias entre cuentas: lo que entra va en Cobrado con
+           la cuenta de donde viene; lo que sale, en Pagado con la cuenta a donde va. Antes el detalle era sólo de
+           propiedades y un cobro de PE quedaba sin explicar debajo de la cuenta. */
+        const det = {};
+        e.lines.forEach(l => { const k = (l.act && l.act.nombre) || '—'; const d = det[k] = det[k] || { cobro:0, pago:0 };
+          if (l.dir === 'cobro') d.cobro += l.usd; else d.pago += l.usd; });
+        e.trs.forEach(r => { const out = r.banco_origen_id === x.b.id; const v = Math.abs(Number(r.monto_usd) || 0); if (v < 0.5) return;
+          const otra = out ? (r.banco_destino_id ? (_bn[r.banco_destino_id] || 'otra cuenta') : (r.destino_externo || 'cuenta ajena'))
+                           : (r.banco_origen_id ? (_bn[r.banco_origen_id] || 'otra cuenta') : (r.origen_externo || 'origen externo'));
+          const k = (out ? 'Transferencia a ' : 'Transferencia de ') + otra; const d = det[k] = det[k] || { cobro:0, pago:0 };
+          if (out) { d.pago += v; x.pago += v; } else { d.cobro += v; x.cobro += v; } });
+        x.det = det;
         x.personales = -(ars ? sinExp / _tcFin : sinExp);
         const variUSD = ars ? vari / _tcFin : vari;
         const relevante = Math.abs(variUSD) > _ED_UMBRAL || (Math.abs(sA || 0) > 0.5 && Math.abs(vari) > _ED_PCT * Math.abs(sA));
@@ -12508,6 +12574,12 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
       <td style="padding:2px 6px 2px 26px;color:var(--text3);font-size:11px">${txt}</td>
       ${Array.from({ length: nCols - 1 }, (_, i) => `<td class="num" style="padding:2px 6px;font-size:11px">${celdas[i + 1] || ''}</td>`).join('')}</tr>`;
   const _detProp = (x, nCols) => {
+    if (x.det) {   // v245 — con linkeo vigente: el detalle de todo lo cobrado y pagado (ver etapa D)
+      const ks = Object.keys(x.det).filter(k => x.det[k].cobro > 0.5 || x.det[k].pago > 0.5);
+      return ks.map(k => ({ nom:k, ...x.det[k] })).sort((a,b) => (b.cobro+b.pago) - (a.cobro+a.pago))
+        .map(d => _subFila(d.nom, { 4: d.cobro>0.5 ? `<span style="color:var(--esp)">+${$m(d.cobro).slice(1)}</span>` : '',
+                                     5: d.pago>0.5 ? `<span style="color:var(--usa)">−${$m(d.pago).slice(1)}</span>` : '' }, nCols)).join('');
+    }
     const ids = Object.keys(x.lk).filter(id => x.lk[id].cobro > 0.5 || x.lk[id].pago > 0.5);
     if (!ids.length) return '';
     return ids
@@ -12542,8 +12614,36 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
     { val:x=>Math.abs(x.rend)<0.5?'—':_dash(x.rend),
       css:x=>'color:'+(Math.abs(x.rend)<0.5?'var(--text3)':col(x.rend)),
       tot:g=>_dash(g.reduce((s,x)=>s+x.rend,0)), sgn:g=>g.reduce((s,x)=>s+x.rend,0) },
+    // v245 — % del rendimiento, con aportes y retiros descontados (Dietz, igual que el KPI)
+    { val:x=>{ const r = _rGrupo([x.b.id]); return r==null ? '—' : _pct(r); },
+      css:x=>{ const r = _rGrupo([x.b.id]); return 'color:'+(r==null||Math.abs(r)<0.00005?'var(--text3)':col(r)); },
+      tot:g=>{ const r = _rGrupo(g.map(x=>x.b.id)); return r==null ? '—' : _pct(r); } },
   ];
 
+  /* v242 — RENDIMIENTO % DE LAS CUENTAS DE INVERSIÓN (Timoteo, 20/10). Dietz simple por mes, sobre el cash
+     (sin crédito, igual que la tabla): rendimiento ÷ (saldo inicial + aportes netos / 2). Los meses se
+     encadenan: el del período (m1..m2) y el del año (enero..m2). Sin saldo inicial no hay %, dice "—". */
+  const _flw = {};
+  (apR.data||[]).forEach(a => { if (!a.fecha || +String(a.fecha).slice(0,4) !== anio) return;
+    const m = +String(a.fecha).slice(5,7), v = Math.abs(Number(a.monto)||0) * (a.tipo === 'retiro' ? -1 : 1);
+    const f = _flw[a.banco_id] = _flw[a.banco_id] || {}; f[m] = (f[m]||0) + v; });
+  const _invB = bancos.filter(b => b.es_operativa !== true);
+  const _cIni = (bid, m) => (m > 1 && netoAt(bid, m-1).mes) ? _cashAt(bid, m-1) : ((prevDic[bid]||0) + _credIni(bid));
+  const _rMes = m => { let num = 0, den = 0;
+    _invB.forEach(b => { const a = _cIni(b.id, m), c = netoAt(b.id, m).mes ? _cashAt(b.id, m) : a, f = (_flw[b.id]||{})[m] || 0;
+      num += c - a - f; den += a + f/2; });
+    return den > 0.5 ? num/den : null; };
+  const _chain = (d, h) => { let g = 1, ok = false; for (let m = d; m <= h; m++) { const r = _rMes(m); if (r == null) continue; g *= 1 + r; ok = true; } return ok ? g - 1 : null; };
+  const _rPer = _chain(m1, m2), _rYTD = _chain(1, m2);
+  /* v245 — el mismo % de un grupo de cuentas (una, un país o todas): rendimiento ÷ (saldo inicial + aportes netos / 2),
+     mes por mes y encadenado en el período. El total da lo mismo que el KPI de la primera hoja. */
+  const _rGrupo = ids => { let g = 1, ok = false;
+    for (let m = m1; m <= m2; m++) { let num = 0, den = 0;
+      ids.forEach(id => { const a = _cIni(id, m), c = netoAt(id, m).mes ? _cashAt(id, m) : a, f = (_flw[id]||{})[m] || 0;
+        num += c - a - f; den += a + f/2; });
+      if (den > 0.5) { g *= 1 + num/den; ok = true; } }
+    return ok ? g - 1 : null; };
+  const _pct = r => (r >= 0 ? '+' : '−') + Math.abs(r*100).toFixed(1) + '%';   // mismo formato que la variación del mes
   const _hdrBase = ['Cuenta','Saldo al 1/1',_hdrPrev,_hdrCie];
   /* v243 — CADA TABLA DE CUENTAS ES SU PROPIO CUADRO (Timoteo, 21/10): inversión y operativas iban en un
      solo .card que medía más de una hoja y el navegador lo partía. Separadas, cada una entra y, si no
@@ -12572,8 +12672,8 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
     ${_inv.length ? `<div class="card" style="margin-bottom:16px">
       <div class="section-title" style="margin-bottom:12px">Cuentas de banco · inversión</div>
       <div class="table-wrap"><table class="tbl-compacta" style="table-layout:fixed">
-        ${_COLG(['Aportes netos','Rendimiento'])}
-        <thead><tr>${[..._hdrBase,'Aportes netos','Rendimiento mensual'].map((h,i)=>`<th${i?' class="num"':''}>${h}</th>`).join('')}</tr></thead>
+        ${_COLG(['Aportes netos','Rendimiento','%'])}
+        <thead><tr>${[..._hdrBase,'Aportes netos', esMensual ? 'Rendimiento mensual' : 'Rendimiento', '%'].map((h,i)=>`<th${i?' class="num"':''}>${h}</th>`).join('')}</tr></thead>
         <tbody>${_tablaCuentas(_inv, _colsInv, _detCap, true).join('')}</tbody>
       </table></div>
       ${_oper.length ? '' : _totBancos}
@@ -12712,22 +12812,6 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
 
   const _capNeto = _apTot - _reTot;
 
-  /* v242 — RENDIMIENTO % DE LAS CUENTAS DE INVERSIÓN (Timoteo, 20/10). Dietz simple por mes, sobre el cash
-     (sin crédito, igual que la tabla): rendimiento ÷ (saldo inicial + aportes netos / 2). Los meses se
-     encadenan: el del período (m1..m2) y el del año (enero..m2). Sin saldo inicial no hay %, dice "—". */
-  const _flw = {};
-  (apR.data||[]).forEach(a => { if (!a.fecha || +String(a.fecha).slice(0,4) !== anio) return;
-    const m = +String(a.fecha).slice(5,7), v = Math.abs(Number(a.monto)||0) * (a.tipo === 'retiro' ? -1 : 1);
-    const f = _flw[a.banco_id] = _flw[a.banco_id] || {}; f[m] = (f[m]||0) + v; });
-  const _invB = bancos.filter(b => b.es_operativa !== true);
-  const _cIni = (bid, m) => (m > 1 && netoAt(bid, m-1).mes) ? _cashAt(bid, m-1) : ((prevDic[bid]||0) + _credIni(bid));
-  const _rMes = m => { let num = 0, den = 0;
-    _invB.forEach(b => { const a = _cIni(b.id, m), c = netoAt(b.id, m).mes ? _cashAt(b.id, m) : a, f = (_flw[b.id]||{})[m] || 0;
-      num += c - a - f; den += a + f/2; });
-    return den > 0.5 ? num/den : null; };
-  const _chain = (d, h) => { let g = 1, ok = false; for (let m = d; m <= h; m++) { const r = _rMes(m); if (r == null) continue; g *= 1 + r; ok = true; } return ok ? g - 1 : null; };
-  const _rPer = _chain(m1, m2), _rYTD = _chain(1, m2);
-  const _pct = r => (r >= 0 ? '+' : '−') + Math.abs(r*100).toFixed(1) + '%';   // mismo formato que la variación del mes
 
   /* v242 — PATRIMONIO POR PAÍS (boceto del 20/10). El país es el del activo: una cuenta en Nueva York es USA
      aunque el titular sea argentino. Mismos valores que "Por tipo de activo": suma el mismo total. */
@@ -12775,7 +12859,7 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
             (patPrev?sg(varMes)+Math.abs(varPct).toFixed(1)+'%':'sin mes previo'), col(varMes))}
       ${kpi('Renta neta del mes', $m(netaMes), 'Propiedades', col(netaMes))}
       ${kpi('Rendimiento inversiones', _rPer==null ? '—' : _pct(_rPer),
-            (_rPer==null ? 'sin saldo inicial' : (esMensual ? 'en el mes' : 'en el período')) + (_rYTD!=null && m2>1 ? ' · ' + _pct(_rYTD) + ' en el año' : ''),
+            (_rPer==null ? 'sin saldo inicial' : (esMensual ? 'en el mes' : 'en el período')) + (_rYTD!=null && m2>1 ? '<br>' + _pct(_rYTD) + ' en el año' : ''),
             _rPer==null ? '' : col(_rPer))}
     </div>
 
@@ -13049,11 +13133,13 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
     const _act = deriveActivosByTit();
     const byY = {};
     (ph||[]).forEach(r => { if (esFO && r.titular==='MFL') return;   // MFL se ve pero no contabiliza
-      const sh=(r.titular==='H'&&esH)?1/3:1; const y=r.anio; const h=r.anio<=2025;
-      const propV=h?((_propDer[r.titular]&&_propDer[r.titular][r.anio])||0):(Number(r.propiedades)||0);
-      const bancoV=h?((_act.banco[r.titular]||{})[r.anio]||0):(Number(r.banco)||0);
-      const peV=h?((_act.pe[r.titular]||{})[r.anio]||0):(Number(r.private_equity)||0);
-      const autosV=h?((_act.autos[r.titular]||{})[r.anio]||0):(Number(r.autos)||0);
+      const sh=(r.titular==='H'&&esH)?1/3:1; const y=r.anio;
+      // v245 — mismo cálculo que el patrimonial y Patrimonio histórico (patHistTit)
+      const _h = patHistTit(r.titular, r.anio);
+      const propV=_h?_h.prop:(Number(r.propiedades)||0);
+      const bancoV=_h?_h.banco:(Number(r.banco)||0);
+      const peV=_h?_h.pe:(Number(r.private_equity)||0);
+      const autosV=_h?_h.autos:(Number(r.autos)||0);
       byY[y]=byY[y]||{prop:0,banco:0,pe:0,autos:0}; byY[y].prop+=propV*sh; byY[y].banco+=bancoV*sh; byY[y].pe+=peV*sh; byY[y].autos+=autosV*sh; });
     histAnios = Object.keys(byY).map(Number).map(y=>({anio:y,...byY[y],total:byY[y].prop+byY[y].banco+byY[y].pe+byY[y].autos})).filter(d=>d.total>0 && d.anio<ANIO).sort((a,b)=>a.anio-b.anio);
   }
@@ -13384,7 +13470,11 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
       <div class="card" style="margin-top:14px">
       <div class="section-title" style="font-size:14px;margin-bottom:10px">Detalle de aportes y movimientos de capital</div>
       <div class="table-wrap"><table><thead><tr><th>Cuenta</th><th class="num">Fecha</th><th>Tipo</th><th class="num">Monto</th></tr></thead><tbody>
-      ${bancosDietz.flatMap(d=>(d.aportes||[]).map(a=>`<tr><td>${d.nombre}</td><td class="num">${a.fecha}</td><td>${({incorporacion:'Incorporación',aporte:'Aporte',retiro:'Retiro'})[a.tipo]||a.tipo}</td><td class="num" style="color:${a.tipo==='retiro'?'var(--usa)':'var(--esp)'}">${a.tipo==='retiro'?'-':'+'}$${fmt(Math.abs(Number(a.monto)||0))}</td></tr>`)).join('') || '<tr><td colspan="4" style="color:var(--text3)">Sin aportes registrados</td></tr>'}
+      ${/* v245 — los años anteriores van en una fila por año (aportes y retiros sumados); el año del informe, uno por uno */''}
+      ${bancosDietz.flatMap(d=>{ const ap=d.aportes||[]; const ant={}, act=[];
+          ap.forEach(a=>{ const y=+String(a.fecha||'').slice(0,4); if (y && y<ANIO) { const e=ant[y]=ant[y]||{ap:0,re:0}; if (a.tipo==='retiro') e.re+=Math.abs(Number(a.monto)||0); else e.ap+=Math.abs(Number(a.monto)||0); } else act.push(a); });
+          return Object.keys(ant).sort().map(y=>`<tr style="color:var(--text3)"><td>${d.nombre}</td><td class="num">${y}</td><td>Total del año</td><td class="num">${ant[y].ap>0.5?'<span style="color:var(--esp)">+$'+fmt(ant[y].ap)+'</span>':''}${ant[y].ap>0.5&&ant[y].re>0.5?' · ':''}${ant[y].re>0.5?'<span style="color:var(--usa)">-$'+fmt(ant[y].re)+'</span>':''}</td></tr>`)
+            .concat(act.map(a=>`<tr><td>${d.nombre}</td><td class="num">${a.fecha}</td><td>${({incorporacion:'Incorporación',aporte:'Aporte',retiro:'Retiro'})[a.tipo]||a.tipo}</td><td class="num" style="color:${a.tipo==='retiro'?'var(--usa)':'var(--esp)'}">${a.tipo==='retiro'?'-':'+'}$${fmt(Math.abs(Number(a.monto)||0))}</td></tr>`)); }).join('') || '<tr><td colspan="4" style="color:var(--text3)">Sin aportes registrados</td></tr>'}
       </tbody></table></div>
       </div>
       </div>
@@ -13398,41 +13488,17 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
       </div></div>` : '<div></div>'}
       </div>` : ''}
 
-    ${pe.length ? `<div class="rep-h2 pgbreak">Private Equity</div><div class="card" style="margin-top:20px">
-      <div class="section-title" style="font-size:14px;margin-bottom:6px">Private Equity · por tipo de posición</div>
-      <p style="font-size:11px;color:var(--text3);margin:0 0 10px;line-height:1.5">Cada tipo se lee distinto. <b>Préstamo</b>: capital pendiente más el interés ya devengado y no cobrado. <b>Inversión</b>: a costo, con resultado cero hasta que cierra. <b>Participación</b>: a costo salvo que haya una valuación cargada; lo distribuido es resultado realizado y la variación de valuación va en su propia columna.</p>
-      <div class="table-wrap"><table><thead><tr><th>Tipo</th><th class="num">Posiciones</th><th class="num">Capital puesto</th><th class="num">Tenencia ${ANIO}</th><th class="num">Realizado ${ANIO}</th><th class="num">No realizado ${ANIO}</th></tr></thead><tbody>
-      ${['prestamo','inversion','participacion'].map(tp => {
-        const g = pe.filter(x => peTipoDe(x) === tp); if (!g.length) return '';
-        const t = peCalcTot(g, ANIO, share);
-        return `<tr><td>${PE_TIPOS[tp].lbl}</td><td class="num">${g.length}</td>
-          <td class="num">$${fmt(t.aportado)}</td><td class="num">$${fmt(t.tenencia)}</td>
-          <td class="num" style="color:${t.resReal>=0?'var(--esp)':'var(--usa)'}">${t.resReal?(t.resReal>=0?'+':'-')+'$'+fmt(Math.abs(t.resReal)):'—'}</td>
-          <td class="num" style="color:${t.resNoReal>=0?'var(--esp)':'var(--usa)'}">${t.resNoReal?(t.resNoReal>=0?'+':'-')+'$'+fmt(Math.abs(t.resNoReal)):'—'}</td></tr>`;
-      }).join('')}
-      ${(()=>{const t=peCalcTot(pe,ANIO,share);return `<tr style="${OFF_TOT_CSS}"><td>Total</td><td class="num">${pe.length}</td>
-        <td class="num">$${fmt(t.aportado)}</td><td class="num">$${fmt(t.tenencia)}</td>
-        <td class="num">${t.resReal?(t.resReal>=0?'+':'-')+'$'+fmt(Math.abs(t.resReal)):'—'}</td>
-        <td class="num">${t.resNoReal?(t.resNoReal>=0?'+':'-')+'$'+fmt(Math.abs(t.resNoReal)):'—'}</td></tr>`})()}
-      </tbody></table></div>
-
-      <div class="section-title" style="font-size:14px;margin:20px 0 12px">Private Equity · desglose</div>
-      <div class="table-wrap"><table><thead><tr><th>Sociedad</th><th class="num">Inversión</th><th class="num">Utilidad acum.</th><th class="num">Utilidad ${ANIO}</th><th class="num">Posición neta</th><th class="num">% recupero</th></tr></thead><tbody>
-      ${pe.map(p=>{const sh=share(p); const d=peDet[p.id]||{util:0,gastos:0,imp:0,byYear:{}}; const inv=vPE(p,ANIO)*sh; const util=d.util*sh; const u26=(d.byYear[ANIO]||0)*sh; const gi=(d.gastos+d.imp)*sh; const pos=util-gi-inv; const rec=inv>0?((util-inv)/inv*100):0; return `<tr><td>${p.nombre}<div style="font-size:10px;color:var(--text3)">${PE_TIPOS[peTipoDe(p)].lbl.toLowerCase()} · ${peCalc(p,ANIO).nota}</div></td><td class="num">$${fmt(inv)}</td><td class="num" style="color:var(--esp)">+$${fmt(util)}</td><td class="num" style="color:var(--esp)">+$${fmt(u26)}</td><td class="num" style="color:${pos>=0?'var(--esp)':'var(--usa)'}">${pos>=0?'+':''}$${fmt(pos)}</td><td class="num" style="color:${rec>=0?'var(--esp)':'var(--usa)'}">${rec>=0?'+':''}${rec.toFixed(2)}%</td></tr>`}).join('')}
-      </tbody></table></div>
-      ${pe.map(p=>{const sh=share(p); const d=peDet[p.id]||{util:0,byYear:{}}; const inv=vPE(p,ANIO)*sh; const util=d.util*sh; const rec=inv>0?Math.min(100,util/inv*100):0; const years=Object.keys(d.byYear).sort();
-        return `<div style="margin-top:14px;padding:12px 14px;background:var(--bg2);border-radius:8px;page-break-inside:avoid;max-width:520px">
-          <div style="font-weight:600;color:var(--navy);margin-bottom:10px;font-size:12px">${p.nombre} · evolución de la inversión</div>
-          <div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0"><span>Inversión inicial</span><span style="color:var(--usa)">− $${fmt(inv)}</span></div>
-          ${years.map(y=>`<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0"><span>Utilidad recibida ${y}</span><span style="color:var(--esp)">+ $${fmt((d.byYear[y]||0)*sh)}</span></div>`).join('')}
-          <div style="display:flex;justify-content:space-between;font-size:12px;padding:6px 0;border-top:1px solid var(--border);margin-top:4px;font-weight:700"><span>Posición actual (recupero)</span><span style="color:${(util-inv)>=0?'var(--esp)':'var(--usa)'}">${(util-inv)>=0?'+ ':'− '}$${fmt(Math.abs(util-inv))}</span></div>
-          <div style="margin-top:12px">
-            <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text3);margin-bottom:5px"><span>Recupero de capital</span><span><b style="color:var(--navy)">${rec.toFixed(1)}%</b> de $${fmt(inv)}</span></div>
-            <div style="height:14px;background:#e4e7ec;border-radius:7px;overflow:hidden"><div style="height:100%;width:${rec.toFixed(1)}%;background:var(--esp)"></div></div>
-          </div>
-        </div>`}).join('')}
-      <p style="color:var(--text3);font-size:11px;margin-top:12px">Criterio de recupero: la utilidad cobrada recupera primero el capital invertido antes de computarse como resultado. La utilidad ingresa a las cuentas pero no es resultado del ${PER_NOMBRE} por este criterio.</p>
-    </div>` : ''}
+    ${/* v245 — PE con la misma tabla de múltiplos que el mensual y el patrimonial (_peMultHTML) */''}
+    ${(() => { if (!pe.length) return '';
+      const _it = pe.map(p => { let c; try { c = peCalc(p, ANIO); } catch(e) { c = null; } return { p, c }; })
+        .filter(x => x.c && (Math.abs(x.c.aportado)>0.5 || Math.abs(x.c.tenencia)>0.5));
+      if (!_it.length) return '';
+      const M = _peMultHTML(_it, v => '$' + fmt(Math.round(v)), share);
+      const nV = _it.filter(x => !x.c.finalizada).length, nF = _it.length - nV;
+      return `<div class="rep-h2 pgbreak">Private Equity</div>
+        <div class="card" style="margin-top:14px"><div class="section-title" style="font-size:14px;margin-bottom:12px">Private equity · ${nV}</div>
+          ${nV ? M.vivas : '<p style="font-size:12px;color:var(--text3)">Sin posiciones activas.</p>'}</div>
+        ${nF ? `<div class="card" style="margin-top:14px"><div class="section-title" style="font-size:14px;margin-bottom:12px">Private equity finalizado · ${nF}</div>${M.fin}</div>` : ''}`; })()}
 
     ${autos.length ? `<div class="rep-h2 pgbreak">Autos</div>
     <div class="card" style="margin-top:20px">
@@ -18940,7 +19006,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20261021-244';
+const APP_VERSION = '20261023-245';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
