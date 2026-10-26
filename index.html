@@ -13240,10 +13240,11 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
 
   // PE: desglose por inversión (utilidad/aporte/gastos acumulados)
   const peIds = pe.map(p=>p.id);
-  const peDet = {}; pe.forEach(p => peDet[p.id] = { util:0, aporte:0, gastos:0, imp:0, byYear:{} });
+  const peDet = {}; pe.forEach(p => peDet[p.id] = { util:0, aporte:0, gastos:0, imp:0, byYear:{}, apPer:0 });
   if (peIds.length) {
     const { data: mpe } = await sb.from('movimientos_pe').select('*').in('pe_id', peIds);
-    (mpe||[]).forEach(m => { const d=peDet[m.pe_id]; if(!d) return; const u=Number(m.utilidad)||0; d.util+=u; d.aporte+=(Number(m.aporte_capital)||0); d.gastos+=(Number(m.gastos)||0); d.imp+=(Number(m.impuestos)||0); d.byYear[m.anio]=(d.byYear[m.anio]||0)+u; });
+    (mpe||[]).forEach(m => { const d=peDet[m.pe_id]; if(!d) return; const u=Number(m.utilidad)||0; d.util+=u; d.aporte+=(Number(m.aporte_capital)||0); d.gastos+=(Number(m.gastos)||0); d.imp+=(Number(m.impuestos)||0); d.byYear[m.anio]=(d.byYear[m.anio]||0)+u;
+      if (Number(m.anio)===ANIO && m.mes>=M1 && m.mes<=M2) d.apPer+=(Number(m.aporte_capital)||0); });
   }
   if (peIds.length) {
     const { data: uh } = await sb.from('utilidad_anual_pe').select('*');
@@ -13360,14 +13361,42 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
   pe   .forEach(r => { pais[r.pais] = (pais[r.pais]||0) + vPE(r,ANIO)*share(r); });
   autos.forEach(r => { pais[r.pais] = (pais[r.pais]||0) + vAuto(r,ANIO)*share(r); });
   Object.keys(bancosPais).forEach(k => pais[k] = (pais[k]||0) + bancosPais[k]);
+  /* v248 — COMPRAS Y APORTES DEL PERÍODO (Timoteo, 26/10). Propiedades y autos: lo comprado en el período (valor de
+     compra); PE: el capital aportado en el período. Bancos: menos todo eso, porque esas compras se pagaron desde las
+     cuentas. Así la columna suma cero entre tipos y no cuenta dos veces una compra. La plata que entra de afuera del
+     patrimonio no se puede identificar sola (las "incorporaciones" cargadas suelen ser traspasos entre cuentas
+     propias), así que si hubo, queda dentro de la variación. */
+  const _enPer = f => f && String(f).slice(0, 10) >= PER_INI && String(f).slice(0, 10) <= PER_FIN;
+  const compProp = props.filter(p => _enPer(p.fecha_compra)).reduce((t, p) => t + (Number(p.valor_compra)||0) * share(p), 0);
+  const compAuto = autos.filter(a => _enPer(a.fecha_compra)).reduce((t, a) => t + (Number(a.valor_compra)||0) * share(a), 0);
+  const apPE = pe.reduce((t, p) => t + ((peDet[p.id] || {}).apPer || 0) * share(p), 0);
   const clases = [
-    {n:'Propiedades', inv:propsInvertido, cie:propsCierre, act:propsActual},
-    {n:'Bancos', inv:aportesBancos, cie:bancosCierre, act:bancosActual},
-    {n:'Private Equity', inv:peInvertido, cie:peCierre, act:peActual},
-    {n:'Autos', inv:autosInvertido, cie:autosCierre, act:autosActual},
+    {n:'Propiedades', inv:propsInvertido, cie:propsCierre, ap:compProp, act:propsActual},
+    {n:'Bancos', inv:aportesBancos, cie:bancosCierre, ap:-(compProp + compAuto + apPE), act:bancosActual},
+    {n:'Private Equity', inv:peInvertido, cie:peCierre, ap:apPE, act:peActual},
+    {n:'Autos', inv:autosInvertido, cie:autosCierre, ap:compAuto, act:autosActual},
   ];
   const totInv = clases.reduce((a,c)=>a+c.inv,0), totCie = clases.reduce((a,c)=>a+c.cie,0);
 
+  /* v248 — LO MÁS IMPORTANTE DEL PERÍODO (Timoteo, 26/10: "sí"). Se arma solo con los datos: compras y ventas de
+     propiedades y autos, aportes a PE, PE terminados, ingresos de capital (incorporaciones) y créditos que se
+     tomaron o se pagaron (más de USD 50.000). Si no hubo nada, el cuadro no sale. */
+  const _hitos = (() => { const H = [], $h = v => '$' + fmt(Math.round(Math.abs(v)));
+    const _fd = f => { const t = String(f || ''); return t.length >= 10 ? t.slice(8, 10) + '/' + t.slice(5, 7) : t; };
+    props.filter(p => _enPer(p.fecha_compra)).forEach(p => H.push({ f: p.fecha_compra, t: `Compra de <b>${p.nombre}</b> por ${$h((Number(p.valor_compra)||0) * share(p))}.` }));
+    (propsR.data || []).filter(p => titFilter.includes(p.titular) && cuentaFO(p) && _enPer(p.fecha_venta))
+      .forEach(p => H.push({ f: p.fecha_venta, t: `Venta de <b>${p.nombre}</b>${Number(p.valor_venta) > 0.5 ? ' por ' + $h(Number(p.valor_venta) * share(p)) : ''}.` }));
+    autos.filter(a => _enPer(a.fecha_compra)).forEach(a => H.push({ f: a.fecha_compra, t: `Compra del auto <b>${a.nombre}</b> por ${$h((Number(a.valor_compra)||0) * share(a))}.` }));
+    (autosR.data || []).filter(a => titFilter.includes(a.titular) && cuentaFO(a) && _enPer(a.fecha_venta))
+      .forEach(a => H.push({ f: a.fecha_venta, t: `Venta del auto <b>${a.nombre}</b>${Number(a.valor_venta) > 0.5 ? ' por ' + $h(Number(a.valor_venta) * share(a)) : ''}.` }));
+    pe.forEach(p => { const v = ((peDet[p.id] || {}).apPer || 0) * share(p); if (v > 0.5) H.push({ f: PER_FIN, t: `Aporte de capital a <b>${p.nombre}</b> (private equity): ${$h(v)}.` }); });
+    _peC.filter(x => x.c.finalizada && _enPer(x.p.fecha_cierre)).forEach(x => H.push({ f: x.p.fecha_cierre, t: `Terminó la posición en <b>${x.p.nombre}</b>${(Number(x.p.traspaso_usd) || 0) > 0.5 ? ' (traspasada' + (x.p.traspaso_a ? ' a ' + x.p.traspaso_a : '') + ')' : ''}.` }));
+    bancosDietz.forEach(d => (d.aportes || []).filter(a => a.tipo === 'incorporacion' && _enPer(a.fecha))
+      .forEach(a => H.push({ f: a.fecha, t: `Ingresaron ${$h(a.monto)} a <b>${d.nombre}</b> (incorporación).` })));
+    bancosDietz.filter(d => !d.oper).forEach(d => { const dc = (d.cEnd || 0) - (d.cBeg || 0);
+      if (Math.abs(dc) > 50000) H.push({ f: PER_FIN, t: dc > 0 ? `Se tomó crédito en <b>${d.nombre}</b>: la deuda subió ${$h(dc)}.` : `Se pagó crédito en <b>${d.nombre}</b>: la deuda bajó ${$h(dc)}.` }); });
+    return H.sort((x, y) => String(x.f).localeCompare(String(y.f)));
+  })();
   const kpi = (label,val,sub,color) => `<div class="rep-kpi">
     <div class="l">${label}</div>
     <div class="v" style="color:${color||'var(--navy)'}">$${fmt(val)}</div>
@@ -13497,15 +13526,19 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
         <div class="v" style="color:${apalColor}">${apalancamiento.toFixed(1)}%</div>
         <div class="s">deuda $${fmt(deudaTotal)} · patrim. neto $${fmt(patrimonioActual-deudaTotal)}</div></div>` : ''}
     </div>
+    ${_hitos.length ? `<div class="card" style="margin-bottom:12px">
+      <div class="section-title" style="font-size:14px;margin-bottom:8px">Lo más importante del ${PER_NOMBRE}</div>
+      ${_hitos.map(h => `<p style="margin:3px 0;font-size:12px;line-height:1.4">• ${h.t}</p>`).join('')}
+    </div>` : ''}
     <div class="card" style="margin-bottom:12px">
       <div class="section-title" style="font-size:14px;margin-bottom:12px">Patrimonio por tipo de activo</div>
       <div class="table-wrap"><table>
-        <thead><tr><th>Activo</th><th class="num">Invertido</th><th class="num">Cierre ${ANIO-1}</th><th class="num">Actual</th><th class="num">Var. período</th><th class="num">Var. histórica</th></tr></thead>
+        <thead><tr><th>Activo</th><th class="num">Invertido</th><th class="num">Cierre ${ANIO-1}</th><th class="num">Compras y aportes</th><th class="num">Actual</th><th class="num">Var. período</th><th class="num">Var. histórica</th></tr></thead>
         <tbody>
-        ${clases.map(c=>{const vs=c.act-c.cie, vh=c.act-c.inv; return `<tr><td>${c.n}</td><td class="num">$${fmt(c.inv)}</td><td class="num">$${fmt(c.cie)}</td><td class="num">$${fmt(c.act)}</td><td class="num" style="color:${vs>=0?'var(--esp)':'var(--usa)'}">${vs>=0?'+':''}$${fmt(vs)}</td><td class="num" style="color:${vh>=0?'var(--esp)':'var(--usa)'}">${vh>=0?'+':''}$${fmt(vh)}</td></tr>`}).join('')}
-        <tr style="${OFF_TOT_CSS}"><td>Total</td><td class="num">$${fmt(totInv)}</td><td class="num">$${fmt(totCie)}</td><td class="num">$${fmt(patrimonioActual)}</td><td class="num" style="color:${(patrimonioActual-totCie)>=0?'var(--esp)':'var(--usa)'}">${(patrimonioActual-totCie)>=0?'+':''}$${fmt(patrimonioActual-totCie)}</td><td class="num" style="color:${acumulado>=0?'var(--esp)':'var(--usa)'}">${acumulado>=0?'+':''}$${fmt(acumulado)}</td></tr>
+        ${clases.map(c=>{const vs=c.act-c.cie, vh=c.act-c.inv; return `<tr><td>${c.n}</td><td class="num">$${fmt(c.inv)}</td><td class="num">$${fmt(c.cie)}</td><td class="num" style="color:${Math.abs(c.ap)<0.5?'var(--text3)':(c.ap>0?'var(--esp)':'var(--usa)')}">${Math.abs(c.ap)<0.5?'—':(c.ap>0?'+':'−')+'$'+fmt(Math.abs(c.ap))}</td><td class="num">$${fmt(c.act)}</td><td class="num" style="color:${vs>=0?'var(--esp)':'var(--usa)'}">${vs>=0?'+':''}$${fmt(vs)}</td><td class="num" style="color:${vh>=0?'var(--esp)':'var(--usa)'}">${vh>=0?'+':''}$${fmt(vh)}</td></tr>`}).join('')}
+        <tr style="${OFF_TOT_CSS}"><td>Total</td><td class="num">$${fmt(totInv)}</td><td class="num">$${fmt(totCie)}</td><td class="num">—</td><td class="num">$${fmt(patrimonioActual)}</td><td class="num" style="color:${(patrimonioActual-totCie)>=0?'var(--esp)':'var(--usa)'}">${(patrimonioActual-totCie)>=0?'+':''}$${fmt(patrimonioActual-totCie)}</td><td class="num" style="color:${acumulado>=0?'var(--esp)':'var(--usa)'}">${acumulado>=0?'+':''}$${fmt(acumulado)}</td></tr>
         </tbody></table></div>
-      <p style="color:var(--text3);font-size:10px;margin-top:5px">Invertido: propiedades y autos, el valor de compra · private equity, lo aportado en las posiciones vivas (lo ya cobrado está en los bancos) · cuentas de inversión, el saldo al inicio de sus registros más los aportes netos · cuentas operativas, su saldo (son caja: no tienen resultado propio). Var. período = actual − cierre ${ANIO-1}, incluye aportes, compras y movimientos de caja. Var. histórica = actual − invertido. No se suman entre sí: miden desde puntos distintos.</p>
+      <p style="color:var(--text3);font-size:10px;margin-top:5px">Invertido: propiedades y autos, el valor de compra · private equity, lo aportado en las posiciones vivas (lo ya cobrado está en los bancos) · cuentas de inversión, el saldo al inicio de sus registros más los aportes netos · cuentas operativas, su saldo (son caja: no tienen resultado propio). Compras y aportes: lo comprado (propiedades, autos) y lo aportado al PE en el período; en bancos va con signo menos porque se pagó desde las cuentas, así que el total da cero. Var. período = actual − cierre ${ANIO-1}: menos las compras y aportes, es lo que ganó o perdió cada tipo en el período (en bancos incluye los gastos personales). Var. histórica = actual − invertido. No se suman entre sí: miden desde puntos distintos.</p>
     </div>
     ${prestamos.length ? `<div class="card" style="margin-bottom:12px">
       <div class="section-title" style="font-size:14px;margin-bottom:12px">Apalancamiento / Deuda</div>
@@ -13753,7 +13786,8 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
         </tbody></table></div>
         <p style="color:var(--text3);font-size:10px;margin-top:6px">Los años anteriores van en un renglón por año; ${ANIO}, un renglón por mes. Incluye las incorporaciones (aporte inicial de una cuenta).</p>
       </div>`;
-      return `<div class="rep-h2 pgbreak">Bancos</div>${cInv}${cOp}${cAnios}${cDesde}${cAp}`; })()}
+      // v248 — "desde el inicio de los registros" se unió con "saldo al cierre de cada año" (Timoteo, 26/10): queda una sola tabla.
+      return `<div class="rep-h2 pgbreak">Bancos</div>${cInv}${cOp}${cAnios}${cAp}`; })()}
 
     ${/* v245 — PE con la misma tabla de múltiplos que el mensual y el patrimonial (_peMultHTML) */''}
     ${(() => { if (!pe.length) return '';
@@ -19284,7 +19318,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20261026-248';
+const APP_VERSION = '20261026-249';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
