@@ -10101,6 +10101,7 @@ async function _exportarPDF(opt) {
     @page{size:A4 portrait;margin:10mm 10mm 12mm;@top-center{content:"";}@bottom-center{content:counter(page);font-size:9px;color:#888;font-family:Helvetica,Arial,sans-serif;}}
     .pgbreak{page-break-before:always;break-before:page;}
     .hoja-fija{break-inside:avoid;page-break-inside:avoid;}
+    body > .hdr + .hoja-fija{break-inside:auto;page-break-inside:auto;}
     /* v187 — un cuadro que no entra completo baja entero a la pagina siguiente.
        Antes pasaba que Bancos arrancaba al pie: se veian los encabezados y todo
        el contenido quedaba en la hoja de atras. La regla break-inside:avoid es
@@ -10154,7 +10155,7 @@ async function _exportarPDF(opt) {
        Ahora: (1) se mide contra la hoja con 3 % de margen de seguridad, (2) se repite el ajuste hasta que entre
        (hasta 60 %), y (3) si ni así entra, la hoja fija deja de ser "inseparable": se corta, pero no deja una hoja vacía.
        Lo mismo para los cuadros: el que mide más que una hoja se achica contra el alto con margen. */
-    var H = (275 * 96 / 25.4) * 0.97;
+    var H = (275 * 96 / 25.4) * 0.94;   // v250 — 6 % de margen de seguridad
     function alto(el) { return el.getBoundingClientRect().height; }
     function ajustar() {
       var hdr = document.querySelector('body > .hdr');
@@ -10166,6 +10167,11 @@ async function _exportarPDF(opt) {
           var z = (parseFloat(el.style.zoom) || 1) * (H - extra) / h * 0.99; el.style.zoom = Math.max(0.6, Math.floor(z * 1000) / 1000);
           if (parseFloat(el.style.zoom) <= 0.6) break; }
         if (alto(el) + extra > H) { el.style.breakInside = 'auto'; el.style.pageBreakInside = 'auto'; }
+        /* v250 — la PRIMERA hoja fija nunca es inseparable (Timoteo, 26/10: en su Chrome la hoja 1 del mensual de FC
+           seguía saliendo vacía aunque acá entraba). Lo que se mide en la ventana y lo que el navegador arma al imprimir
+           pueden diferir unos px; si difieren, ahora a lo sumo el último cuadro pasa a la hoja 2, nunca queda la hoja 1
+           con el encabezado solo. */
+        if (i === 0 && !el.classList.contains('pgbreak')) { el.style.breakInside = 'auto'; el.style.pageBreakInside = 'auto'; el.style.breakBefore = 'avoid'; el.style.pageBreakBefore = 'avoid'; }
       }
       var cards = document.querySelectorAll('.card');
       for (var j = 0; j < cards.length; j++) { var c = cards[j];
@@ -19318,7 +19324,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20261026-249';
+const APP_VERSION = '20261026-250';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
