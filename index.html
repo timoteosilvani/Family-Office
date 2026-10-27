@@ -3725,7 +3725,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
             <div><label style="display:block;font-size:11px;color:var(--text3);margin-bottom:4px">Cliente</label><select class="fld" id="ef-cliente" onchange="renderEstados()"></select></div>
             <div><label style="display:block;font-size:11px;color:var(--text3);margin-bottom:4px">Ano</label><select class="fld" id="ef-anio" onchange="renderEstados()"></select></div>
             <div><label style="display:block;font-size:11px;color:var(--text3);margin-bottom:4px">Periodo</label><select class="fld" id="ef-periodo" onchange="renderEstados()"></select></div>
-            <button class="btn-primary" style="width:auto;padding:9px 18px;align-self:flex-end" onclick="exportarEstadosPDF()">⤓ Descargar PDF</button>
+            <button class="btn-primary" style="width:auto;padding:9px 18px;align-self:flex-end" onclick="exportarEstadosPDF()">🖨 Imprimir</button>
           </div>
         </div>
         <div id="ef-contenido"></div>
@@ -3753,7 +3753,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
                 <select class="fld" id="rc-cliente" style="min-width:190px" onchange="renderRepCliente()"></select></div>
               <div><label class="fld">A&ntilde;o</label>
                 <select class="fld" id="rc-anio" style="width:auto" onchange="renderRepCliente()"></select></div>
-              <button class="btn-secondary" style="padding:8px 14px;font-size:12px" onclick="exportarRepClientePDF()">&#11015; PDF</button>
+              <button class="btn-secondary" style="padding:8px 14px;font-size:12px" onclick="exportarRepClientePDF()">🖨 Imprimir</button>
             </div>
           </div>
           <div id="rc-contenido"><div class="loader"><div class="spinner"></div></div></div>
@@ -3770,7 +3770,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
             <div><label class="fld">Tipo de reporte</label><select class="fld" id="rep-tipo" onchange="repTipoChange()">
               <option value="mensual">Mensual</option><option value="semestral">Semestral</option><option value="anual">Anual</option></select></div>
             <div><label class="fld">Período</label><select class="fld" id="rep-periodo" onchange="generarReporte()"></select></div>
-            <button class="btn-primary" style="width:auto;padding:9px 18px;align-self:flex-end" onclick="exportarReportePDF()">⤓ Descargar PDF</button>
+            <button class="btn-primary" style="width:auto;padding:9px 18px;align-self:flex-end" onclick="exportarReportePDF()">🖨 Imprimir</button>
           </div>
         </div>
         <div id="rep-contenido"><p style="color:var(--text3)">Elegí un cliente para generar el informe.</p></div>
@@ -3788,7 +3788,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
             <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
               <div><label class="fld">Cliente</label><select class="fld" id="rsoc-cliente" style="min-width:170px" onchange="renderRepSoc()"></select></div>
               <div><label class="fld">Año</label><select class="fld" id="rsoc-anio" onchange="renderRepSoc()"></select></div>
-              <button class="btn-primary" style="width:auto;padding:9px 18px;align-self:flex-end" onclick="exportarRepSocPDF()">⤓ Descargar PDF</button>
+              <button class="btn-primary" style="width:auto;padding:9px 18px;align-self:flex-end" onclick="exportarRepSocPDF()">🖨 Imprimir</button>
             </div>
           </div>
           <div id="rsoc-contenido"><p style="color:var(--text3)">—</p></div>
@@ -3983,7 +3983,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
       <div class="modal-title">Reporte de la sociedad</div>
       <div style="display:flex;gap:8px;align-items:center;margin-left:auto;margin-right:10px">
         <select class="fld" id="rs1-anio" style="width:auto;padding:4px 8px;font-size:12px" onchange="renderRepSociedad()"></select>
-        <button class="btn-secondary" style="width:auto;padding:5px 12px;font-size:11px" onclick="exportarRepSoc1PDF()">&#8595; PDF</button>
+        <button class="btn-secondary" style="width:auto;padding:5px 12px;font-size:11px" onclick="exportarRepSoc1PDF()">🖨 Imprimir</button>
       </div>
       <button class="modal-close" onclick="closeModal('modal-rep-soc1')">&times;</button>
     </div>
@@ -19324,7 +19324,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20261026-250';
+const APP_VERSION = '20261027-251';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
