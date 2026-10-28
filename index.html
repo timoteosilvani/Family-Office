@@ -6207,7 +6207,9 @@ const PE_HIST_DATA = [
   {nro:3,nombre:"CRC",titular:"FC",aporteHist:265000,utilHist:0,terminado:false,byY:{"2021":{ia:0,ap:100000,ut:0},"2022":{ia:100000,ap:0,ut:0},"2023":{ia:100000,ap:100000,ut:0},"2024":{ia:200000,ap:50000,ut:0},"2025":{ia:250000,ap:15000,ut:0},"2026":{ia:265000,ap:0,ut:0}}},
   {nro:4,nombre:"Ashland",titular:"M",aporteHist:450000,utilHist:0,terminado:true,byY:{"2022":{ia:0,ap:450000,ut:0},"2023":{ia:450000,ap:0,ut:0},"2024":{ia:450000,ap:0,ut:0},"2025":{ia:450000,ap:0,ut:0}}},
   {nro:5,nombre:"Rheinbeck",titular:"M",aporteHist:466358,utilHist:0,terminado:false,byY:{"2022":{ia:0,ap:367358,ut:0},"2023":{ia:367358,ap:0,ut:0},"2024":{ia:367358,ap:99000,ut:0},"2025":{ia:466358,ap:0,ut:0},"2026":{ia:466358,ap:0,ut:0}}},
-  {nro:6,nombre:"Ulster",titular:"M",aporteHist:400000,utilHist:97322,terminado:false,byY:{"2023":{ia:0,ap:400000,ut:97322},"2024":{ia:400000,ap:0,ut:0},"2025":{ia:400000,ap:0,ut:0},"2026":{ia:400000,ap:0,ut:0}}},
+  // v252 — Ulster: los aportes de 2023 son 500.000 (80.000 ene + 320.000 jun + 100.000 jul, movimientos_pe); el acumulado
+  // de 2024 en adelante decía 400.000 y el M de 2024–2025 quedaba 100.000 abajo del COMPLETO (Timoteo, 28/10).
+  {nro:6,nombre:"Ulster",titular:"M",aporteHist:500000,utilHist:97322,terminado:false,byY:{"2023":{ia:0,ap:500000,ut:97322},"2024":{ia:500000,ap:0,ut:0},"2025":{ia:500000,ap:0,ut:0},"2026":{ia:500000,ap:0,ut:0}}},
   {nro:7,nombre:"Palm Bay",titular:"M",aporteHist:708644,utilHist:0,terminado:false,byY:{"2024":{ia:0,ap:250000,ut:0},"2025":{ia:250000,ap:8644,ut:0},"2026":{ia:708644,ap:0,ut:0}}},
   {nro:8,nombre:"Boston",titular:"M",aporteHist:100000,utilHist:100000,terminado:true,byY:{"2023":{ia:0,ap:100000,ut:0},"2024":{ia:100000,ap:0,ut:0},"2025":{ia:0,ap:0,ut:100000}}},
   {nro:9,nombre:"Ventus",titular:"M",aporteHist:125000,utilHist:0,terminado:false,byY:{"2024":{ia:0,ap:50000,ut:0},"2025":{ia:50000,ap:75000,ut:0},"2026":{ia:125000,ap:0,ut:0}}},
@@ -7319,7 +7321,7 @@ async function verFichaPropiedad(id) {
     <title>Ficha - ${prop.nombre}</title>
     <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
     <style>
-      @page { size:A4 portrait; margin:10mm; }
+      @page { size:A4 portrait; margin:10mm 10mm 12mm; @top-center{content:"";} @bottom-center{content:counter(page);font-size:9px;color:#888;font-family:Helvetica,Arial,sans-serif;} }   /* v253 — sin encabezado ni pie del navegador, como los informes */
       body { font-family:'DM Sans',sans-serif; background:#fff; color:#111; max-width:680px; margin:0 auto; padding:22px; position:relative; }
       .header { border-bottom:3px solid ${colPais[prop.pais]||'#333'}; padding-bottom:10px; margin-bottom:14px; }
       h1 { font-family:'DM Serif Display',serif; font-size:27px; color:#111; margin:0 0 2px; }
@@ -7336,7 +7338,7 @@ async function verFichaPropiedad(id) {
       .print-btn { background:${colPais[prop.pais]||'#333'}; color:#fff; border:none; padding:10px 24px; border-radius:6px; cursor:pointer; font-size:13px; position:absolute; top:32px; right:32px; }
       @media print { .print-btn { display:none; } }
     </style></head><body>
-    <button class="print-btn" onclick="window.print()">⬇ Guardar PDF</button>
+    <button class="print-btn" onclick="window.print()">🖨 Imprimir</button>
     <div style="text-align:center;margin-bottom:10px">
       <img src="${OFFIDA_LOGO}" style="height:74px;width:auto">
       <div style="font-family:'DM Serif Display',serif;font-size:25px;letter-spacing:5px;color:#A8842F;margin-top:1px">OFFIDA</div>
@@ -9174,7 +9176,12 @@ async function exportarReportePDF() {
   return _exportarPDF({
     contId: 'rep-contenido',
     cliNom: cli.selectedIndex >= 0 ? cli.options[cli.selectedIndex].text : '',
-    titulo: (window._repTitulo||'').indexOf('Mensual') >= 0 ? 'Informe Mensual' : 'Informe Periódico',
+    // v253 — "Informe Semestral" / "Informe Anual" como el mensual dice "Informe Mensual" (Timoteo, 28/10)
+    titulo: (() => { const t = window._repTitulo || '', tipo = (document.getElementById('rep-tipo') || {}).value;
+      if (t.indexOf('Mensual') >= 0 || tipo === 'mensual') return 'Informe Mensual';
+      if (tipo === 'semestral') return 'Informe Semestral';
+      if (tipo === 'anual') return 'Informe Anual';
+      return 'Informe Periódico'; })(),
     subtitulo: window._repTitulo || 'Informe',
     vacio: 'Generá el informe primero',
   });
@@ -9459,7 +9466,7 @@ async function renderRepCliente() {
     selC.innerHTML = RC_CLIENTES.map(c => `<option value="${c}">${c} · ${RC_NOM[c]||c}</option>`).join('');
   const selY = document.getElementById('rc-anio');
   if (selY && !selY.options.length) {
-    let o = ''; for (let y = 2026; y >= 2020; y--) o += `<option value="${y}">${y}</option>`;
+    let o = ''; for (let y = new Date().getFullYear(); y >= 2020; y--) o += `<option value="${y}">${y}</option>`;   // v253 — el año en curso
     selY.innerHTML = o;
   }
   const CLI = selC ? selC.value : 'H';
@@ -9507,7 +9514,8 @@ async function renderRepCliente() {
   const yieldPct = vP > 0 ? (neta / vP * 100) : null;
 
   // ── Ocupación: contrato vigente al día de hoy
-  const hoy = new Date().toISOString().slice(0,10);
+  // v253 — vigente a la fecha del informe (31/12 de un año cerrado), no a hoy
+  const hoy = Y < new Date().getFullYear() ? Y + '-12-31' : new Date().toISOString().slice(0,10);
   const conContrato = new Set(contratos
     .filter(c => c.activo !== false && (!c.fecha_fin || c.fecha_fin >= hoy))
     .map(c => c.propiedad_id));
@@ -10159,6 +10167,12 @@ async function _exportarPDF(opt) {
     function alto(el) { return el.getBoundingClientRect().height; }
     function ajustar() {
       var hdr = document.querySelector('body > .hdr');
+      /* v253 — NINGÚN CUADRO MÁS ANCHO QUE LA HOJA. Si una tabla (letra grande, números sin cortar) se pasa del ancho, el
+         navegador achica TODA la impresión para que entre, y así salía la letra chica en todo el informe. Ahora el cuadro
+         que se pasa se achica sólo él, lo justo para entrar en el ancho. */
+      var todas = document.querySelectorAll('.card');
+      for (var w = 0; w < todas.length; w++) { var cw = todas[w], sw = cw.scrollWidth, ww = cw.clientWidth;
+        if (sw > ww + 1) cw.style.zoom = Math.floor(ww / sw * 1000) / 1000; }
       var hojas = document.querySelectorAll('.hoja-fija');
       for (var i = 0; i < hojas.length; i++) {
         var el = hojas[i], extra = 0;
@@ -10227,9 +10241,12 @@ function repPeriodoOpts(){
      primero de la lista. Si el periodo de hoy no esta entre las opciones (un
      año fuera de `years`), queda el primero, que es el comportamiento viejo. */
   const _h = new Date(), _y = _h.getFullYear(), _m = _h.getMonth() + 1;
+  /* v253 — PREDETERMINADO EL PERÍODO CERRADO ANTERIOR (Timoteo, 28/10): en octubre, el mensual de septiembre; en el S2, el
+     semestral del S1 (en el S1, el S2 del año anterior). El anual queda en el año en curso. */
+  const _mp = _m === 1 ? 12 : _m - 1, _yp = _m === 1 ? _y - 1 : _y;
   const _quiero = tipo === 'anual'     ? 'A-' + _y
-                : tipo === 'semestral' ? 'S-' + _y + '-' + (_m <= 6 ? 1 : 2)
-                :                        'M-' + _y + '-' + _m;
+                : tipo === 'semestral' ? (_m <= 6 ? 'S-' + (_y - 1) + '-2' : 'S-' + _y + '-1')
+                :                        'M-' + _yp + '-' + _mp;
   if (Array.from(per.options).some(o => o.value === _quiero)) per.value = _quiero;
 }
 function repTipoChange(){ repPeriodoOpts(); generarReporte(); }
@@ -12117,6 +12134,13 @@ function _bkBaseG(b, aportes, vEnd, finISO, anio, openY, vBeg) {
   const D = _crDietz(base, vEnd, _crD(desde), _crD(finISO), fl);
   return { B, desde, base, F, inv: base + F, rend: vEnd - base - F, r: D.r, fl };
 }
+/* v253 — CUENTAS DADAS DE BAJA Y PROPIEDADES VENDIDAS EN LOS INFORMES VIEJOS (Timoteo, 28/10). Una cuenta dada de baja
+   (activo = false) o una propiedad vendida dejaba de aparecer también en los informes de antes de la baja / la venta.
+   Ahora siguen apareciendo en todo informe cuyo período termina antes de bancos.fecha_baja / propiedades.fecha_venta.
+   Sin esa fecha se comporta como antes (afuera). */
+const _bancoVivoEn = (b, finISO) => b.activo !== false || (!!b.fecha_baja && String(b.fecha_baja).slice(0, 10) > finISO);
+const _propVivaEn  = (p, finISO) => (p.activa !== false && p.vendida !== true)
+  || (!!p.fecha_venta && String(p.fecha_venta).slice(0, 10) > finISO);
 async function _resultadoPeriodo(o) {
   const { anio, m1, m2, pe = [], autos = [], props = [], titFilter = [], share = () => 1, vProp, vAuto, cuentaFO = () => true } = o;
   const peIds = pe.map(p => p.id), autoIds = autos.map(a => a.id);
@@ -12198,9 +12222,11 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
     sb.from('bancos').select('*').in('titular', titFilter),
     sb.from('prestamos').select('*').in('titular', titFilter).then(r=>r,()=>({data:[]})),
   ]);
-  const props = (propsR.data||[]).map(p=>conTitAnio(p, anio)).filter(p=>titFilter.includes(p.titular) && p.activa!==false && p.vendida!==true).filter(cuentaFO);
+  // v253 — una cuenta dada de baja o una propiedad vendida DESPUÉS del período sigue en el informe (_vivoEn)
+  const _finP = new Date(Date.UTC(anio, m2, 0)).toISOString().slice(0, 10);
+  const props = (propsR.data||[]).map(p=>conTitAnio(p, anio)).filter(p=>titFilter.includes(p.titular) && _propVivaEn(p, _finP)).filter(cuentaFO);
   const pe = (peR.data||[]).filter(cuentaFO), autos = (autosR.data||[]).map(a=>conTitAnio(a, anio)).filter(a=>titFilter.includes(a.titular)).filter(cuentaFO),
-        bancos = (bancosR.data||[]).filter(b=>b.activo!==false).filter(cuentaFO).map(_bConNom);   // v244 — "JP Morgan 7335 / 1002"
+        bancos = (bancosR.data||[]).filter(b=>_bancoVivoEn(b, _finP)).filter(cuentaFO).map(_bConNom);   // v244 — "JP Morgan 7335 / 1002"
   const bancoIds = bancos.map(b=>b.id), propIds = props.map(p=>p.id);
 
   await peValCargar();   // v183 — sin esto peCalc ignora las valuaciones manuales
@@ -13186,11 +13212,11 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
   await peValCargar();     // valuaciones manuales de las participaciones
   const cuentaFO = r => !esFO || r.titular !== 'MFL' || (r.nro === 3 && ANIO <= 2024);
   const props = (propsR.data||[]).map(p => conTitAnio(p, ANIO)).filter(p => titFilter.includes(p.titular))
-    .filter(p => p.activa !== false && p.vendida !== true).filter(cuentaFO)
+    .filter(p => _propVivaEn(p, PER_FIN)).filter(cuentaFO)   // v253 — vendida después del período: sigue
     // v248 — una propiedad comprada después del cierre del período no está en el informe (Deco House, 09/2026, salía en el S1 con valor 0)
     .filter(p => !p.fecha_compra || String(p.fecha_compra).slice(0, 10) <= (ANIO + '-' + String(M2).padStart(2, '0') + '-31'));
   const pe = (peR.data||[]).filter(cuentaFO), autos = (autosR.data||[]).map(a=>conTitAnio(a, ANIO)).filter(a=>titFilter.includes(a.titular)).filter(cuentaFO),
-        bancos = (bancosR.data||[]).filter(b => b.activo !== false).filter(cuentaFO);
+        bancos = (bancosR.data||[]).filter(b => _bancoVivoEn(b, PER_FIN)).filter(cuentaFO);   // v253 — dada de baja después del período: sigue
   const bancoIds = bancos.map(b=>b.id);
 
   // Bancos: saldo final (2026) + saldo inicial (dic 2025) + aportes → rendimiento (Dietz $)
@@ -13429,8 +13455,16 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
     const _apTodos = [].concat(...bancosDietz.map(d => (d.aportes || []).map(a => ({ a, d }))));
     bancosDietz.forEach(d => (d.aportes || []).filter(a => a.tipo === 'incorporacion' && _enPer(a.fecha))
       .forEach(a => { const par = a.vinculo_id ? _apTodos.find(o => o.a.vinculo_id === a.vinculo_id && o.a.id !== a.id) : null;
-        H.push({ f: a.fecha, t: par ? `Pasaron ${$h(a.monto)} de <b>${par.d.nombre}</b> a <b>${d.nombre}</b> (traspaso entre cuentas propias).`
-                                    : `Ingresaron ${$h(a.monto)} a <b>${d.nombre}</b> (incorporación).` }); }));
+        // v253 — el detalle (aportes_bancos.detalle, texto para el cliente) justifica el movimiento: "Venta de Oceana"
+        const det = a.detalle || (par && par.a.detalle) || '';
+        H.push({ f: a.fecha, t: (par ? `Pasaron ${$h(a.monto)} de <b>${par.d.nombre}</b> a <b>${d.nombre}</b>` : `Ingresaron ${$h(a.monto)} a <b>${d.nombre}</b>`)
+          + (det ? ` — ${det}.` : (par ? ' (traspaso entre cuentas propias).' : ' (incorporación).')) }); }));
+    // v253 — aportes y retiros grandes (más de USD 250.000) que tienen detalle cargado, aunque no sean incorporaciones
+    bancosDietz.forEach(d => (d.aportes || []).filter(a => a.tipo !== 'incorporacion' && a.detalle && _enPer(a.fecha) && Math.abs(Number(a.monto) || 0) >= 250000)
+      .forEach(a => { if (a.tipo === 'retiro' && a.vinculo_id && _apTodos.some(o => o.a.vinculo_id === a.vinculo_id && o.a.id !== a.id)) return;   // el traspaso ya se contó del lado que recibe
+        const par = a.vinculo_id ? _apTodos.find(o => o.a.vinculo_id === a.vinculo_id && o.a.id !== a.id) : null;
+        H.push({ f: a.fecha, t: par ? `Pasaron ${$h(a.monto)} de <b>${par.d.nombre}</b> a <b>${d.nombre}</b> — ${a.detalle}.`
+                                    : `${a.tipo === 'retiro' ? 'Salieron' : 'Entraron'} ${$h(a.monto)} ${a.tipo === 'retiro' ? 'de' : 'a'} <b>${d.nombre}</b> — ${a.detalle}.` }); }));
     bancosDietz.filter(d => !d.oper).forEach(d => { const dc = (d.cEnd || 0) - (d.cBeg || 0);
       if (Math.abs(dc) > 50000) H.push({ f: PER_FIN, t: dc > 0 ? `Se tomó crédito en <b>${d.nombre}</b>: la deuda subió ${$h(dc)}.` : `Se pagó crédito en <b>${d.nombre}</b>: la deuda bajó ${$h(dc)}.` }); });
     return H.sort((x, y) => String(x.f).localeCompare(String(y.f)));
@@ -13525,12 +13559,17 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
       .rep-doc .card,.rep-doc .rep-kpi{page-break-inside:avoid;break-inside:avoid;}
       /* v248 — LETRA MÁS GRANDE EN TODO EL INFORME (Timoteo, 26/10), sin cambiar el armado de las hojas: tablas de 9,5 a 11 px.
          Los cuadros siguen sin cortarse (si uno no entra, baja entero o se achica, ver _exportarPDF). */
-      .rep-doc{font-size:12px!important;}
-      .rep-doc table{font-size:11px!important;} .rep-doc th,.rep-doc td{padding:4px 7px!important;} .rep-doc table th{color:var(--navy);border-bottom-color:#d8dee6;font-size:9.5px!important;}
-      .rep-doc .tbl-compacta td{font-size:10.5px!important;padding:3px 6px!important;} .rep-doc .tbl-compacta th{font-size:9px!important;}
-      .rep-doc .section-title{font-size:13px!important;}
+      /* v253 — MÁS GRANDE TODAVÍA (Timoteo, 28/10: "me sigue quedando chica, orientate con el mensual"): tablas de 12,5 px,
+         compactas de 11,5; los cuadros de detalle (.rep-mini, renta mes a mes) sí van chicos. Si una hoja no entra, el motor
+         de impresión achica ESE cuadro, no todo el informe. */
+      .rep-doc{font-size:13px!important;}
+      .rep-doc table{font-size:12.5px!important;} .rep-doc th,.rep-doc td{padding:5px 8px!important;} .rep-doc table th{color:var(--navy);border-bottom-color:#d8dee6;font-size:10.5px!important;}
+      .rep-doc .tbl-compacta td{font-size:11.5px!important;padding:3.5px 6px!important;} .rep-doc .tbl-compacta th{font-size:9.5px!important;}
+      .rep-doc .section-title{font-size:14.5px!important;padding:7px 11px!important;}
+      .rep-doc .rep-mini table{font-size:8.5px!important;} .rep-doc .rep-mini th,.rep-doc .rep-mini td{padding:2px 3px!important;font-size:8.5px!important;white-space:nowrap;}
+      .rep-doc .rep-mini th{font-size:7.5px!important;}
       .rep-doc td.num,.rep-doc th.num{white-space:nowrap;}
-      .rep-doc [style*="font-size:10px"]{font-size:11px!important;}
+      .rep-doc [style*="font-size:10px"]{font-size:11.5px!important;} .rep-doc [style*="font-size:11px"]{font-size:12px!important;}
       .rep-doc .rep-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:8px;}
       .rep-doc .rep-kpi{border:1px solid #e4e7ec;border-top:3px solid var(--navy);border-radius:7px;padding:7px 8px;text-align:center;background:var(--bg);}
       .rep-doc .rep-kpi .l{font-size:8px;letter-spacing:.6px;color:var(--text3);text-transform:uppercase;margin-bottom:3px;min-height:0;}
@@ -13539,17 +13578,24 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
       .rep-doc .rep-head{background:var(--navy);color:#fff;border-radius:9px;padding:11px 16px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;}
       /* v243 — LAS DOS PRIMERAS HOJAS CON LETRA MÁS GRANDE (Timoteo, 21/10). Cada una es una .hoja-fija:
          al exportar, si no entra en la hoja, se achica lo justo (ver _exportarPDF). */
-      .rep-doc .rep-ini{font-size:12.5px;}
-      .rep-doc .rep-ini table{font-size:11.5px!important;} .rep-doc .rep-ini th,.rep-doc .rep-ini td{padding:4px 7px!important;}
-      .rep-doc .rep-ini table th{font-size:9.5px!important;}
-      .rep-doc .rep-ini .section-title{font-size:13.5px!important;padding:7px 11px!important;}
-      .rep-doc .rep-ini .rep-kpi .l{font-size:9.5px;} .rep-doc .rep-ini .rep-kpi .v{font-size:19px;} .rep-doc .rep-ini .rep-kpi .s{font-size:10px;}
-      .rep-doc .rep-ini [style*="font-size:10px"]{font-size:11.5px!important;}
-      .rep-doc .rep-ini [style*="font-size:11px"]{font-size:12.5px!important;}
-      .rep-doc .rep-ini [style*="font-size:12px"]{font-size:13.5px!important;}
+      .rep-doc .rep-ini{font-size:14.5px!important;}
+      .rep-doc .rep-ini table{font-size:13px!important;} .rep-doc .rep-ini th,.rep-doc .rep-ini td{padding:3.5px 8px!important;font-size:13px!important;line-height:1.3;}
+      .rep-doc .rep-ini table th{font-size:10.5px!important;}
+      .rep-doc .rep-ini .tbl-compacta td{font-size:12.5px!important;padding:3px 7px!important;} .rep-doc .rep-ini .tbl-compacta th{font-size:10px!important;}
+      .rep-doc .rep-ini .section-title{font-size:15.5px!important;padding:8px 12px!important;}
+      .rep-doc .rep-ini .rep-kpi{padding:10px 8px!important;} .rep-doc .rep-ini .rep-kpi .l{font-size:10.5px;} .rep-doc .rep-ini .rep-kpi .v{font-size:23px;} .rep-doc .rep-ini .rep-kpi .s{font-size:11.5px;}
+      .rep-doc .rep-ini [style*="font-size:10px"]{font-size:12.5px!important;}
+      .rep-doc .rep-ini [style*="font-size:11px"]{font-size:13.5px!important;}
+      .rep-doc .rep-ini [style*="font-size:12px"]{font-size:14.5px!important;}
+      /* v253 — la hoja 1 tiene lugar: todavía más grande */
+      .rep-doc .rep-xl th,.rep-doc .rep-xl td{font-size:15px!important;padding:9px 8px!important;} .rep-doc .rep-xl table th{font-size:12px!important;}
+      .rep-doc .rep-xl .rep-kpi{padding:16px 10px!important;} .rep-doc .rep-xl .rep-kpi .v{font-size:30px;} .rep-doc .rep-xl .rep-kpi .l{font-size:12px;} .rep-doc .rep-xl .rep-kpi .s{font-size:13px;}
+      .rep-doc .rep-xl .section-title{font-size:18px!important;padding:10px 14px!important;}
+      .rep-doc .rep-xl .card{padding:14px 16px!important;margin-bottom:16px!important;}
+      .rep-doc .rep-xl [style*="font-size:12px"]{font-size:17px!important;line-height:1.6;} .rep-doc .rep-xl [style*="font-size:10px"]{font-size:13px!important;line-height:1.5;}
     </style>
     <div class="rep-doc">
-    <div class="hoja-fija rep-ini">
+    <div class="hoja-fija rep-ini rep-xl">
     <div class="rep-head">
       <div><div style="font-size:16px;font-weight:700">${cliNom}</div><div style="font-size:11px;opacity:.75">Informe ${PER_LBL} · Cifras en USD</div></div>
       <div style="font-size:11px;opacity:.7;text-align:right">al ${FECHA_CIERRE}</div>
@@ -13597,6 +13643,12 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
         </tbody></table></div>
       <p style="color:var(--text3);font-size:10px;margin-top:5px">Apalancamiento = deuda total ÷ patrimonio actual. Patrimonio neto (descontada la deuda): $${fmt(patrimonioActual-deudaTotal)}.</p>
     </div>` : ''}
+    </div>
+    ${/* v243 — hoja 2: histórico + resumen + "¿Dónde se generó el resultado?" (antes era la hoja 3). */''}
+    ${/* v253 — LETRA MÁS GRANDE SIN ACHICAR (Timoteo, 28/10): las dos primeras hojas pasan a ser tres. Hoja 1: KPIs, lo más
+         importante y patrimonio por tipo. Hoja 2: distribución, gráficos y patrimonio histórico. Hoja 3: resumen por tipo y
+         dónde se generó el resultado. Así cada hoja entra con la letra grande, sin que el motor la achique. */''}
+    <div class="hoja-fija rep-ini pgbreak">
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;page-break-inside:avoid;break-inside:avoid">
       <div class="card"><div class="section-title" style="font-size:14px;margin-bottom:12px">Distribución por tipo de activo</div>
         <div class="table-wrap"><table><thead><tr><th>Activo</th><th class="num">Valor</th><th class="num">%</th></tr></thead><tbody>
@@ -13616,10 +13668,7 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
       <div class="card" style="margin:0"><div class="section-title" style="font-size:14px;margin-bottom:8px">Composición por activo</div><div style="height:150px"><canvas id="rep-ch-comp"></canvas></div></div>
       <div class="card" style="margin:0"><div class="section-title" style="font-size:14px;margin-bottom:8px">Evolución bancos · ${PER_NOMBRE}</div><div style="height:150px"><canvas id="rep-ch-bancos"></canvas></div></div>
     </div>
-    </div>
-    ${/* v243 — hoja 2: histórico + resumen + "¿Dónde se generó el resultado?" (antes era la hoja 3). */''}
-    <div class="hoja-fija rep-ini pgbreak">
-    <div class="card" style="margin-top:0">
+    <div class="card" style="margin-top:12px">
       <div class="section-title" style="font-size:14px;margin-bottom:12px">Patrimonio histórico y composición</div>
       <div class="table-wrap"><table class="rep-big">
         <thead><tr><th>Año</th><th class="num">Propiedades</th><th class="num">Bancos</th><th class="num">Priv. Equity</th><th class="num">Total</th></tr></thead>
@@ -13627,7 +13676,9 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
         ${histAnios.map(d=>`<tr><td style="font-weight:600">${d.anio}</td><td class="num">$${fmt(d.prop)} <span style="color:var(--text3);font-size:.82em">${d.total?(d.prop/d.total*100).toFixed(1):'0'}%</span></td><td class="num">$${fmt(d.banco)} <span style="color:var(--text3);font-size:.82em">${d.total?(d.banco/d.total*100).toFixed(1):'0'}%</span></td><td class="num">${d.pe?'$'+fmt(d.pe)+' <span style="color:var(--text3);font-size:.82em">'+(d.pe/d.total*100).toFixed(1)+'%</span>':'—'}</td><td class="num" style="font-weight:700">$${fmt(d.total)}</td></tr>`).join('')}
         </tbody></table></div>
     </div>
-    <div class="rep-h2">Resumen</div>
+    </div>
+    <div class="hoja-fija rep-ini pgbreak">
+    <div class="rep-h2" style="margin-top:0!important">Resumen</div>
     <div class="card" style="margin-top:10px">
       <div class="section-title" style="font-size:14px;margin-bottom:14px">Resumen por tipo de activo</div>
       <div style="display:grid;grid-template-columns:repeat(${autos.length?4:3},1fr);gap:16px">
@@ -13688,8 +13739,10 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
       <p style="color:var(--text3);font-size:11px;margin-top:8px">Rentabilidad del período = renta neta del ${PER_NOMBRE} sobre el valor de inicio del período.</p>
     </div>
 
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start">
-    ${propsHist.length ? `<div class="card" style="margin:0">
+    ${/* v253 — los dos cuadros de detalle van lado a lado y CHICOS (.rep-mini, Timoteo 28/10): el mensual se cortaba en mayo.
+         El mensual lleva más ancho porque tiene más columnas. Si hay uno solo, ocupa todo el ancho. */''}
+    <div class="rep-mini" style="display:grid;grid-template-columns:${(propsHist.length && propsMens.length) ? 'minmax(0,1fr) minmax(0,1.35fr)' : '1fr'};gap:10px;align-items:start;margin-top:14px">
+    ${propsHist.length ? `<div class="card" style="margin:0;padding:8px!important">
       <div class="section-title" style="font-size:14px;margin-bottom:12px">Renta, gastos y renta neta — histórico por año</div>
       <div class="table-wrap"><table>
         <thead><tr><th>Propiedad</th><th>Concepto</th>${aniosR.map(y=>`<th class="num">${y}</th>`).join('')}<th class="num">Total</th></tr></thead>
@@ -13702,7 +13755,7 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
         ${(()=>{ const tot=(f,y)=>propsHist.reduce((s,p)=>{const a=propDet[p.id].anual; return s+(a[y]?a[y][f]:0);},0); const gtot=f=>aniosR.reduce((s,y)=>s+tot(f,y),0); const row=(f,lbl)=>`<td style="color:var(--text3);font-weight:600">${lbl}</td>`+aniosR.map(y=>`<td class="num" style="font-weight:600">$${fmt(tot(f,y))}</td>`).join('')+`<td class="num" style="font-weight:700">$${fmt(gtot(f))}</td>`; const netaRow=`<td style="color:var(--text3);font-weight:600">Renta neta</td>`+aniosR.map(y=>{const v=tot('neta',y);return `<td class="num" style="font-weight:600;color:${v>=0?'var(--esp)':'var(--usa)'}">${v>=0?'+':''}$${fmt(v)}</td>`;}).join('')+`<td class="num" style="font-weight:700">$${fmt(gtot('neta'))}</td>`; return `<tr style="border-top:2px solid var(--navy)"><td rowspan="3" style="font-weight:700;vertical-align:top">Total</td>${row('renta','Renta')}</tr><tr>${row('gastos','Gastos')}</tr><tr>${netaRow}</tr>`; })()}
         </tbody></table></div>
     </div>` : ''}
-    ${propsMens.length ? `<div class="card" style="margin:0">
+    ${propsMens.length ? `<div class="card" style="margin:0;padding:8px!important">
       <div class="section-title" style="font-size:14px;margin-bottom:12px">Renta, gastos y renta neta — mensual ${ANIO}</div>
       <div class="table-wrap"><table>
         <thead><tr><th>Propiedad</th><th>Concepto</th>${mesesR.map(m=>`<th class="num">${mesLbl[m]}</th>`).join('')}<th class="num">Total ${PER_CORTO}</th></tr></thead>
@@ -13809,19 +13862,27 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
       // (5) APORTES: años anteriores en un renglón por año; el año del informe, un renglón por mes; total por cuenta
       const _mesN = ['', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
       const ap3 = (a, r) => `<td class="num">${a > 0.5 ? '<span style="color:var(--esp)">+$' + fmt(a) + '</span>' : '—'}</td><td class="num">${r > 0.5 ? '<span style="color:var(--usa)">−$' + fmt(r) + '</span>' : '—'}</td><td class="num">${SG0(a - r)}</td>`;
-      const filasAp = bancosDietz.filter(d => (d.aportes || []).some(a => a.fecha && a.fecha <= PER_FIN)).sort((x, y) => _nroCompleto(x.b) - _nroCompleto(y.b)).map(d => {
+      /* v253 — APORTES EN DOS CUADROS LADO A LADO (Timoteo, 28/10): las cuentas se reparten en el orden del COMPLETO para que
+         los dos cuadros queden más o menos del mismo largo; abajo, un solo total de todas. Columnas angostas. */
+      const ctsAp = bancosDietz.filter(d => (d.aportes || []).some(a => a.fecha && a.fecha <= PER_FIN)).sort((x, y) => _nroCompleto(x.b) - _nroCompleto(y.b)).map(d => {
         const g = {}; let ta = 0, tr = 0;
         (d.aportes || []).filter(a => a.fecha && a.fecha <= PER_FIN).forEach(a => { const y = +String(a.fecha).slice(0, 4), m = +String(a.fecha).slice(5, 7);
           const k = y < ANIO ? String(y) : ANIO + '-' + String(m).padStart(2, '0'); const e = g[k] = g[k] || { a: 0, r: 0, lbl: y < ANIO ? 'Año ' + y : _mesN[m] + ' ' + ANIO, act: y >= ANIO };
           const v = Math.abs(Number(a.monto) || 0); if (a.tipo === 'retiro') { e.r += v; tr += v; } else { e.a += v; ta += v; } });
-        return `<tr><td colspan="4" style="font-weight:700;color:var(--navy);border-bottom:1.5px solid var(--navy)">${d.nombre}</td></tr>`
-          + Object.keys(g).sort().map(k => `<tr${g[k].act ? '' : ' style="color:var(--text3)"'}><td style="padding-left:16px">${g[k].lbl}</td>${ap3(g[k].a, g[k].r)}</tr>`).join('')
-          + `<tr style="background:var(--bg3);font-weight:600"><td style="padding-left:16px">Total</td>${ap3(ta, tr)}</tr>`; }).join('');
+        const rows = `<tr><td colspan="4" style="font-weight:700;color:var(--navy);border-bottom:1.5px solid var(--navy)">${d.nombre}</td></tr>`
+          + Object.keys(g).sort().map(k => `<tr${g[k].act ? '' : ' style="color:var(--text3)"'}><td style="padding-left:12px">${g[k].lbl}</td>${ap3(g[k].a, g[k].r)}</tr>`).join('')
+          + `<tr style="background:var(--bg3);font-weight:600"><td style="padding-left:12px">Total</td>${ap3(ta, tr)}</tr>`;
+        return { rows, n: Object.keys(g).length + 2, ta, tr }; });
+      const totN = ctsAp.reduce((t, c) => t + c.n, 0); const izq = [], der = []; let acc = 0;
+      ctsAp.forEach(c => { if (!der.length && (acc + c.n / 2 <= totN / 2 || !izq.length)) { izq.push(c); acc += c.n; } else der.push(c); });
+      const TA = ctsAp.reduce((t, c) => t + c.ta, 0), TR = ctsAp.reduce((t, c) => t + c.tr, 0);
+      const tabAp = arr => `<table class="tbl-compacta"><thead><tr><th>Cuenta · período</th><th class="num">Aportes</th><th class="num">Retiros</th><th class="num">Neto</th></tr></thead><tbody>${arr.map(c => c.rows).join('')}</tbody></table>`;
       const cAp = `<div class="card" style="margin-top:14px">
         <div class="section-title" style="font-size:14px;margin-bottom:10px">Aportes y retiros de capital</div>
-        <div class="table-wrap"><table class="tbl-compacta"><thead><tr><th>Cuenta · período</th><th class="num">Aportes</th><th class="num">Retiros</th><th class="num">Neto</th></tr></thead><tbody>
-        ${filasAp || '<tr><td colspan="4" style="color:var(--text3)">Sin aportes registrados</td></tr>'}
-        </tbody></table></div>
+        ${ctsAp.length ? `<div style="display:grid;grid-template-columns:${der.length ? 'minmax(0,1fr) minmax(0,1fr)' : '1fr'};gap:12px;align-items:start">
+          <div class="table-wrap">${tabAp(izq)}</div>${der.length ? `<div class="table-wrap">${tabAp(der)}</div>` : ''}</div>
+        <table class="tbl-compacta" style="margin-top:8px"><tbody><tr style="${T}"><td>Total de todas las cuentas</td>${ap3(TA, TR)}</tr></tbody></table>`
+          : '<p style="color:var(--text3);font-size:12px">Sin aportes registrados</p>'}
         <p style="color:var(--text3);font-size:10px;margin-top:6px">Los años anteriores van en un renglón por año; ${ANIO}, un renglón por mes. Incluye las incorporaciones (aporte inicial de una cuenta).</p>
       </div>`;
       // v248 — "desde el inicio de los registros" se unió con "saldo al cierre de cada año" (Timoteo, 26/10): queda una sola tabla.
@@ -14768,7 +14829,7 @@ async function verFichaAuto(id) {
     <title>Ficha - ${auto.nombre}</title>
     <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
     <style>
-      @page { size:A4 portrait; margin:10mm; }
+      @page { size:A4 portrait; margin:10mm 10mm 12mm; @top-center{content:"";} @bottom-center{content:counter(page);font-size:9px;color:#888;font-family:Helvetica,Arial,sans-serif;} }   /* v253 — sin encabezado ni pie del navegador, como los informes */
       body { font-family:'DM Sans',sans-serif; background:#fff; color:#111; max-width:680px; margin:0 auto; padding:28px; position:relative; }
       .header { border-bottom:3px solid ${col}; padding-bottom:12px; margin-bottom:18px; }
       h1 { font-family:'DM Serif Display',serif; font-size:27px; color:#111; margin:0 0 2px; }
@@ -14787,7 +14848,7 @@ async function verFichaAuto(id) {
       .print-btn { background:${col}; color:#fff; border:none; padding:10px 24px; border-radius:6px; cursor:pointer; font-size:13px; position:absolute; top:32px; right:32px; }
       @media print { .print-btn { display:none; } }
     </style></head><body>
-    <button class="print-btn" onclick="window.print()">⬇ Guardar PDF</button>
+    <button class="print-btn" onclick="window.print()">🖨 Imprimir</button>
     <div style="text-align:center;margin-bottom:18px">
       <img src="${OFFIDA_LOGO}" style="height:74px;width:auto">
       <div style="font-family:'DM Serif Display',serif;font-size:25px;letter-spacing:5px;color:#A8842F;margin-top:1px">OFFIDA</div>
@@ -15705,16 +15766,39 @@ async function hidratarBancosHist() {
        carga en Bancos pero el Historial nunca lo muestra (caso BNY Miami Beach Offida 2025) y encima el total
        por titular no cerraría contra el total general. */
     let nroLibre = BANCOS_HIST_DATA.reduce((mx, b) => Math.max(mx, Number(b.nro) || 0), 0);
+    /* v252 — MATCH SIN DUPLICAR (Timoteo, 27/10: bancos de JC, FC y M 2024–2025 contra la solapa PATRIMONIO). Si el
+       nombre de la base no es idéntico al del hardcode se buscaba al vuelo una cuenta nueva y se duplicaba el saldo:
+       "CHASE Miami Beach Offida - 7535" (base) = "CHASE Miami Offida - 7535" (hardcode), "BNY New England - 3012" =
+       "BNY New England". Ahora, si no hay nombre igual, se busca por el número de cuenta del final (mismo banco) o, si
+       la del hardcode no tiene número, por el nombre sin el número. La 1002 de JP Morgan no se pega a la 7335 (tienen
+       números distintos). */
+    const _nroCta = s => { const m = String(s || '').match(/(\d{3,5})\D*$/); return m ? m[1] : null; };
+    const _base = s => _n(String(s || '').replace(/\s*-\s*[\d\/ ]+$/, ''));
+    const _primera = s => _n(s).split(' ')[0];
+    const _buscarH = nom => {
+      let h = porNombre[_n(nom)]; if (h) return h;
+      const k = _nroCta(nom);
+      if (k) { const c1 = BANCOS_HIST_DATA.filter(b => _nroCta(b.nombre) === k && _primera(b.nombre) === _primera(nom)); if (c1.length === 1) return c1[0]; }
+      const c2 = BANCOS_HIST_DATA.filter(b => !_nroCta(b.nombre) && _base(b.nombre) === _base(nom)); if (c2.length === 1) return c2[0];
+      return null; };
+    // ¿Este nro ya está imputado a algún titular en ese año? (el hardcode trae la sucesión: hasta 2025 las cuentas
+    // de JC son de JC aunque hoy la base diga FC). Si ya lo está, NO se agrega al titular de hoy: eso duplicaba
+    // en FC 2024–2025 todo lo de JC.
+    const _yaImp = (nro, y) => Object.keys(BANCOS_ATTR).find(t => ((BANCOS_ATTR[t] || {})[y] || {})[nro]);
     Object.values(cierre).forEach(m => {
       const c = cuenta[m.banco_id]; if (!c) return;
-      let h = porNombre[_n(c.nombre)];
+      let h = _buscarH(c.nombre);
       if (!h) {
         h = { nro: ++nroLibre, nombre: c.nombre, titular: c.titular || '', pais: c.pais || '', byY: {} };
         BANCOS_HIST_DATA.push(h); porNombre[_n(c.nombre)] = h;
         sinMatch.add(c.nombre + ' (agregada al historial con nro ' + h.nro + ')');
       }
-      if (h.titular) { const A = (BANCOS_ATTR[h.titular] = BANCOS_ATTR[h.titular] || {});
-        (A[String(m.anio)] = A[String(m.anio)] || {})[h.nro] = 1; }
+      { const y = String(m.anio);
+        if (!_yaImp(h.nro, y)) {
+          // la 1002 va con el titular que ese año tenía la 7335 (son una sola cuenta, el bloque de JC hasta 2025)
+          let t = h.titular;
+          if (_jpmParte(h) === '1002') { const h7 = BANCOS_HIST_DATA.find(b => _jpmParte(b) === '7335'); const t7 = h7 && _yaImp(h7.nro, y); if (t7) t = t7; }
+          if (t) { const A = (BANCOS_ATTR[t] = BANCOS_ATTR[t] || {}); (A[y] = A[y] || {})[h.nro] = 1; } } }
       const u = bancoMovUSD(m);
       h.byY[String(m.anio)] = { i: u.inv, c: u.cash, r: u.cred, n: u.neto };
       (_bancosHidratados[m.anio] = _bancosHidratados[m.anio] || {})[h.nro] = m.mes;
@@ -18153,7 +18237,7 @@ async function verFichaSociedad(id, ev) {
     <title>Ficha - ${soc.nombre}</title>
     <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
     <style>
-      @page { size:A4 portrait; margin:10mm; }
+      @page { size:A4 portrait; margin:10mm 10mm 12mm; @top-center{content:"";} @bottom-center{content:counter(page);font-size:9px;color:#888;font-family:Helvetica,Arial,sans-serif;} }   /* v253 — sin encabezado ni pie del navegador, como los informes */
       body { font-family:'DM Sans',sans-serif; background:#fff; color:#111; max-width:680px; margin:0 auto; padding:22px; position:relative; }
       .header { border-bottom:3px solid ${col}; padding-bottom:10px; margin-bottom:14px; }
       h1 { font-family:'DM Serif Display',serif; font-size:27px; color:#111; margin:0 0 2px; }
@@ -18173,7 +18257,7 @@ async function verFichaSociedad(id, ev) {
       .print-btn { background:${col}; color:#fff; border:none; padding:10px 24px; border-radius:6px; cursor:pointer; font-size:13px; position:absolute; top:24px; right:24px; }
       @media print { .print-btn { display:none; } }
     </style></head><body>
-    <button class="print-btn" onclick="window.print()">⬇ Guardar PDF</button>
+    <button class="print-btn" onclick="window.print()">🖨 Imprimir</button>
     <div style="text-align:center;margin-bottom:10px">
       <img src="${OFFIDA_LOGO}" style="height:74px;width:auto">
       <div style="font-family:'DM Serif Display',serif;font-size:25px;letter-spacing:5px;color:#A8842F;margin-top:1px">OFFIDA</div>
@@ -19363,7 +19447,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20261027-252';
+const APP_VERSION = '20261028-253';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
