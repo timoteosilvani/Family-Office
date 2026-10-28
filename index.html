@@ -10163,10 +10163,13 @@ async function _exportarPDF(opt) {
       for (var i = 0; i < hojas.length; i++) {
         var el = hojas[i], extra = 0;
         if (i === 0 && hdr && !el.classList.contains('pgbreak')) { var cs = getComputedStyle(hdr); extra = alto(hdr) + parseFloat(cs.marginTop || 0) + parseFloat(cs.marginBottom || 0); }
-        for (var k = 0; k < 8; k++) { var h = alto(el); if (h + extra <= H) break;
-          var z = (parseFloat(el.style.zoom) || 1) * (H - extra) / h * 0.99; el.style.zoom = Math.max(0.6, Math.floor(z * 1000) / 1000);
+        /* v251 — la primera hoja se ajusta contra 88 % del alto (Timoteo, 27/10: en su Chrome la impresión sale ~7 % más
+           alta que lo que se mide en la ventana y "El mes en breve" pasaba a la hoja 2). */
+        var Hf = (i === 0) ? (275 * 96 / 25.4) * 0.88 : H;
+        for (var k = 0; k < 8; k++) { var h = alto(el); if (h + extra <= Hf) break;
+          var z = (parseFloat(el.style.zoom) || 1) * (Hf - extra) / h * 0.99; el.style.zoom = Math.max(0.6, Math.floor(z * 1000) / 1000);
           if (parseFloat(el.style.zoom) <= 0.6) break; }
-        if (alto(el) + extra > H) { el.style.breakInside = 'auto'; el.style.pageBreakInside = 'auto'; }
+        if (alto(el) + extra > Hf) { el.style.breakInside = 'auto'; el.style.pageBreakInside = 'auto'; }
         /* v250 — la PRIMERA hoja fija nunca es inseparable (Timoteo, 26/10: en su Chrome la hoja 1 del mensual de FC
            seguía saliendo vacía aunque acá entraba). Lo que se mide en la ventana y lo que el navegador arma al imprimir
            pueden diferir unos px; si difieren, ahora a lo sumo el último cuadro pasa a la hoja 2, nunca queda la hoja 1
@@ -10958,7 +10961,7 @@ const _CHQ_ALIAS = {
   olleros1890:'olleros1900', keycolonia602:'keycolony353', coraltower302:'coral302', arcos1440piso12052c:['arcos1440p12','arcos4b'], oceana1104s:'oceana1102',
   // v210 — cuentas de años viejos, equivalencias de Timoteo (22/09)
   itau:'itau4386us9610', hsbc:['galicabb10262','galiciabb10262','galicabb','galiciabb'],
-  chasemiamioffida:'chasemiamibeachoffida7535', bnyfcfccyacfranc:'bnyhermanos2618', arcos:'arcos1440p12',   // v220 — el bloque "Arcos" del COMPLETO es Arcos 1440 p12, NO Arcos 4B (son dos propiedades distintas) fontainebleau3405:'fontainebleau3405tresor',
+  chasemiamioffida:'chasemiamibeachoffida7535', bnyfcfccyacfranc:'bnyhermanos2618', arcos:'arcos1440p12',   // v251 — por año: hasta 2021 "Arcos" es Arcos 4B (ver _arcos en _chqDiferencias); desde 2022, la 1440 p12. fontainebleau3405:'fontainebleau3405tresor',
   // v214 — COMPLETO 2020-2021 "BANK OF AMERICA LATAM" = en la app "BNY (LATAM) - 1875" (el crédito de 1.850.000 está cargado ahí).
   // Sin el alias, la regla de "empieza igual" lo pegaba con BANK OF AMERICA - 9764.
   bankofamericalatam:'bnylatam1875',
@@ -10969,7 +10972,7 @@ const _CHQ_ALIAS = {
   // v223 — estaba adentro del comentario de v220 (línea de arcos) y no regía
   fontainebleau3405:'fontainebleau3405tresor',
   // v224 — en el COMPLETO 2026 la caja de JC se llama "CAJA CHICA Y GRANDE" (fila 70)
-  cajachicaygrande:'cajajc',
+  cajachicaygrande:'cajajc', cajajc:'cajachicaygrande',   // v251 — en los COMPLETO viejos la caja es "CAJA JC" y en la app "CAJA CHICA Y GRANDE" (Timoteo, 27/10)
   // v239 — con la 1002 separada, el bloque viejo "JP MORGAN (JCFC Inc)" (sin número) es la 7335
   jpmorganjcfcinc:'jpmorganjcfcinc7335',
   // v244 — en el COMPLETO el bloque se llama "JP MORGAN (JCFC Inc) - 7335 - 1002"; su cash 7335 y su credit van a la 7335
@@ -11345,7 +11348,11 @@ async function _chqDiferencias(Y, M) {
         if (Math.abs(av) > TOL) push(key, { nom: e.nombre, nro: e.nro, c: 0, a: av, d: -av, est: 'sobra en la app · no está en el COMPLETO' }); }); });
   };
   // propiedades
-  comparar(agrupar(det.prop, n => _chqMatch(n, A.B.props), n => ({ ...((det.prop[n] || {})[M] || {}) }), 'Propiedad'),
+  /* v251 — "Arcos" (COMPLETO 2020–2025): hasta 2021 es Arcos 4B (vendida el 23/11/2021, Timoteo 27/10); desde 2022 el
+     bloque con ese nombre es Arcos 1440 p12. */
+  const _arcos = n => { if (_chqN(n) !== 'arcos') return null;
+    const want = Y <= 2021 ? 'arcos4b' : 'arcos1440p12'; return (A.B.props || []).find(x => _chqN(x.nombre) === want) || null; };
+  comparar(agrupar(det.prop, n => _arcos(n) || _chqMatch(n, A.B.props), n => ({ ...((det.prop[n] || {})[M] || {}) }), 'Propiedad'),
     A.B.props, A.prop, [['renta','renta','Propiedades|renta'], ['gastos','gastos','Propiedades|gastos'], ['impuestos','impuestos','Propiedades|impuestos']]);
   // bancos (cada fila en su moneda → USD con el TC del mes)
   comparar(agrupar(det.banco, n => _chqMatch(n, A.B.bancos), n => {
@@ -11375,7 +11382,25 @@ async function _chqDiferencias(Y, M) {
   } else {
     comparar(Gpe, A.B.pe || [], A.pe, [['util','util','Private equity|utilidad'], ['ap','ap','Private equity|aportedecapital']]);
   }
-  Object.keys(res).forEach(k => { if (k !== '_noMatch') res[k].sort((x, y) => Math.abs(y.d) - Math.abs(x.d)); });
+  /* v251 — JP MORGAN SE COMPARA ENTERO (Timoteo, 27/10). En los COMPLETO viejos el bloque tiene un solo renglón de
+     cash (o el cash de la 1002 metido en el Invest), así que lo que en la app está repartido entre la 1002 y la 7335 daba
+     una diferencia en cada parte que se anulaba entre las dos. Ahora Inversión + Cash de las dos partes se suman: si
+     la suma cierra no hay diferencia; si no cierra, queda un solo renglón "JP Morgan (1002 + 7335)". El crédito sigue aparte. */
+  (() => { const esJ = x => /jpmorgan/.test(_chqN(x.nom)), ks = ['Bancos|invest', 'Bancos|cash'];
+    const J = []; ks.forEach(k => (res[k] || []).forEach(x => { if (esJ(x)) J.push(x); }));
+    if (!J.length) return;
+    ks.forEach(k => { if (res[k]) { res[k] = res[k].filter(x => !esJ(x)); if (!res[k].length) delete res[k]; } });
+    const c = J.reduce((t, x) => t + x.c, 0), a = J.reduce((t, x) => t + x.a, 0);
+    if (Math.abs(c - a) > TOL) push('Bancos|cash', { nom: 'JP MORGAN (JCFC Inc) · 1002 + 7335 (inversión + cash)', nro: 2, c, a, d: c - a, est: estado(c, a) }); })();
+  /* v251 — APORTES A SOCIEDADES DE LOS AÑOS VIEJOS (Timoteo, 27/10): hasta 2022 el COMPLETO no llevaba todos los aportes a
+     las sociedades (Vannier ene-2020, Ashland y Rheinbeck ene-2022 están en la app y no en el COMPLETO). Lo importante es
+     que estén en los COMPLETO recientes, así que hasta 2022 un aporte que sólo tiene la app es informativo: no cuenta
+     como diferencia. */
+  res._info = {};
+  if (Y <= 2022 && res['Sociedades|aportes']) {
+    res['Sociedades|aportes'].forEach(x => { if (Math.abs(x.c) < 0.5) { x.info = true; x.est = 'el COMPLETO de ' + Y + ' no llevaba este aporte · informativo';
+      res._info['Sociedades|aportes'] = (res._info['Sociedades|aportes'] || 0) + x.a; } }); }
+  Object.keys(res).forEach(k => { if (k !== '_noMatch' && k !== '_info') res[k].sort((x, y) => Math.abs(y.d) - Math.abs(x.d)); });
   return res;
 }
 async function renderChqCompleto() {
@@ -11394,8 +11419,10 @@ async function renderChqCompleto() {
   const claves = [];
   CHQ_ANEXOS.forEach(A => A.filas.forEach(f => claves.push({ grupo:A.grupo, k:A.grupo + '|' + f.et, lbl:f.lbl })));
   const TOL = 1;
+  // v251 — lo informativo (aportes viejos a sociedades que el COMPLETO no llevaba) se descuenta del lado de la app
+  const _Dm = {}, _inf = (m, k) => (((_Dm[m] || {})._info) || {})[k] || 0;
   const difMes = m => claves.reduce((n, c) =>
-    n + (Math.abs((_cmp.meses[m][c.k] || 0) - (app[m][c.k] || 0)) > TOL ? 1 : 0), 0);
+    n + (Math.abs((_cmp.meses[m][c.k] || 0) - ((app[m][c.k] || 0) - _inf(m, c.k))) > TOL ? 1 : 0), 0);
   const hayDato = m => claves.some(c => Math.abs(_cmp.meses[m][c.k] || 0) > 0.005 || Math.abs(app[m][c.k] || 0) > 0.005);
 
   const hayApp = m => claves.some(c => Math.abs(app[m][c.k] || 0) > 0.005);
@@ -11414,6 +11441,8 @@ async function renderChqCompleto() {
     </select></label>`;
   if (!window._chqMes || !conDato.includes(window._chqMes)) window._chqMes = conDato.length ? conDato[conDato.length - 1] : 1;
   const M = window._chqMes;
+  _chqDetApp = { anio: null, p: null };
+  for (const m of conDato) { try { _Dm[m] = await _chqDiferencias(Y, m); } catch (e) { console.warn('diferencias por activo:', e.message); } }
 
   const F = v => (v < 0 ? '-' : '') + '$' + fmt(Math.abs(v));
   const chips = conDato.map(m => { const d = difMes(m);
@@ -11426,8 +11455,7 @@ async function renderChqCompleto() {
   /* v223 — el detalle por activo se vuelve a leer de la base en cada render, igual que el cuadro de arriba
      (_chqAppMeses). Antes quedaba guardado la primera vez que se abría el año: después de correr un SQL,
      "Dónde está la diferencia" seguía mostrando números viejos que el cuadro de arriba ya no tenía. */
-  _chqDetApp = { anio: null, p: null };
-  try { D = await _chqDiferencias(Y, M); } catch (e) { console.warn('diferencias por activo:', e.message); }
+  D = _Dm[M] || null;   // v251 — ya calculado arriba para todos los meses (los chips descuentan lo informativo)
   const Fd = v => (v < 0 ? '-' : '') + '$' + fmt(Math.abs(v));
   const popDe = k => { const L = D && D[k]; if (!L || !L.length) return '';
     return '<span class="coment-pop"><b>Dónde:</b><br>' + L.slice(0, 6).map(x => x.nom + ': ' + (x.d > 0 ? '+' : '') + Fd(x.d) + ' · ' + x.est).join('<br>')
@@ -11459,10 +11487,10 @@ async function renderChqCompleto() {
         <tbody>${grupos.map(g => `
           <tr style="background:var(--bg3)"><td></td><td colspan="4" style="font-weight:600;font-size:11px;color:var(--gold)">${g}</td></tr>
           ${claves.filter(c => c.grupo === g).map(c => {
-            const a = _cmp.meses[M][c.k] || 0, b = app[M][c.k] || 0, d = a - b, ok = Math.abs(d) <= TOL;
+            const inf = _inf(M, c.k), a = _cmp.meses[M][c.k] || 0, b = (app[M][c.k] || 0) - inf, d = a - b, ok = Math.abs(d) <= TOL;
             return `<tr>
               <td style="text-align:center">${ok?'<span style="color:var(--esp)">●</span>':'<span style="color:var(--usa)">●</span>'}</td>
-              <td>${c.lbl}</td><td class="num">${F(a)}</td><td class="num">${F(b)}</td>
+              <td>${c.lbl}${Math.abs(inf) > 0.5 ? `<div style="font-size:10px;color:var(--text3)">sin ${F(inf)} informativo (abajo)</div>` : ''}</td><td class="num">${F(a)}</td><td class="num">${F(b)}</td>
               <td class="num ${!ok && popDe(c.k) ? 'coment-tooltip has-coment' : ''}" style="font-weight:600;color:${ok?'var(--esp)':'var(--usa)'}">${ok?'0':(d>0?'+':'')+F(d)}${!ok ? popDe(c.k) : ''}</td></tr>`;
           }).join('')}`).join('')}
         </tbody></table></div>
@@ -11482,8 +11510,8 @@ async function renderChqCompleto() {
       const bloques = G.filter(([k]) => D[k] && D[k].length).map(([k, t]) => `
         <tr style="background:var(--bg3)"><td colspan="5" style="font-weight:600;font-size:11px;color:var(--gold)">${t}</td></tr>
         ${D[k].map(x => `<tr><td>${x.nro != null ? x.nro + ' · ' : ''}${x.nom}</td><td class="num">${Fd(x.c)}</td><td class="num">${Fd(x.a)}</td>
-          <td class="num" style="font-weight:600;color:var(--usa)">${(x.d > 0 ? '+' : '') + Fd(x.d)}</td>
-          <td style="font-size:11px;color:${/falta/.test(x.est) ? 'var(--usa)' : 'var(--gold)'}">${x.est}</td></tr>`).join('')}`).join('');
+          <td class="num" style="font-weight:600;color:${x.info ? 'var(--text3)' : 'var(--usa)'}">${(x.d > 0 ? '+' : '') + Fd(x.d)}</td>
+          <td style="font-size:11px;color:${x.info ? 'var(--text3)' : (/falta/.test(x.est) ? 'var(--usa)' : 'var(--gold)')}">${x.est}</td></tr>`).join('')}`).join('');
       return `<div class="card" style="margin-top:14px">
         <div class="section-title" style="font-size:13px;margin:0 0 4px">Dónde está la diferencia · ${LK_MESNOM[M-1]} ${Y}</div>
         <p style="font-size:11px;color:var(--text3);margin:0 0 10px">Activo por activo, bloque por bloque del COMPLETO contra lo cargado en la app.
@@ -13397,8 +13425,12 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
       .forEach(a => H.push({ f: a.fecha_venta, t: `Venta del auto <b>${a.nombre}</b>${Number(a.valor_venta) > 0.5 ? ' por ' + $h(Number(a.valor_venta) * share(a)) : ''}.` }));
     pe.forEach(p => { const v = ((peDet[p.id] || {}).apPer || 0) * share(p); if (v > 0.5) H.push({ f: PER_FIN, t: `Aporte de capital a <b>${p.nombre}</b> (private equity): ${$h(v)}.` }); });
     _peC.filter(x => x.c.finalizada && _enPer(x.p.fecha_cierre)).forEach(x => H.push({ f: x.p.fecha_cierre, t: `Terminó la posición en <b>${x.p.nombre}</b>${(Number(x.p.traspaso_usd) || 0) > 0.5 ? ' (traspasada' + (x.p.traspaso_a ? ' a ' + x.p.traspaso_a : '') + ')' : ''}.` }));
+    // v252 — una incorporación vinculada con el retiro de otra cuenta propia es un traspaso, no plata nueva
+    const _apTodos = [].concat(...bancosDietz.map(d => (d.aportes || []).map(a => ({ a, d }))));
     bancosDietz.forEach(d => (d.aportes || []).filter(a => a.tipo === 'incorporacion' && _enPer(a.fecha))
-      .forEach(a => H.push({ f: a.fecha, t: `Ingresaron ${$h(a.monto)} a <b>${d.nombre}</b> (incorporación).` })));
+      .forEach(a => { const par = a.vinculo_id ? _apTodos.find(o => o.a.vinculo_id === a.vinculo_id && o.a.id !== a.id) : null;
+        H.push({ f: a.fecha, t: par ? `Pasaron ${$h(a.monto)} de <b>${par.d.nombre}</b> a <b>${d.nombre}</b> (traspaso entre cuentas propias).`
+                                    : `Ingresaron ${$h(a.monto)} a <b>${d.nombre}</b> (incorporación).` }); }));
     bancosDietz.filter(d => !d.oper).forEach(d => { const dc = (d.cEnd || 0) - (d.cBeg || 0);
       if (Math.abs(dc) > 50000) H.push({ f: PER_FIN, t: dc > 0 ? `Se tomó crédito en <b>${d.nombre}</b>: la deuda subió ${$h(dc)}.` : `Se pagó crédito en <b>${d.nombre}</b>: la deuda bajó ${$h(dc)}.` }); });
     return H.sort((x, y) => String(x.f).localeCompare(String(y.f)));
@@ -15513,6 +15545,13 @@ async function _hidratarArray(tabla, arr, campoActivo) {
     if (h.vendida) {
       const ay = r.fecha_venta ? Number(String(r.fecha_venta).slice(0,4)) : null;
       if (ay) HIST_ANIOS.filter(y => y > ay).forEach(y => { delete h.valores[String(y)]; });
+      /* v251 — VENDIDA SIN FECHA DE VENTA (Timoteo, 27/10: Colegiales, vendida en 2022). La base trae los años
+         posteriores en 0 (no vacíos), así que el "último año del histórico" daba 2026: Colegiales seguía sumando sus
+         480.000 en 2022 y el valor de venta en rojo y cursiva caía en 2026. Ahora los años en 0 después del último
+         valor se sacan: el año de venta es el último con valor (2022), como en el hardcode. Vale igual para autos. */
+      else { const conV = Object.keys(h.valores).filter(k => (Number(h.valores[k]) || 0) > 0).map(Number);
+        const ult = conV.length ? Math.max(...conV) : null;
+        if (ult != null) Object.keys(h.valores).forEach(k => { if (Number(k) > ult) delete h.valores[k]; }); }
     }
     if (r[campoActivo] === false) h.inactivo = true;
     tocados++;
@@ -19324,7 +19363,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20261027-251';
+const APP_VERSION = '20261027-252';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
