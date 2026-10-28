@@ -3485,6 +3485,9 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
           <button class="btn-secondary" onclick="nuevaAlerta()">+ Nueva Alerta</button>
         </div>
 
+        <!-- v254 — PARA REVISAR (sólo administrador): avisos de datos que conviene mirar antes de mandar informes -->
+        <div id="alert-revisar" style="margin-bottom:18px"></div>
+
         <!-- KPIs alertas -->
         <div class="grid-4" style="margin-bottom:20px" id="kpi-alertas">
           <div class="kpi-card"><div class="kpi-accent usa"></div>
@@ -6056,7 +6059,8 @@ function renderAutosHist() {
 // ============================================
 const BANCOS_HIST_DATA = [
   {nro:1,nombre:"SANTANDER RIO - 007/1",titular:"FC",pais:"ARG",byY:{"2018":{i:76076,c:0,r:0,n:76076},"2019":{i:26046,c:0,r:0,n:26046},"2020":{i:21331,c:0,r:0,n:21331},"2021":{i:44645,c:0,r:0,n:44645},"2022":{i:0,c:20694.32,r:0,n:20694.32},"2023":{i:4170,c:0,r:0,n:4170},"2024":{i:251935,c:0,r:0,n:251935},"2025":{i:38417,c:0,r:0,n:38417},"2026":{i:38214,c:31202,r:0,n:69417}}},
-  {nro:2,nombre:"JP MORGAN (JCFC Inc) - 7335",titular:"FC",pais:"USA",byY:{"2018":{i:3450439,c:0,r:0,n:3450439},"2019":{i:1080938,c:0,r:0,n:1080938},"2020":{i:967908,c:0,r:410000,n:557908},"2021":{i:942433,c:0,r:410000,n:532433},"2022":{i:696792,c:74033,r:410000,n:360825},"2023":{i:788813,c:0,r:0,n:788813},"2024":{i:610883,c:0,r:0,n:610883},"2025":{i:236303,c:0,r:0,n:236303},"2026":{i:243814,c:22455,r:0,n:266269}}},
+  /* v254 — JP Morgan antes de 2024, como los COMPLETO rehechos (26/10): i = lo de la 1002 (inversión + su cash), c = cash 7335, r = crédito. Dic-21 y dic-23 cambiaron. */
+  {nro:2,nombre:"JP MORGAN (JCFC Inc) - 7335",titular:"FC",pais:"USA",byY:{"2018":{i:3450439,c:0,r:0,n:3450439},"2019":{i:1080938,c:0,r:0,n:1080938},"2020":{i:956936.65,c:10971.19,r:410000,n:557907.84},"2021":{i:879107.85,c:36340,r:410000,n:505447.85},"2022":{i:726386,c:44439,r:410000,n:360825},"2023":{i:788813.29,c:18572.03,r:0,n:807385.32},"2024":{i:610883,c:0,r:0,n:610883},"2025":{i:236303,c:0,r:0,n:236303},"2026":{i:243814,c:22455,r:0,n:266269}}},
   {nro:3,nombre:"BNY (JCFC Inc) - 8564",titular:"FC",pais:"USA",byY:{"2018":{i:1920479,c:0,r:0,n:1920479},"2019":{i:1354613,c:0,r:0,n:1354613},"2020":{i:1177907,c:0,r:0,n:1177907},"2021":{i:1096502,c:0,r:0,n:1096502},"2022":{i:979345,c:10008,r:0,n:989353},"2023":{i:330260,c:0,r:0,n:330260},"2024":{i:228381,c:0,r:0,n:228381},"2025":{i:181103,c:0,r:0,n:181103},"2026":{i:181820,c:1092,r:0,n:182912}}},
   {nro:4,nombre:"BANK OF AMERICA - 9764",titular:"FC",pais:"USA",byY:{"2018":{i:19101,c:0,r:0,n:19101},"2019":{i:9586,c:0,r:0,n:9586},"2020":{i:6634,c:0,r:0,n:6634},"2021":{i:49721,c:0,r:0,n:49721},"2022":{i:0,c:17733,r:0,n:17733},"2023":{i:50678,c:0,r:0,n:50678},"2024":{i:44886,c:0,r:0,n:44886},"2025":{i:79751,c:0,r:0,n:79751},"2026":{i:0,c:61433,r:0,n:61433}}},
   {nro:5,nombre:"ITAU - $ 4386 - US$ 9610",titular:"FC",pais:"URU",byY:{"2018":{i:51671,c:0,r:0,n:51671},"2019":{i:39684,c:0,r:0,n:39684},"2020":{i:657393,c:0,r:0,n:657393},"2021":{i:120660,c:0,r:0,n:120660},"2022":{i:0,c:61000.04,r:0,n:61000.04},"2023":{i:274611,c:0,r:0,n:274611},"2024":{i:379936,c:0,r:0,n:379936},"2025":{i:33020,c:0,r:0,n:33020},"2026":{i:0,c:44162,r:0,n:44162}}},
@@ -12781,16 +12785,16 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
     if (x.det) {   // v245 — con linkeo vigente: el detalle de todo lo cobrado y pagado (ver etapa D)
       const ks = Object.keys(x.det).filter(k => x.det[k].cobro > 0.5 || x.det[k].pago > 0.5);
       return ks.map(k => ({ nom:k, ...x.det[k] })).sort((a,b) => (b.cobro+b.pago) - (a.cobro+a.pago))
-        .map(d => _subFila(d.nom, { 4: d.cobro>0.5 ? `<span style="color:var(--esp)">+${$m(d.cobro).slice(1)}</span>` : '',
-                                     5: d.pago>0.5 ? `<span style="color:var(--usa)">−${$m(d.pago).slice(1)}</span>` : '' }, nCols)).join('');
+        .map(d => _subFila(d.nom, { 5: d.cobro>0.5 ? `<span style="color:var(--esp)">+${$m(d.cobro).slice(1)}</span>` : '',
+                                     6: d.pago>0.5 ? `<span style="color:var(--usa)">−${$m(d.pago).slice(1)}</span>` : '' }, nCols)).join('');
     }
     const ids = Object.keys(x.lk).filter(id => x.lk[id].cobro > 0.5 || x.lk[id].pago > 0.5);
     if (!ids.length) return '';
     return ids
       .map(id => ({ nom:(_propById[id]||{}).nombre||'—', ...x.lk[id] }))
       .sort((a,b) => (b.cobro+b.pago) - (a.cobro+a.pago))
-      .map(d => _subFila(d.nom, { 4: d.cobro>0.5 ? `<span style="color:var(--esp)">+${$m(d.cobro).slice(1)}</span>` : '',
-                                   5: d.pago>0.5 ? `<span style="color:var(--usa)">−${$m(d.pago).slice(1)}</span>` : '' }, nCols)).join('');
+      .map(d => _subFila(d.nom, { 5: d.cobro>0.5 ? `<span style="color:var(--esp)">+${$m(d.cobro).slice(1)}</span>` : '',
+                                   6: d.pago>0.5 ? `<span style="color:var(--usa)">−${$m(d.pago).slice(1)}</span>` : '' }, nCols)).join('');
   };
   // Cuentas de inversion: bajo cada cuenta, los aportes y retiros del mes, debajo de "Aportes netos".
   const _detCap = (x, nCols) => {
@@ -12800,6 +12804,11 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
   };
 
   const _colsOper = [
+    /* v254 — VARIACIÓN DEL MES (Timoteo, 28/10): cierre del mes − cierre del anterior, para no tener que restar. La fila
+       se lee: variación = cobrado − pagado − gastos personales. */
+    { val:x=>{ const v=x.c-x.a; return Math.abs(v)<0.5?'—':_dash(v); },
+      css:x=>{ const v=x.c-x.a; return 'color:'+(Math.abs(v)<0.5?'var(--text3)':col(v))+';font-weight:600'; },
+      tot:g=>_dash(g.reduce((s,x)=>s+x.c-x.a,0)), sgn:g=>g.reduce((s,x)=>s+x.c-x.a,0) },
     { val:x=>x.cobro>0.5?'<span style="color:var(--esp)">+'+$m(x.cobro).slice(1)+'</span>':'—',
       tot:g=>{const v=g.reduce((s,x)=>s+x.cobro,0); return v>0.5?'+'+$m(v).slice(1):'—';},
       sgn:g=>g.reduce((s,x)=>s+x.cobro,0) },
@@ -12914,8 +12923,8 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
           ${_alto.map(x => `${x.b.nombre} <b>${x.personales > 0 ? '−' : '+'}${$m(Math.abs(x.personales)).slice(1)}</b>`).join(' · ')}.
           Puede faltar un linkeo o una transferencia.</div>` : ''; })()}
       <div class="table-wrap"><table class="tbl-compacta" style="table-layout:fixed">
-        ${_COLG(['Cobrado','Pagado','Gastos personales'])}
-        <thead><tr>${[..._hdrBase,'Cobrado','Pagado','Gastos personales'].map((h,i)=>`<th${i?' class="num"':''}>${h}</th>`).join('')}</tr></thead>
+        ${_COLG(['Variación','Cobrado','Pagado','Gastos personales'])}
+        <thead><tr>${[..._hdrBase,esMensual ? 'Variación del mes' : 'Variación','Cobrado','Pagado','Gastos personales'].map((h,i)=>`<th${i?' class="num"':''}>${h}</th>`).join('')}</tr></thead>
         <tbody>${_tablaCuentas(_oper, _colsOper, _detProp).join('')}</tbody>
       </table></div>
       ${_totBancos}
@@ -15468,7 +15477,58 @@ function _alertasActivas() {
   return alertasData.filter(a => a.activa !== false);
 }
 
+/* v254 — PARA REVISAR (Timoteo, 28/10: "desarrollá esto que me gusta"). Avisos que juntan, en un solo lugar y fuera de los
+   informes del cliente, lo que conviene mirar antes de mandar un informe. Se calculan en vivo con la base:
+   · propiedades de renta sin contrato vigente hoy;
+   · propiedades y autos vendidos sin fecha de venta;
+   · cuentas activas sin el saldo del último mes cerrado, y cuentas en 0 los últimos dos meses (¿dar de baja?);
+   · aportes y retiros de USD 250.000 o más del año sin detalle (el detalle es lo que lee el cliente en "Lo más importante").
+   Los gastos personales grandes de las operativas siguen en el mensual (aviso en pantalla), porque salen del linkeo. */
+async function renderParaRevisar() {
+  const cont = document.getElementById('alert-revisar'); if (!cont) return;
+  cont.innerHTML = '<div class="card" style="font-size:12px;color:var(--text3)">Buscando cosas para revisar…</div>';
+  try {
+    const hoy = new Date(), Y = hoy.getFullYear(), Mc = hoy.getMonth() === 0 ? 12 : hoy.getMonth(), Yc = hoy.getMonth() === 0 ? Y - 1 : Y;
+    const hoyISO = hoy.toISOString().slice(0, 10);
+    const [pR, cR, aR, bR, mR, apR] = await Promise.all([
+      sb.from('propiedades').select('id,nombre,titular,tipo,activa,vendida,fecha_venta'),
+      sb.from('contratos_alquiler').select('propiedad_id,fecha_fin,activo').limit(5000),
+      sb.from('autos').select('id,nombre,titular,activo,vendido,fecha_venta'),
+      sb.from('bancos').select('id,nombre,titular,activo'),
+      sb.from('movimientos_bancos').select('banco_id,anio,mes,total_usd,neto_usd').in('anio', [Yc, Yc - 1]).limit(9000),
+      sb.from('aportes_bancos').select('*').gte('fecha', Y + '-01-01').limit(5000),
+    ]);
+    const props = (pR.data || []), contr = (cR.data || []), autos = (aR.data || []), bancos = (bR.data || []).filter(b => b.activo !== false);
+    const vig = new Set(contr.filter(c => c.activo !== false && (!c.fecha_fin || c.fecha_fin >= hoyISO)).map(c => c.propiedad_id));
+    const sinContrato = props.filter(p => p.tipo === 'R' && p.activa !== false && p.vendida !== true && p.titular !== 'MFL' && !vig.has(p.id));
+    const ventasSinFecha = props.filter(p => p.vendida === true && !p.fecha_venta).map(p => p.nombre)
+      .concat(autos.filter(a => a.vendido === true && !a.fecha_venta).map(a => a.nombre + ' (auto)'));
+    const mov = {}; (mR.data || []).forEach(m => { (mov[m.banco_id] = mov[m.banco_id] || {})[m.anio * 100 + m.mes] = Number(m.neto_usd ?? m.total_usd) || 0; });
+    const k1 = Yc * 100 + Mc, k0 = Mc === 1 ? (Yc - 1) * 100 + 12 : k1 - 1;
+    const sinSaldo = bancos.filter(b => b.titular !== 'MFL' && !(mov[b.id] && k1 in mov[b.id]));
+    const enCero = bancos.filter(b => mov[b.id] && k1 in mov[b.id] && k0 in mov[b.id] && Math.abs(mov[b.id][k1]) < 0.5 && Math.abs(mov[b.id][k0]) < 0.5);
+    const bNom = {}; (bR.data || []).forEach(b => bNom[b.id] = b.nombre);
+    const sinDet = (apR.data || []).filter(a => Math.abs(Number(a.monto) || 0) >= 250000 && !a.detalle);
+    const MES = ['', 'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+    const bloque = (tit, items, ayuda) => items.length ? `<div style="padding:8px 0;border-top:1px solid var(--border)">
+        <div style="font-weight:600;font-size:13px">${tit} <span style="color:var(--gold)">· ${items.length}</span></div>
+        <div style="font-size:12px;margin-top:3px">${items.join(' · ')}</div>
+        ${ayuda ? `<div style="font-size:11px;color:var(--text3);margin-top:2px">${ayuda}</div>` : ''}</div>` : '';
+    const html = [
+      bloque('Propiedades de renta sin contrato vigente', sinContrato.map(p => `${p.nombre} <span style="color:var(--text3)">(${p.titular})</span>`), 'Cargá o renová el contrato en Alquileres.'),
+      bloque('Vendidas sin fecha de venta', ventasSinFecha, 'Sin la fecha, el año de venta se toma del último año con valor.'),
+      bloque('Cuentas sin el saldo de ' + MES[Mc] + ' ' + Yc, sinSaldo.map(b => `${b.nombre} <span style="color:var(--text3)">(${b.titular})</span>`), 'Si el extracto es bimestral, está bien que falte.'),
+      bloque('Cuentas en 0 los últimos dos meses', enCero.map(b => b.nombre), '¿Se cerraron? Si es así, dalas de baja con su fecha de baja: siguen apareciendo en los informes anteriores.'),
+      bloque('Aportes y retiros de USD 250.000 o más sin detalle', sinDet.map(a => `${bNom[a.banco_id] || '—'} · ${String(a.fecha).slice(8, 10)}/${String(a.fecha).slice(5, 7)} · ${a.tipo} $${fmt(Math.round(Math.abs(Number(a.monto) || 0)))}`), 'El detalle es lo que lee el cliente en "Lo más importante" del semestral (por ejemplo, "venta de Oceana 1102").'),
+    ].join('');
+    cont.innerHTML = `<div class="card" style="border-color:${html ? 'var(--gold)' : 'var(--esp)'}">
+      <div style="display:flex;justify-content:space-between;align-items:baseline"><div style="font-weight:700;font-size:14px;color:${html ? 'var(--gold)' : 'var(--esp)'}">Para revisar antes de mandar informes</div>
+      <span style="font-size:11px;color:var(--text3)">sólo para vos · no sale en ningún informe</span></div>
+      ${html || '<div style="font-size:12px;color:var(--esp);margin-top:6px">Nada pendiente.</div>'}</div>`;
+  } catch (e) { cont.innerHTML = `<div class="card" style="font-size:12px;color:var(--usa)">Para revisar: ${e.message}</div>`; }
+}
 async function loadAlertas() {
+  renderParaRevisar();
   // Populate prop select in modal
   const props = window._propsCache || [];
   const sel = document.getElementById('na-prop');
@@ -19447,7 +19507,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20261028-253';
+const APP_VERSION = '20261028-254';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
