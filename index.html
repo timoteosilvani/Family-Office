@@ -9482,7 +9482,7 @@ async function renderRepCliente() {
   try {
     [B, D, Dp, contratos, movRub, apHist] = await Promise.all([
       _rsocBase(), _rsocAnio(Y), _rsocAnio(Y - 1),
-      sb.from('contratos_alquiler').select('propiedad_id,fecha_fin,activo,inquilino').limit(2000).then(r=>r.data||[], ()=>[]),
+      sb.from('contratos_alquiler').select('propiedad_id,fecha_inicio,fecha_fin,activo,inquilino').limit(2000).then(r=>r.data||[], ()=>[]),
       // v186 — rubros sueltos del año, para poder desglosar ingresos, gastos e
       // impuestos. Vienen en moneda nativa: se convierten con rubroPropUSD().
       sb.from('movimientos_propiedades').select('*').eq('anio', Y).limit(5000).then(r=>r.data||[], ()=>[]),
@@ -9492,10 +9492,12 @@ async function renderRepCliente() {
   } catch (e) { cont.innerHTML = `<div class="card" style="color:var(--usa)">No se pudieron leer los datos: ${e.message}</div>`; return; }
 
   const mio = x => _rcTit(x) === CLI;
-  const props  = B.props .filter(p => mio(p) && !_rcVendido(p, Y) && p.activa !== false);
-  const autos  = B.autos .filter(a => mio(a) && !_rcVendido(a, Y));
-  const bancos = B.bancos.filter(b => mio(b));
-  const pes    = B.pe    .filter(p => mio(p) && p.activo !== false);
+  /* v256 — titular DEL AÑO (Nordelta: JC hasta 2024) y una vendida en un año posterior sigue en los años de antes
+     aunque hoy esté inactiva (auditoría 30/10: Colegiales, vendida en 2022, faltaba en el patrimonial de 2021). */
+  const props  = B.props .map(p => conTitAnio(p, Y)).filter(p => mio(p) && !_rcVendido(p, Y) && (p.activa !== false || p.vendida === true));
+  const autos  = B.autos .map(a => conTitAnio(a, Y)).filter(a => mio(a) && !_rcVendido(a, Y));
+  const bancos = B.bancos.map(b => conTitAnio(b, Y)).filter(b => mio(b));   // v256 — titular del año
+  const pes    = B.pe    .map(p => conTitAnio(p, Y)).filter(p => mio(p) && p.activo !== false);
 
   // ── Valuación por tipo, en el año elegido y en el anterior
   const valProp = (arr, y) => arr.reduce((s,p) => s + (Number(p['valor_' + y]) || 0), 0);
@@ -9515,13 +9517,14 @@ async function renderRepCliente() {
     if (!d) return; renta += d.renta||0; gastos += d.gastos||0; imp += d.imp||0; });
   const gastosAuto = autos.reduce((s,a) => s + (D.auto[a.id] || (a.nro!=null ? D.autoNro[a.nro] : 0) || 0), 0);
   const neta = renta - gastos - imp;
+  const _mesesY = Y === new Date().getFullYear() ? Math.max(1, new Date().getMonth()) : 12;
   const yieldPct = vP > 0 ? (neta / vP * 100) : null;
 
   // ── Ocupación: contrato vigente al día de hoy
   // v253 — vigente a la fecha del informe (31/12 de un año cerrado), no a hoy
   const hoy = Y < new Date().getFullYear() ? Y + '-12-31' : new Date().toISOString().slice(0,10);
   const conContrato = new Set(contratos
-    .filter(c => c.activo !== false && (!c.fecha_fin || c.fecha_fin >= hoy))
+    .filter(c => c.activo !== false && (!c.fecha_fin || c.fecha_fin >= hoy) && (!c.fecha_inicio || String(c.fecha_inicio).slice(0, 10) <= hoy))   // v256 — y que ya haya empezado
     .map(c => c.propiedad_id));
   /* v248 — sólo las propiedades DE RENTA (Timoteo, 26/10: "1 alquilada y 6 sin contrato, ¿de dónde sale?"). Antes
      contaba todas, también las de uso propio (Martona 40, 11 de Septiembre…), que nunca tienen contrato. */
@@ -9710,7 +9713,8 @@ async function renderRepCliente() {
     return { ap, rend, den, pct: den > 0.5 ? rend / den * 100 : null };
   };
   const _bkDat = bancos.map(_bConNom).map(b => ({ b,   // v244 — "JP Morgan 7335 / 1002"
-      i: _cashD(Dp,b), credI: _crD(Dp,b),
+      // v256 — sin fila de diciembre del año anterior, el cierre del histórico (antes 0: todo el saldo parecía rendimiento)
+      i: (Dp.ban && Dp.ban[b.id]) ? _cashD(Dp,b) : (_bkCierre(bancos.find(o => o.id === b.id) || b, Y - 1) || 0), credI: _crD(Dp,b),
       c: _cashD(D,b),  cred:  _crD(D,b) }))
     .filter(x => Math.abs(x.i) > 0.5 || Math.abs(x.c) > 0.5)
     .map(x => ({ ...x, ...(x.b.es_operativa === true ? {} : _bkRend(x.b, x.i - x.credI, x.c - x.cred)) }));   // v246 — sobre el neto
@@ -9890,7 +9894,7 @@ async function renderRepCliente() {
     { n:'Autos',          color:TIPO_COL['Autos'],          vals:_serie.map(d=>d.autos) },
   ].filter(x => x.vals.some(v => v > 0.5));
 
-  cont.innerHTML = `
+  cont.innerHTML = `${_avisoAnioCerrado(Y, B.bancos)}
     <div class="card" style="margin-bottom:14px">
       <div class="section-title" style="font-size:14px;margin:0 0 4px">${CLI} · ${RC_NOM[CLI]||CLI} — ${Y}</div>
       <p style="font-size:11px;color:var(--text3);margin:0 0 12px">
@@ -9991,8 +9995,9 @@ async function renderRepCliente() {
         ${kpi('Ingresos', F(renta), 'var(--esp)')}
         ${kpi('Gastos', F(-gastos), 'var(--usa)', gastosAuto ? `+ ${F(gastosAuto)} de autos` : '')}
         ${kpi('Impuestos', F(-imp), 'var(--usa)')}
-        ${kpi('Promedio mensual', F(neta/12), CV(neta),
-              compartido ? `${F(neta/12/3)} cada uno` : (Y === new Date().getFullYear() ? 'año en curso' : ''))}
+        ${/* v256 — en el año en curso se promedia sobre los meses cerrados, no sobre 12 (auditoría 30/10) */''}
+        ${kpi('Promedio mensual', F(neta/_mesesY), CV(neta),
+              compartido ? `${F(neta/_mesesY/3)} cada uno` : (_mesesY < 12 ? `${_mesesY} meses cerrados` : ''))}
       </div>
       <div class="form-row cols-3" style="margin:0 0 12px">
         ${_desgHTML('Ingresos', dIn, renta, false)}
@@ -10361,7 +10366,7 @@ async function _rsocAnio(y) {
     sb.from('movimientos_bancos').select('*').eq('anio', y - 1).limit(LIM),
   ]);
   const D = { prop:{}, soc:{}, pe:{}, auto:{}, ap:{}, propNro:{}, autoNro:{},
-              ban:{}, banPrev:{}, banIni:{}, truncado:[] };
+              ban:{}, banPrev:{}, banIni:{}, apMes:{}, truncado:[] };
   const chk = (r, n) => { if ((r.data||[]).length >= LIM) D.truncado.push(n); return r.data || []; };
 
   chk(mp,'movimientos_propiedades').forEach(m => {
@@ -10387,7 +10392,9 @@ async function _rsocAnio(y) {
   chk(ma,'movimientos_autos').forEach(m => { D.auto[m.auto_id] = (D.auto[m.auto_id]||0) + (Number(m.total_usd)||0); });
   chk(ga,'gastos_anual_auto').forEach(g => { D.autoNro[g.nro] = (D.autoNro[g.nro]||0) + (Number(g.total_usd)||0); });
   chk(ab,'aportes_bancos').forEach(x => {
-    D.ap[x.banco_id] = (D.ap[x.banco_id]||0) + (x.tipo==='retiro' ? -1 : 1) * Math.abs(Number(x.monto)||0);
+    const v = (x.tipo==='retiro' ? -1 : 1) * Math.abs(Number(x.monto)||0);
+    D.ap[x.banco_id] = (D.ap[x.banco_id]||0) + v;
+    (D.apMes[x.banco_id] = D.apMes[x.banco_id] || []).push({ mes: +String(x.fecha).slice(5, 7), v });   // v256
   });
   // Último mes cargado de cada cuenta en el año y en el anterior, y además el
   // PRIMER mes con dato del año: si la cuenta se abrió en julio no tiene cierre
@@ -11785,7 +11792,10 @@ async function renderRepSoc() {
     if (ini === null) { const m0 = _mov(b, 'banIni');
       if (m0) { ini = _neto(m0); desde = Number(m0.mes); } }
     if (b.es_operativa || ini === null) return { saldo:fin, rend:0, cred, vivo, desde };
-    return { saldo:fin, rend: fin - ini - (Y.ap[b.id]||0), cred, vivo, desde };
+    /* v256 — cuenta abierta en el año (auditoría 30/10): el saldo inicial ya es el del primer mes, que incluye los aportes
+       de ese mes; restarlos otra vez daba una pérdida igual al aporte de apertura. Sólo cuentan los de después. */
+    const apN = desde ? (Y.apMes[b.id] || []).filter(x => x.mes > desde).reduce((t, x) => t + x.v, 0) : (Y.ap[b.id]||0);
+    return { saldo:fin, rend: fin - ini - apN, cred, vivo, desde };
   };
 
   // MFL se ve en las listas pero no suma en ningún total (mismo criterio que
@@ -12167,9 +12177,20 @@ async function _resultadoPeriodo(o) {
     const fc = String(p.fecha_cierre); if (+fc.slice(0,4) !== anio || +fc.slice(5,7) !== m) return false;
     const t = JSON.stringify(row.comentarios || {}) + ' ' + (row.notas || '');
     return (Number(p.traspaso_usd) || 0) > 0.5 || /particip|convier|convers|transforma|sin movimiento/i.test(t); };
+  /* v256 — PRÉSTAMOS E INVERSIONES (auditoría 30/10). Lo cobrado de un préstamo o de una inversión "a costo" es en buena
+     parte devolución de capital, y la tenencia de PE baja en lo mismo: contarlo como resultado lo duplicaba (FC S1 2026:
+     Panera Rosa LOAN 39.000, TGA FINANCIAL 90.000, TGA FINANCIAL FC 33.915, Ulster LOAN 1.496). Ahora en esas posiciones
+     el resultado del período es el de peCalc (préstamo: interés cobrado y lo que excede al capital, o la pérdida al
+     darlo de baja · inversión: lo cobrado menos lo aportado, al cierre), del mes m1−1 al m2. Las participaciones siguen
+     igual: lo distribuido es resultado. Gastos e impuestos de la posición se restan igual en todas. */
+  const _porCalc = p => { if (!p || typeof peCalc !== 'function') return false; const t = peTipoDe(p); return t === 'prestamo' || t === 'inversion'; };
+  const _cr = (p, mc) => { if (mc < 1) return 0; try { return Number(peCalc(p, anio, null, mc).cobRes) || 0; } catch (e) { return 0; } };
   let peCob = 0, peExcl = 0;
-  (mpeR.data || []).forEach(r => { const p = peById[r.pe_id]; const v = ((Number(r.utilidad)||0) - (Number(r.gastos)||0) - (Number(r.impuestos)||0)) * share(p || {});
-    if (_conv(p, r.mes, r)) peExcl += v; else peCob += v; });
+  (mpeR.data || []).forEach(r => { const p = peById[r.pe_id];
+    const u = _porCalc(p) ? 0 : (Number(r.utilidad)||0);
+    const v = (u - (Number(r.gastos)||0) - (Number(r.impuestos)||0)) * share(p || {});
+    if (!_porCalc(p) && _conv(p, r.mes, r)) peExcl += v; else peCob += v; });
+  pe.filter(_porCalc).forEach(p => { peCob += (_cr(p, m2) - _cr(p, m1 - 1)) * share(p); });
   const autoById = {}; autos.forEach(a => autoById[a.id] = a);
   const gAutos = (mauR.data || []).reduce((s, r) => s + (Number(r.total_usd)||0) * share(autoById[r.auto_id] || {}), 0);
   const socById = {}; socs.forEach(x => socById[x.id] = x);
@@ -12191,7 +12212,7 @@ function _resultadoHTML(r, o) {
     conNoRealizado ? banda('Realizado · plata que entró o salió') : '',
     ln('Renta neta de propiedades', 'Alquileres cobrados, menos gastos e impuestos', rentaNeta),
     ln('Rendimiento de las cuentas de inversión', 'Descontados aportes y retiros', rendInv),
-    ln('Private equity cobrado', 'Distribuciones, utilidades e intereses' + (Math.abs(r.peExcl) > 0.5 ? ` · no incluye ${'$' + fmt(Math.round(r.peExcl))} de una conversión sin movimiento de fondos` : ''), r.peCob),
+    ln('Private equity cobrado', 'Distribuciones, utilidades e intereses · en préstamos e inversiones, sólo lo que supera al capital (o la pérdida al cerrar)' + (Math.abs(r.peExcl) > 0.5 ? ` · no incluye ${'$' + fmt(Math.round(r.peExcl))} de una conversión sin movimiento de fondos` : ''), r.peCob),
     ln('Gastos de autos', 'Patente, seguro, service, arreglos y otros', -r.gAutos),
     ln('Gastos de las sociedades', 'Impuestos y gastos de estructura', -r.gSoc),
     conNoRealizado ? `<tr style="background:var(--bg3);font-weight:700"><td>Resultado realizado</td><td class="num">${f(real)}</td></tr>` : '',
@@ -12207,6 +12228,17 @@ function _resultadoHTML(r, o) {
     <div class="table-wrap"><table class="tbl-compacta"><thead><tr><th>Componente</th><th class="num">Resultado</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>
     ${personales != null && Math.abs(personales) > 0.5 ? `<p style="font-size:10.5px;color:var(--text3);margin:6px 0 0">Aparte, sin sumar: <b>gastos y transferencias personales</b> en las cuentas operativas: ${f(-personales)}. No es resultado: es plata que se usó.</p>` : ''}
     ${nota ? `<p style="font-size:10.5px;color:var(--text3);margin:4px 0 0">${nota}</p>` : ''}</div>` };
+}
+
+/* v256 — AVISO EN INFORMES DE AÑOS CERRADOS (auditoría 30/10). Sólo en pantalla (.no-pdf). Las cuentas de banco y el
+   private equity no guardan el titular de cada año, y las propiedades sólo cuando tienen titular_anterior (la sucesión
+   JC → FC de 2026 está sólo en el histórico): un informe de un año cerrado muestra el titular de hoy. Que se vea, en vez de dibujar. */
+function _avisoAnioCerrado(anio, bancosTodos) {
+  if (anio >= new Date().getFullYear()) return '';
+  if ((bancosTodos || []).some(b => b && b.titular_desde)) return '';   // ya está cargada la sucesión (SQL 35)
+  return `<div class="no-pdf" style="border:1px solid var(--gold);background:var(--gold-soft,#f6efe0);color:var(--text2);border-radius:6px;padding:8px 12px;margin-bottom:10px;font-size:12px">
+    <b>Año cerrado (${anio}).</b> Falta cargar en la base quién era el titular de cada activo antes de 2026 (SQL 35): este informe toma el titular de HOY, así que lo que cambió de dueño (de JC a FC y a H) aparece en el titular nuevo y no coincide con el COMPLETO de ${anio}.
+    Para años cerrados la referencia es la solapa <b>Patrimonio histórico</b>.</div>`;
 }
 
 async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
@@ -12227,16 +12259,19 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
 
   const [propsR, peR, autosR, bancosR, prestamosR] = await Promise.all([
     sb.from('propiedades').select('*'),   // v211 — todas: cuenta el titular DEL AÑO (titularEn)
-    sb.from('private_equity').select('*').in('titular', titFilter),
+    sb.from('private_equity').select('*'),   // v256 — todas: cuenta el titular DEL AÑO (titularEn)
     sb.from('autos').select('*'),   // v222 — cuenta el titular DEL AÑO
-    sb.from('bancos').select('*').in('titular', titFilter),
+    sb.from('bancos').select('*'),   // v256 — todas: cuenta el titular DEL AÑO (titularEn)
     sb.from('prestamos').select('*').in('titular', titFilter).then(r=>r,()=>({data:[]})),
   ]);
   // v253 — una cuenta dada de baja o una propiedad vendida DESPUÉS del período sigue en el informe (_vivoEn)
   const _finP = new Date(Date.UTC(anio, m2, 0)).toISOString().slice(0, 10);
-  const props = (propsR.data||[]).map(p=>conTitAnio(p, anio)).filter(p=>titFilter.includes(p.titular) && _propVivaEn(p, _finP)).filter(cuentaFO);
-  const pe = (peR.data||[]).filter(cuentaFO), autos = (autosR.data||[]).map(a=>conTitAnio(a, anio)).filter(a=>titFilter.includes(a.titular)).filter(cuentaFO),
-        bancos = (bancosR.data||[]).filter(b=>_bancoVivoEn(b, _finP)).filter(cuentaFO).map(_bConNom);   // v244 — "JP Morgan 7335 / 1002"
+  /* v256 — una compra POSTERIOR al período no está en el informe (auditoría 30/10: el mensual de agosto ya mostraba Deco
+     House, comprada en septiembre, en "por tipo", "por país" y la tabla de propiedades; el total ya la sacaba con _fijoEn). */
+  const _yaComprado = x => !x.fecha_compra || String(x.fecha_compra).slice(0, 10) <= _finP;
+  const props = (propsR.data||[]).map(p=>conTitAnio(p, anio)).filter(p=>titFilter.includes(p.titular) && _propVivaEn(p, _finP) && _yaComprado(p)).filter(cuentaFO);
+  const pe = (peR.data||[]).map(x=>conTitAnio(x, anio)).filter(x=>titFilter.includes(x.titular)).filter(cuentaFO), autos = (autosR.data||[]).map(a=>conTitAnio(a, anio)).filter(a=>titFilter.includes(a.titular) && _yaComprado(a)).filter(cuentaFO),
+        bancos = (bancosR.data||[]).map(b=>conTitAnio(b, anio)).filter(b=>titFilter.includes(b.titular)).filter(b=>_bancoVivoEn(b, _finP)).filter(cuentaFO).map(_bConNom);   // v244 — "JP Morgan 7335 / 1002"
   const bancoIds = bancos.map(b=>b.id), propIds = props.map(p=>p.id);
 
   await peValCargar();   // v183 — sin esto peCalc ignora las valuaciones manuales
@@ -12274,7 +12309,7 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
   const prevDic={}; (mbPrevDicR.data||[]).forEach(m=>prevDic[m.banco_id]=Number(bancoMovUSD(m).neto)||0);
   const netoAt=(bid,upTo)=>{ const mm=byBankMes[bid]; if(!mm)return {neto:0,mes:0}; let best=0; for(const k in mm){const km=+k; if(km<=upTo&&km>best)best=km;} return best?{neto:Number(bancoMovUSD(mm[best]).neto)||0,mes:best}:{neto:0,mes:0}; };
   let bancosMes=0, bancosPrev=0;
-  bancos.forEach(b=>{ bancosMes+=netoAt(b.id,m2).neto; const s=netoAt(b.id,m1-1); bancosPrev += s.mes ? s.neto : (prevDic[b.id]||0); });
+  bancos.forEach(b=>{ const e=netoAt(b.id,m2); bancosMes += e.mes ? e.neto : (prevDic[b.id]||0); /* v256 — sin fila: último saldo conocido */ const s=netoAt(b.id,m1-1); bancosPrev += s.mes ? s.neto : (prevDic[b.id]||0); });
   const varBancos = bancosMes - bancosPrev;
 
   // Patrimonio (props+pe+autos anuales + bancos del mes)
@@ -12291,7 +12326,7 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
      valuacion del año, o a costo). La columna sigue sirviendo de ultimo
      recurso, pero eso ahora lo decide peCalc adentro y no cada informe. */
   const vProps = sumV(props,_vY), vAutos = sumV(autos,_vY);
-  const vPE = pe.reduce((a,p) => { let t = 0; try { t = peCalc(p, anio).tenencia || 0; } catch(e) {} return a + t*share(p); }, 0);
+  const vPE = pe.reduce((a,p) => { let t = 0; try { t = peCalc(p, anio, null, m2).tenencia || 0; } catch(e) {} return a + t*share(p); }, 0);
   const patFijo = vProps + vPE + vAutos;
   /* v248 — UNA COMPRA DEL AÑO NO ESTÁ EN LOS MESES DE ANTES (Timoteo, 26/10). La parte fija (propiedades y autos
      a su valor del año) se usaba igual en todos los meses: Deco House, comprada en septiembre, ya sumaba en agosto,
@@ -12557,13 +12592,19 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
      plata, y una variacion del credito entre dos meses se colaba en "gastos
      personales" como si fuera consumo. El credito es deuda y se trata aparte:
      se muestra en su propia fila y se resta una sola vez, en TOTAL BANCOS. */
+  /* v256 — UNA SOLA REGLA PARA LA CUENTA SIN FILA (auditoría 30/10). Si en el año todavía no hay saldo cargado hasta
+     ese mes, vale el último conocido: el 31/12 anterior. Antes el cierre daba 0 y la apertura el 31/12 (CAJA FC
+     enero–abril 2026: la caja "desaparecía" como gasto personal) y el crédito de apertura de enero daba 0 (FC enero:
+     rendimiento de inversión −425.988 en vez de +5.899). */
+  const _hayMov = (bid, upTo) => !!_movAt(bid, upTo);
+  const _credEn = (bid, upTo) => _hayMov(bid, upTo) ? _credAt(bid, upTo) : _credIni(bid);
   const _cashAt = (bid, upTo) => { const x = netoAt(bid, upTo);
-    return x.mes ? x.neto + _credAt(bid, upTo) : 0; };
+    return x.mes ? x.neto + _credAt(bid, upTo) : ((prevDic[bid]||0) + _credIni(bid)); };
   const _cashPrev = b => { const x = netoAt(b.id, m1-1);
     return x.mes ? x.neto + _credAt(b.id, m1-1) : ((prevDic[b.id]||0) + _credIni(b.id)); };
   const _bDat = bancos.map(b => {
     const i = (prevDic[b.id] || 0) + _credIni(b.id), a = _cashPrev(b), c = _cashAt(b.id, m2);
-    const cred = _credAt(b.id, m2), credI = _credIni(b.id), credA = _credAt(b.id, m1-1);
+    const cred = _credEn(b.id, m2), credI = _credIni(b.id), credA = _credEn(b.id, m1-1);
     const ap = _apMes[b.id]||0, re = _reMes[b.id]||0;
     const lk = _porCuenta[b.id] || {};
     const cobro = Object.values(lk).reduce((s,x)=>s+x.cobro,0);
@@ -13022,7 +13063,7 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
         <span style="font-weight:600">${c.finalizada?'<span style="color:var(--text3);font-weight:500">'+(c.nota||'finalizada')+'</span>':$m(te)+' <span style="color:var(--text3);font-size:9.5px;font-weight:400">'+(c.nota||'')+'</span>'}</span></div>
     </div>`; };
 
-  const _peTodas = pe.map(p => { let c; try { c = peCalc(p, anio); } catch(e) { c = null; } return { p, c }; })
+  const _peTodas = pe.map(p => { let c; try { c = peCalc(p, anio, null, m2); } catch(e) { c = null; } return { p, c }; })
     .filter(x => x.c && (Math.abs(x.c.aportado)>0.5 || Math.abs(x.c.tenencia)>0.5));
   const _peVivas = _peTodas.filter(x => !x.c.finalizada).sort((a,b) => b.c.tenencia - a.c.tenencia);
   const _peFin   = _peTodas.filter(x =>  x.c.finalizada).sort((a,b) => b.c.aportado - a.c.aportado);
@@ -13088,8 +13129,8 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
   const _porPais = {};
   const _addP = (pz, v) => { const k = pz || '—'; _porPais[k] = (_porPais[k]||0) + v; };
   props.forEach(p => _addP(p.pais, (Number(p[_vY])||0) * share(p)));
-  bancos.forEach(b => _addP(b.pais, netoAt(b.id, m2).neto));
-  pe.forEach(p => { let t = 0; try { t = peCalc(p, anio).tenencia || 0; } catch(e) {} _addP(p.pais, t * share(p)); });
+  bancos.forEach(b => { const e = netoAt(b.id, m2); _addP(b.pais, e.mes ? e.neto : (prevDic[b.id]||0)); });
+  pe.forEach(p => { let t = 0; try { t = peCalc(p, anio, null, m2).tenencia || 0; } catch(e) {} _addP(p.pais, t * share(p)); });
   autos.forEach(a => _addP(a.pais, (Number(a[_vY])||0) * share(a)));
   const PAISES = Object.entries(_porPais).map(([k, v]) => ({ n: _PAIS_NOM[k] || (k === '—' ? 'Sin país' : k), v }))
     .filter(t => Math.abs(t.v) > 0.5).sort((a,b) => b.v - a.v);
@@ -13128,7 +13169,7 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
     deuda>0 ? `Deuda viva de ${$m(deuda)} — ${apal.toFixed(1)}% del patrimonio.` : null,
   ].filter(Boolean);
 
-  cont.innerHTML = `
+  cont.innerHTML = `${_avisoAnioCerrado(anio, bancosR.data)}
     <div class="hoja-fija">
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px">
       ${kpi('Patrimonio al cierre', $m(patTotal), label)}
@@ -13204,13 +13245,18 @@ async function generarReporte() {
   const _per = document.getElementById('rep-periodo')?.value || '';
   let _x;
   if ((_x = _per.match(/^M-(\d{4})-(\d{1,2})$/))) return generarReportePeriodo(tit, +_x[1], +_x[2], +_x[2], MESNOM[+_x[2]]+' '+_x[1], 'mes');
+  /* v256 — PERÍODO EN CURSO (auditoría 30/10). El anual o el S2 del año en curso decían "al 31/12" con datos hasta el
+     último mes cerrado. Ahora el período se corta en el último mes cerrado y el título lo dice ("hasta septiembre"). */
+  const _hoy = new Date(), _uY = _hoy.getMonth() === 0 ? _hoy.getFullYear() - 1 : _hoy.getFullYear(), _uM = _hoy.getMonth() === 0 ? 12 : _hoy.getMonth();
+  const _corta = (y, m1, m2, lbl, corto, nom) => { if (y === _uY && m2 > _uM && _uM >= m1) { m2 = _uM; lbl += ' · hasta ' + String(MESNOM[_uM]).toLowerCase(); }
+    return generarInforme(tit, y, m1, m2, lbl, corto, nom); };
   if ((_x = _per.match(/^A-(\d{4})$/)))
-    return generarInforme(tit, +_x[1], 1, 12, 'Ejercicio ' + _x[1], _x[1], 'ejercicio');
+    return _corta(+_x[1], 1, 12, 'Ejercicio ' + _x[1], _x[1], 'ejercicio');
   if ((_x = _per.match(/^S-(\d{4})-(\d)$/))) {
     const y = +_x[1], sem = +_x[2];
     return sem === 1
-      ? generarInforme(tit, y, 1,  6, 'Primer semestre '  + y, y + ' · S1', 'semestre')
-      : generarInforme(tit, y, 7, 12, 'Segundo semestre ' + y, y + ' · S2', 'semestre');
+      ? _corta(y, 1,  6, 'Primer semestre '  + y, y + ' · S1', 'semestre')
+      : _corta(y, 7, 12, 'Segundo semestre ' + y, y + ' · S2', 'semestre');
   }
   return generarInforme(tit, 2026, 1, 6, 'Primer semestre 2026', '2026 · S1', 'semestre');
 }
@@ -13239,9 +13285,9 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
 
   const [propsR, peR, autosR, bancosR, prestamosR] = await Promise.all([
     sb.from('propiedades').select('*'),   // v211 — todas: cuenta el titular DEL AÑO (titularEn)
-    sb.from('private_equity').select('*').in('titular', titFilter),
+    sb.from('private_equity').select('*'),   // v256 — todas: cuenta el titular DEL AÑO (titularEn)
     sb.from('autos').select('*'),   // v222 — cuenta el titular DEL AÑO
-    sb.from('bancos').select('*').in('titular', titFilter),
+    sb.from('bancos').select('*'),   // v256 — todas: cuenta el titular DEL AÑO (titularEn)
     sb.from('prestamos').select('*, propiedad:propiedad_id(nombre)').in('titular', titFilter).then(r=>r, ()=>({data:[]})),
   ]);
   // MFL se ve pero NO contabiliza: en el consolidado sus activos se excluyen.
@@ -13253,8 +13299,9 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
     .filter(p => _propVivaEn(p, PER_FIN)).filter(cuentaFO)   // v253 — vendida después del período: sigue
     // v248 — una propiedad comprada después del cierre del período no está en el informe (Deco House, 09/2026, salía en el S1 con valor 0)
     .filter(p => !p.fecha_compra || String(p.fecha_compra).slice(0, 10) <= (ANIO + '-' + String(M2).padStart(2, '0') + '-31'));
-  const pe = (peR.data||[]).filter(cuentaFO), autos = (autosR.data||[]).map(a=>conTitAnio(a, ANIO)).filter(a=>titFilter.includes(a.titular)).filter(cuentaFO),
-        bancos = (bancosR.data||[]).filter(b => _bancoVivoEn(b, PER_FIN)).filter(cuentaFO);   // v253 — dada de baja después del período: sigue
+  const pe = (peR.data||[]).map(x => conTitAnio(x, ANIO)).filter(x => titFilter.includes(x.titular)).filter(cuentaFO), autos = (autosR.data||[]).map(a=>conTitAnio(a, ANIO)).filter(a=>titFilter.includes(a.titular)).filter(cuentaFO)
+          .filter(a => !a.fecha_compra || String(a.fecha_compra).slice(0, 10) <= PER_FIN),   // v256 — igual que las propiedades
+        bancos = (bancosR.data||[]).map(b => conTitAnio(b, ANIO)).filter(b => titFilter.includes(b.titular)).filter(b => _bancoVivoEn(b, PER_FIN)).filter(cuentaFO);   // v253 — dada de baja después del período: sigue
   const bancoIds = bancos.map(b=>b.id);
 
   // Bancos: saldo final (2026) + saldo inicial (dic 2025) + aportes → rendimiento (Dietz $)
@@ -13263,12 +13310,19 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
   if (bancoIds.length) {
     const [movR, iniR, apsR] = await Promise.all([
       sb.from('movimientos_bancos').select('*').eq('anio',ANIO).in('banco_id', bancoIds),
-      sb.from('movimientos_bancos').select('*').eq('anio',OPEN_Y).eq('mes',OPEN_M).in('banco_id', bancoIds),
+      sb.from('movimientos_bancos').select('*').eq('anio',ANIO-1).eq('mes',12).in('banco_id', bancoIds),   // v256 — siempre el 31/12 anterior; la apertura sale abajo
       sb.from('aportes_bancos').select('*').in('banco_id', bancoIds),
     ]);
     // Cierre del período: el último mes cargado que NO pase de M2 (si no, un informe de S1 tomaría saldos de julio).
     const latest = {}; (movR.data||[]).forEach(m => { if (m.mes > M2) return; if (!latest[m.banco_id] || m.mes > latest[m.banco_id].mes) latest[m.banco_id] = m; });
+    /* v256 — APERTURA Y CIERRE CON EL ÚLTIMO SALDO CONOCIDO (auditoría 30/10). La apertura es el último mes cargado antes
+       de M1 (en el año) o, si no hay, el 31/12 anterior; el cierre, el último ≤ M2 o, si no hay, la apertura. Antes un S2
+       sin la fila de junio arrancaba en 0 (todo el saldo parecía rendimiento) y una cuenta sin filas en el año
+       desaparecía del informe aunque tuviera saldo al 31/12. */
     const inicial = {}; (iniR.data||[]).forEach(m => inicial[m.banco_id] = m);
+    if (M1 > 1) (movR.data||[]).forEach(m => { if (m.mes >= M1) return; const x = inicial[m.banco_id];
+      if (!x || +x.anio < ANIO || m.mes > x.mes) inicial[m.banco_id] = m; });
+    Object.keys(inicial).forEach(id => { if (!latest[id]) latest[id] = inicial[id]; });
     const apSem = {}, apTot = {}, apList = {};
     (apsR.data||[]).forEach(a => {
       const signed = (a.tipo==='retiro'?-1:1) * Math.abs(Number(a.monto)||0);
@@ -13366,19 +13420,26 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
   // PE: la tenencia sale de peCalc, que la lee segun el tipo de posicion
   // (prestamo: capital pendiente + interes devengado · inversion: a costo hasta
   // el cierre · participacion: valuacion del año o a costo).
-  const vPE = (x, y) => peCalc(x, y).tenencia;
+  const vPE = (x, y) => peCalc(x, y, null, y === ANIO ? M2 : null).tenencia;
   const sumA = (arr, y, f) => arr.reduce((a,r) => a + f(r, y)*share(r), 0);
 
   const propsActual = sumA(props, ANIO, vProp), propsInvertido = sum(props,'valor_compra');
   /* v248 — PE INVERTIDO = LO APORTADO, no el valor de hoy (Timoteo, 26/10: "actual = invertido"). Antes las dos
      variables leían la tenencia, así que la variación histórica del PE daba siempre 0. Se toma lo aportado en las
      posiciones vivas (las terminadas no valen nada hoy y lo que devolvieron ya está en los bancos). */
-  const _peC = pe.map(p => { let c = null; try { c = peCalc(p, ANIO); } catch(e) {} return { p, c }; }).filter(x => x.c);
+  const _peC = pe.map(p => { let c = null; try { c = peCalc(p, ANIO, null, M2); } catch(e) {} return { p, c }; }).filter(x => x.c);
   const _peViv = _peC.filter(x => !x.c.finalizada);
   const peActual = sumA(pe, ANIO, vPE), peInvertido = _peViv.reduce((s, x) => s + (Number(x.c.aportado)||0) * share(x.p), 0);
   const peDistViv = _peViv.reduce((s, x) => s + (Number(x.c.distribuido)||0) * share(x.p), 0);
   const autosActual = sumA(autos, ANIO, vAuto);
-  const propsCierre = sumA(props, ANIO-1, vProp), peCierre = sumA(pe, ANIO-1, vPE), autosCierre = sumA(autos, ANIO-1, vAuto);
+  /* v256 — EL "CIERRE ANTERIOR" ES EL DÍA ANTES DEL PERÍODO (auditoría 30/10). Para un S2 los bancos arrancaban al 30/06
+     pero propiedades, autos y PE al 31/12 del año anterior: la revaluación de enero y lo que pasó en el S1 en PE se
+     colaban en la variación del S2. Con M1 > 1: propiedades y autos a la tasación del año (lo comprado dentro del
+     período, en 0) y PE con peCalc cortado en M1 − 1. */
+  const _yC = M1 === 1 ? ANIO - 1 : ANIO;
+  const _antesPer = x => M1 === 1 || !x.fecha_compra || String(x.fecha_compra).slice(0, 10) < PER_INI;
+  const propsCierre = sumA(props.filter(_antesPer), _yC, vProp), autosCierre = sumA(autos.filter(_antesPer), _yC, vAuto);
+  const peCierre = M1 === 1 ? sumA(pe, ANIO-1, vPE) : pe.reduce((t, x) => { let v = 0; try { v = peCalc(x, ANIO, null, M1 - 1).tenencia || 0; } catch(e) {} return t + v * share(x); }, 0);
   const autosInvertido = sum(autos,'valor_compra');
   // Autos: gastos por año (movimientos_autos, todos los años) + valor por año (AUTOS_HIST_DATA)
   const AUTO_YEARS = [2017,2018,2019,2020,2021,2022,2023,2024,2025,2026];
@@ -13468,8 +13529,12 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
   const compProp = props.filter(p => _enPer(p.fecha_compra)).reduce((t, p) => t + (Number(p.valor_compra)||0) * share(p), 0);
   const compAuto = autos.filter(a => _enPer(a.fecha_compra)).reduce((t, a) => t + (Number(a.valor_compra)||0) * share(a), 0);
   const apPE = pe.reduce((t, p) => t + ((peDet[p.id] || {}).apPer || 0) * share(p), 0);
+  const _vendPer = (propsR.data || []).map(p => conTitAnio(p, ANIO)).filter(p => titFilter.includes(p.titular) && cuentaFO(p) && _enPer(p.fecha_venta))
+    .reduce((t, p) => t + vProp(p, _yC) * share(p), 0);
   const clases = [
-    {n:'Propiedades', inv:propsInvertido, cie:propsCierre, ap:compProp, act:propsActual},
+    // v256 — una propiedad vendida DENTRO del período estaba al inicio: va en el cierre anterior (antes desaparecía de las
+    // dos columnas y la plata de la venta, ya en los bancos, parecía ganancia del período)
+    {n:'Propiedades', inv:propsInvertido, cie:propsCierre + _vendPer, ap:compProp, act:propsActual},
     // v255 — bancos en dos renglones (Timoteo, 28/10): en inversión la variación histórica es rendimiento; las operativas son caja
     {n:'Bancos · inversión', inv:bancosInvInv, cie:bancosDietz.filter(d=>!d.oper).reduce((t,d)=>t+d.vBeg,0), ap:0, act:bancosActual-bancosOpAct},
     {n:'Bancos · operativas', inv:bancosOpAct, cie:bancosDietz.filter(d=>d.oper).reduce((t,d)=>t+d.vBeg,0), ap:-(compProp + compAuto + apPE), act:bancosOpAct},
@@ -13578,7 +13643,7 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
 
   // v244 — cuadrito de color de cada fila, el mismo del donut (Timoteo, 21/10)
   const _sw = i => `<span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${OFF_CAT[i % OFF_CAT.length]};margin-right:6px"></span>`;
-  cont.innerHTML = `
+  cont.innerHTML = `${_avisoAnioCerrado(ANIO, bancosR.data)}
     <style>
       .rep-doc{--esp:#2f9e63;--usa:#c0605f;--navy:#0f2a43;--gold:#A8842F;font-size:11px;}
       .rep-doc .section-title{background:var(--navy);color:#fff!important;font-weight:700!important;font-size:12px!important;padding:6px 10px!important;border-radius:5px;margin-bottom:8px!important;letter-spacing:.2px;border-bottom:none!important;}
@@ -13660,7 +13725,7 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
     <div class="card" style="margin-bottom:12px">
       <div class="section-title" style="font-size:14px;margin-bottom:12px">Patrimonio por tipo de activo</div>
       <div class="table-wrap"><table>
-        <thead><tr><th>Activo</th><th class="num">Invertido</th><th class="num">Cierre ${ANIO-1}</th><th class="num">Compras y aportes</th><th class="num">Actual</th><th class="num">Var. período</th><th class="num">Var. histórica</th></tr></thead>
+        <thead><tr><th>Activo</th><th class="num">Invertido</th><th class="num">${M1 === 1 ? 'Cierre ' + (ANIO-1) : 'Al ' + _ultDia(ANIO, M1-1) + '/' + _pad(M1-1)}</th><th class="num">Compras y aportes</th><th class="num">Actual</th><th class="num">Var. período</th><th class="num">Var. histórica</th></tr></thead>
         <tbody>
         ${clases.map(c=>{const vs=c.act-c.cie, vh=c.act-c.inv; return `<tr><td>${c.n}</td><td class="num">$${fmt(c.inv)}</td><td class="num">$${fmt(c.cie)}</td><td class="num" style="color:${Math.abs(c.ap)<0.5?'var(--text3)':(c.ap>0?'var(--esp)':'var(--usa)')}">${Math.abs(c.ap)<0.5?'—':(c.ap>0?'+':'−')+'$'+fmt(Math.abs(c.ap))}</td><td class="num">$${fmt(c.act)}</td><td class="num" style="color:${vs>=0?'var(--esp)':'var(--usa)'}">${vs>=0?'+':''}$${fmt(vs)}</td><td class="num" style="color:${vh>=0?'var(--esp)':'var(--usa)'}">${vh>=0?'+':''}$${fmt(vh)}</td></tr>`}).join('')}
         <tr style="${OFF_TOT_CSS}"><td>Total</td><td class="num">$${fmt(totInv)}</td><td class="num">$${fmt(totCie)}</td><td class="num">—</td><td class="num">$${fmt(patrimonioActual)}</td><td class="num" style="color:${(patrimonioActual-totCie)>=0?'var(--esp)':'var(--usa)'}">${(patrimonioActual-totCie)>=0?'+':''}$${fmt(patrimonioActual-totCie)}</td><td class="num" style="color:${acumulado>=0?'var(--esp)':'var(--usa)'}">${acumulado>=0?'+':''}$${fmt(acumulado)}</td></tr>
@@ -13714,9 +13779,10 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
     <div class="card" style="margin-top:12px">
       <div class="section-title" style="font-size:14px;margin-bottom:12px">Patrimonio histórico y composición</div>
       <div class="table-wrap"><table class="rep-big">
-        <thead><tr><th>Año</th><th class="num">Propiedades</th><th class="num">Bancos</th><th class="num">Priv. Equity</th><th class="num">Total</th></tr></thead>
+        <thead><tr><th>Año</th><th class="num">Propiedades</th><th class="num">Bancos</th><th class="num">Priv. Equity</th><th class="num">Autos</th><th class="num">Total</th></tr></thead>
         <tbody>
-        ${histAnios.map(d=>`<tr><td style="font-weight:600">${d.anio}</td><td class="num">$${fmt(d.prop)} <span style="color:var(--text3);font-size:.82em">${d.total?(d.prop/d.total*100).toFixed(1):'0'}%</span></td><td class="num">$${fmt(d.banco)} <span style="color:var(--text3);font-size:.82em">${d.total?(d.banco/d.total*100).toFixed(1):'0'}%</span></td><td class="num">${d.pe?'$'+fmt(d.pe)+' <span style="color:var(--text3);font-size:.82em">'+(d.pe/d.total*100).toFixed(1)+'%</span>':'—'}</td><td class="num" style="font-weight:700">$${fmt(d.total)}</td></tr>`).join('')}
+        ${/* v256 — el total incluía autos sin columna: la fila no sumaba (auditoría 30/10) */''}
+        ${histAnios.map(d=>`<tr><td style="font-weight:600">${d.anio}</td><td class="num">$${fmt(d.prop)} <span style="color:var(--text3);font-size:.82em">${d.total?(d.prop/d.total*100).toFixed(1):'0'}%</span></td><td class="num">$${fmt(d.banco)} <span style="color:var(--text3);font-size:.82em">${d.total?(d.banco/d.total*100).toFixed(1):'0'}%</span></td><td class="num">${d.pe?'$'+fmt(d.pe)+' <span style="color:var(--text3);font-size:.82em">'+(d.pe/d.total*100).toFixed(1)+'%</span>':'—'}</td><td class="num">${d.autos?'$'+fmt(d.autos)+' <span style="color:var(--text3);font-size:.82em">'+(d.autos/d.total*100).toFixed(1)+'%</span>':'—'}</td><td class="num" style="font-weight:700">$${fmt(d.total)}</td></tr>`).join('')}
         </tbody></table></div>
     </div>
     </div>
@@ -13935,7 +14001,7 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
 
     ${/* v245 — PE con la misma tabla de múltiplos que el mensual y el patrimonial (_peMultHTML) */''}
     ${(() => { if (!pe.length) return '';
-      const _it = pe.map(p => { let c; try { c = peCalc(p, ANIO); } catch(e) { c = null; } return { p, c }; })
+      const _it = pe.map(p => { let c; try { c = peCalc(p, ANIO, null, M2); } catch(e) { c = null; } return { p, c }; })
         .filter(x => x.c && (Math.abs(x.c.aportado)>0.5 || Math.abs(x.c.tenencia)>0.5));
       if (!_it.length) return '';
       const M = _peMultHTML(_it, v => '$' + fmt(Math.round(v)), share);
@@ -14249,8 +14315,21 @@ function _peMultHTML(items, $f, sh) {
   return { vivas, fin: finH };
 }
 
-function peCalc(p, anio, hist) {
-  const h    = hist || _peHistDe(p.nombre) || { byY: {} };
+/* v256 — CORTE POR MES (auditoría 30/10). Con `mesCorte` (1–11) el año del informe se arma sólo con los movimientos de PE
+   hasta ese mes, y una posición cuenta como terminada sólo si su fecha de cierre es anterior al fin de ese mes. Antes un
+   mensual o un semestral de junio ya incluía aportes, cobros y cierres de julio a diciembre (Ashland LOAN incobrable en
+   septiembre salía en 0 en el S1). Sin `mesCorte` (o 12) se comporta como siempre (año completo). */
+function peCalc(p, anio, hist, mesCorte) {
+  let h      = hist || _peHistDe(p.nombre) || { byY: {} };
+  const _mc  = (mesCorte && mesCorte < 12) ? mesCorte : null;
+  if (_mc && window._peMovsByPe) {
+    const rows = (window._peMovsByPe[p.id] || []).filter(r => +r.anio === +anio);
+    if (rows.length) { const hasta = rows.filter(r => (+r.mes || 0) <= _mc);
+      const ap = hasta.reduce((t, r) => t + (Number(r.aporte_capital) || 0), 0), ut = hasta.reduce((t, r) => t + (Number(r.utilidad) || 0), 0);
+      h = { ...h, byY: { ...(h.byY || {}), [anio]: { ...((h.byY || {})[anio] || {}), ap, ut } } }; }
+  }
+  const _corte = _mc ? new Date(Date.UTC(+anio, _mc, 0)).toISOString().slice(0, 10) : null;
+  const _cerroAl = f => _corte ? String(f).slice(0, 10) <= _corte : Number(String(f).slice(0, 4)) <= anio;
   const byY  = h.byY || {};
   const tipo = peTipoDe(p);
   const años = Object.keys(byY).map(Number).filter(y => y <= anio).sort((a, b) => a - b);
@@ -14279,6 +14358,16 @@ function peCalc(p, anio, hist) {
               tenencia: 0, resReal: 0, resNoReal: 0, capRiesgo: 0,
               aCosto: false, nota: '', metLbl: '', metVal: null,
               finalizada: false, anioCierre: null };
+  /* v256 — PRÉSTAMO: cascada de cobros (primero interés, después capital). `intCobAnio` = interés COBRADO en el año
+     (hasta el mes de corte), `extraAnio` = lo cobrado por encima de capital + interés. Sirve para el "PE cobrado" de los
+     informes de período: en un préstamo la devolución de capital no es resultado (auditoría 30/10: Panera Rosa LOAN,
+     TGA FINANCIAL FC y Ulster LOAN sumaban como resultado del S1 lo que eran devoluciones de capital). */
+  const _cascada = () => { const tasa = (Number(p.tasa) || 0) / 100, mora = p.en_mora === true;
+    let cap = 0, intPend = 0, intDevAnio = 0, intCobAnio = 0, extraAnio = 0;
+    años.forEach(y => { cap += inc[y]; const i = (tasa && !mora) ? cap * tasa : 0; intPend += i; if (y === anio) intDevAnio = i;
+      let cobro = (byY[y] || {}).ut || 0; const aInt = Math.min(cobro, intPend); intPend -= aInt; cobro -= aInt;
+      const aCap = Math.min(cobro, cap); cap -= aCap; cobro -= aCap; if (y === anio) { intCobAnio = aInt; extraAnio = cobro; } });
+    return { cap, intPend, intDevAnio, intCobAnio, extraAnio }; };
 
   /* v187 — POSICION FINALIZADA, PARA CUALQUIER TIPO.
      Hasta v186 `cerrada` solo lo miraba la rama `inversion`: una participacion
@@ -14287,7 +14376,7 @@ function peCalc(p, anio, hist) {
      valiendo lo que valia en el informe de 2025, que es lo unico que permite
      que un informe viejo cierre contra el COMPLETO de su año. */
   const _aC = p.fecha_cierre ? Number(String(p.fecha_cierre).slice(0, 4)) : null;
-  if (p.cerrada === true && (_aC === null || _aC <= anio)) {
+  if (p.cerrada === true && (_aC === null || _cerroAl(p.fecha_cierre))) {
     R.finalizada = true; R.anioCierre = _aC;
     R.tenencia = 0; R.capRiesgo = 0;
     /* v241 — TRASPASO. Lo que no se cobró sino que pasó a otra posición (Ashland → Palm Bay, 450.000: el
@@ -14295,6 +14384,8 @@ function peCalc(p, anio, hist) {
     const _tr = Number(p.traspaso_usd) || 0;
     R.traspaso = _tr; R.traspasoA = p.traspaso_a || '';
     R.resReal  = (_aC === null || _aC === anio) ? (distribuido + _tr - aportado) : 0;
+    if (tipo === 'prestamo') { const w = _cascada(); R.cobRes = (_aC === null || _aC === anio) ? (w.intCobAnio + w.extraAnio + _tr - w.cap) : 0; }
+    else R.cobRes = R.resReal;
     R.nota     = 'finalizada' + (_aC ? ' en ' + _aC : '') + (_tr ? ' · traspasada' + (R.traspasoA ? ' a ' + R.traspasoA : '') : '');
     R.metLbl   = 'recuperado';
     R.metVal   = aportado > 0 ? ((distribuido + _tr) / aportado * 100) : null;
@@ -14312,11 +14403,12 @@ function peCalc(p, anio, hist) {
        posicion cerrada: un informe de un año anterior lo sigue mostrando vivo, y la
        perdida se reconoce SOLO en el año del cierre (Ashland LOAN: 2026). */
     const _aI = p.fecha_cierre ? Number(String(p.fecha_cierre).slice(0,4)) : null;
-    if (p.incobrable === true && (_aI === null || _aI <= anio)) {
+    if (p.incobrable === true && (_aI === null || _cerroAl(p.fecha_cierre))) {
       R.finalizada = true;
       R.anioCierre = _aI;
       R.tenencia = 0; R.capRiesgo = 0;
       R.resReal  = (_aI === null || _aI === anio) ? (distribuido - aportado) : 0;   // la perdida, neta de lo cobrado
+      { const w = _cascada(); R.cobRes = (_aI === null || _aI === anio) ? (w.intCobAnio + w.extraAnio - w.cap) : 0; }
       R.nota     = 'incobrable · dado a pérdida';
       R.metLbl   = 'capital devuelto';
       R.metVal   = aportado > 0 ? (distribuido / aportado * 100) : null;
@@ -14324,20 +14416,11 @@ function peCalc(p, anio, hist) {
     }
     const tasa = (Number(p.tasa) || 0) / 100;
     const mora = p.en_mora === true;
-    let cap = 0, intPend = 0, intDevAnio = 0, extraAnio = 0;
-    años.forEach(y => {
-      cap += inc[y];
-      const i = (tasa && !mora) ? cap * tasa : 0;
-      intPend += i;
-      if (y === anio) intDevAnio = i;
-      let cobro = (byY[y] || {}).ut || 0;
-      const aInt = Math.min(cobro, intPend); intPend -= aInt; cobro -= aInt;
-      const aCap = Math.min(cobro, cap);     cap     -= aCap; cobro -= aCap;
-      if (y === anio) extraAnio = cobro;     // cobró más que capital + interés
-    });
+    const { cap, intPend, intDevAnio, intCobAnio, extraAnio } = _cascada();
     R.tenencia  = cap + intPend;
     R.capRiesgo = cap;
     R.resReal   = intDevAnio + extraAnio;
+    R.cobRes    = intCobAnio + extraAnio;
     R.nota = mora ? 'en mora · no devenga'
            : (tasa ? (Number(p.tasa) + '% anual' + (intPend > 0.5 ? ' · $' + fmt(intPend) + ' de interés sin cobrar' : ''))
                    : 'sin tasa cargada · no devenga interés');
@@ -14346,10 +14429,11 @@ function peCalc(p, anio, hist) {
 
   } else if (tipo === 'inversion') {
     const aCierre = p.fecha_cierre ? Number(String(p.fecha_cierre).slice(0, 4)) : null;
-    const yaCerro = p.cerrada === true && (aCierre === null || aCierre <= anio);
+    const yaCerro = p.cerrada === true && (aCierre === null || _cerroAl(p.fecha_cierre));
     R.tenencia  = yaCerro ? 0 : Math.max(0, aportado - distribuido);
     R.capRiesgo = R.tenencia;
     R.resReal   = (yaCerro && (aCierre === null || aCierre === anio)) ? (distribuido - aportado) : 0;
+    R.cobRes    = R.resReal;
     R.nota = yaCerro ? ('cerrada' + (aCierre ? ' en ' + aCierre : ''))
                      : 'en curso · el resultado se reconoce al cierre';
     R.metLbl = 'multiplicador';
@@ -15767,9 +15851,11 @@ async function hidratarPEHist() {
   try {
     const [{ data: pos }, { data: movs }] = await Promise.all([
       sb.from('private_equity').select('*'),
-      sb.from('movimientos_pe').select('pe_id,anio,utilidad,aporte_capital').limit(9000),
+      sb.from('movimientos_pe').select('pe_id,anio,mes,utilidad,aporte_capital,comentarios,notas').limit(9000),
     ]);
     if (!pos || !pos.length) return _peHidratado;
+    // v256 — movimientos por posición y mes, para cortar el año en el mes del informe (peCalc con mesCorte)
+    window._peMovsByPe = {}; (movs || []).forEach(m => { (window._peMovsByPe[m.pe_id] = window._peMovsByPe[m.pe_id] || []).push(m); });
 
     const porNombre = {};
     PE_HIST_DATA.forEach(p => porNombre[_peNorm(p.nombre)] = p);
@@ -19547,7 +19633,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20261028-255';
+const APP_VERSION = '20261030-256';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
