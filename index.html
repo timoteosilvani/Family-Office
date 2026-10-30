@@ -10114,6 +10114,7 @@ async function _exportarPDF(opt) {
     .pgbreak{page-break-before:always;break-before:page;}
     .hoja-fija{break-inside:avoid;page-break-inside:avoid;}
     body > .hdr + .hoja-fija{break-inside:auto;page-break-inside:auto;}
+    .junto{break-inside:avoid;page-break-inside:avoid;}
     /* v187 — un cuadro que no entra completo baja entero a la pagina siguiente.
        Antes pasaba que Bancos arrancaba al pie: se veian los encabezados y todo
        el contenido quedaba en la hoja de atras. La regla break-inside:avoid es
@@ -10194,9 +10195,14 @@ async function _exportarPDF(opt) {
            con el encabezado solo. */
         if (i === 0 && !el.classList.contains('pgbreak')) { el.style.breakInside = 'auto'; el.style.pageBreakInside = 'auto'; el.style.breakBefore = 'avoid'; el.style.pageBreakBefore = 'avoid'; }
       }
+      /* v255 — .junto: cuadros que tienen que ir en la MISMA hoja (Timoteo, 28/10: bancos inversión + operativas + saldo por
+         año; rentabilidad por año + cartera completa). Si juntos no entran, se achican juntos lo mínimo para entrar. */
+      var jun = document.querySelectorAll('.junto');
+      for (var q = 0; q < jun.length; q++) { var jj = jun[q], hj = alto(jj);
+        if (hj > H) jj.style.zoom = Math.max(0.6, Math.floor(H / hj * 0.99 * 1000) / 1000); }
       var cards = document.querySelectorAll('.card');
       for (var j = 0; j < cards.length; j++) { var c = cards[j];
-        if (c.closest('.hoja-fija')) continue;
+        if (c.closest('.hoja-fija') || c.closest('.junto')) continue;
         var hc = alto(c); if (hc <= H) continue;
         if (H / hc >= 0.8) c.style.zoom = Math.floor(H / hc * 0.99 * 1000) / 1000;
         else { c.style.breakBefore = 'page'; c.style.pageBreakBefore = 'always'; } }
@@ -12338,10 +12344,11 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
   // v189 — mas compactos (sin achicar la letra) para que "El mes en breve"
   // entre en la primera pagina y no se quede solo en la segunda.
   // v248 — más chicos todavía (Timoteo, 26/10): la primera hoja de FC no entraba y salía en blanco.
-  const kpi = (l,v,s,c) => `<div style="border:1px solid var(--border2);border-top:3px solid var(--gold);border-radius:8px;padding:7px 10px;text-align:center">
-    <div style="font-size:8.5px;letter-spacing:.7px;color:var(--text3);text-transform:uppercase;margin-bottom:3px">${l}</div>
-    <div style="font-size:17px;font-weight:700;color:${c||'var(--text)'}">${v}</div>
-    <div style="font-size:9.5px;color:var(--text3);margin-top:2px;line-height:1.3">${s||''}</div></div>`;
+  // v255 — mismo tamaño de cuadro, letra que lo llena (Timoteo, 28/10): menos aire, número más grande
+  const kpi = (l,v,s,c) => `<div style="border:1px solid var(--border2);border-top:3px solid var(--gold);border-radius:8px;padding:5px 6px;text-align:center;display:flex;flex-direction:column;justify-content:center">
+    <div style="font-size:10px;letter-spacing:.6px;color:var(--text3);text-transform:uppercase;margin-bottom:1px;font-weight:600">${l}</div>
+    <div style="font-size:24px;font-weight:700;line-height:1.1;color:${c||'var(--text)'}">${v}</div>
+    <div style="font-size:11px;color:var(--text3);margin-top:1px;line-height:1.25">${s||''}</div></div>`;
 
   const DONUT_COL = OFF_CAT;   // v186 — el donut vive en offDonut(), global
   const donut = offDonut;
@@ -12646,6 +12653,7 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
      cuenta: |variación| > USD 10.000 o > 10 % del saldo anterior. */
   const _ED_UMBRAL = 10000, _ED_PCT = 0.10, _ED_AVISO = 0.25;
   let _edHTML = '';
+  const _trsMes = [];   // v255 — transferencias del período de las cuentas operativas (para justificar TOTAL BANCOS)
   const _edVig = []; for (let m = m1; m <= m2; m++) _edVig.push(m);
   const _edOn = _edVig.every(m => lkVigente(anio, m)) && _bDat.some(x => x.b.es_operativa === true);
   if (_edOn) {
@@ -12723,6 +12731,8 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
         // la tabla de arriba (en USD) pasa a decir lo mismo que el bloque
         x.cobro = e.lines.filter(l => l.dir === 'cobro').reduce((s, l) => s + l.usd, 0);
         x.pago  = e.lines.filter(l => l.dir === 'pago').reduce((s, l) => s + l.usd, 0);
+        x.cobroL = x.cobro; x.pagoL = x.pago;   // v255 — sin transferencias (para explicar la variación de TOTAL BANCOS)
+        e.trs.forEach(r => { if (!_trsMes.some(z => z.id === r.id)) _trsMes.push({ ...r, _bn }); });
         /* v245 — DETALLE DE LO COBRADO Y LO PAGADO (Timoteo, 23/10): un renglón gris por activo, de TODOS los tipos
            (propiedades, autos, sociedades, PE), y las transferencias entre cuentas: lo que entra va en Cobrado con
            la cuenta de donde viene; lo que sale, en Pagado con la cuenta a donde va. Antes el detalle era sólo de
@@ -12897,7 +12907,26 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
         ${tc > 0.5 ? `<tr><td colspan="6" style="padding:5px 10px;font-size:11px;color:var(--text3);border:0">
           Cash ${$m(tcash)} menos ${$m(tc)} de crédito utilizado. Los subtotales de arriba suman
           sólo el cash: el crédito es deuda y se descuenta una sola vez, acá.</td></tr>` : ''}
-      </tbody></table></div>`;
+      </tbody></table></div>
+      ${(() => { /* v255 — POR QUÉ SE MOVIÓ TOTAL BANCOS (Timoteo, 28/10): bien resumido. Variación = rendimiento de las
+           inversiones + lo cobrado − lo pagado (rentas, gastos, PE, autos, sociedades) − gastos y transferencias personales
+           + movimientos de capital (lo que entró o salió del total de cuentas: transferencias a otros titulares o a terceros,
+           plata que entra de afuera). Los traspasos entre cuentas propias se anulan entre sí. Abajo, los movimientos
+           grandes del período con su concepto. */
+        const vT = (_bDat.reduce((s,x)=>s+x.c,0) - _bDat.reduce((s,x)=>s+x.cred,0)) - (_bDat.reduce((s,x)=>s+x.a,0) - _bDat.reduce((s,x)=>s+x.credA,0));
+        if (Math.abs(vT) < 0.5) return '';
+        const rend = _inv.reduce((s,x)=>s+x.rend,0);
+        const cob = _oper.reduce((s,x)=>s+(x.cobroL ?? x.cobro),0), pag = _oper.reduce((s,x)=>s+(x.pagoL ?? x.pago),0);
+        const per = _oper.reduce((s,x)=>s+x.personales,0);
+        const cap = vT - (rend + cob - pag - per);
+        const F = v => `<b style="color:${v >= 0 ? 'var(--esp)' : 'var(--usa)'}">${sg(v)}${$m(Math.abs(v)).slice(1)}</b>`;
+        const partes = [[rend, 'rendimiento de las inversiones'], [cob, 'cobrado (rentas, PE)'], [-pag, 'pagado (gastos de propiedades, autos y sociedades)'],
+          [-per, 'gastos y transferencias personales'], [cap, 'entradas y salidas de capital']].filter(p => Math.abs(p[0]) > 0.5);
+        const big = _trsMes.filter(r => Math.abs(Number(r.monto_usd) || 0) >= 20000).sort((x, y) => Math.abs(y.monto_usd) - Math.abs(x.monto_usd)).slice(0, 4);
+        const _nm = (r, id, ext) => id ? ((r._bn || {})[id] || 'otra cuenta') : (ext || 'externo');
+        return `<p style="font-size:11.5px;margin:10px 4px 0;line-height:1.5">
+          <b>Por qué ${vT >= 0 ? 'subió' : 'bajó'} ${$m(Math.abs(vT))}:</b> ${partes.map(p => F(p[0]) + ' de ' + p[1]).join(', ')}.
+          ${big.length ? `<br><span style="color:var(--text3)">Movimientos principales:</span> ${big.map(r => `${$m(Math.abs(r.monto_usd))} de ${_nm(r, r.banco_origen_id, r.origen_externo)} a ${_nm(r, r.banco_destino_id, r.destino_externo)}${r.concepto ? ` (${r.concepto})` : ''}`).join(' · ')}.` : ''}</p>`; })()}`;
   })();
   const _cuentasHTML = (!_oper.length && !_inv.length) ? '' : `
     ${_inv.length ? `<div class="card" style="margin-bottom:16px">
@@ -13441,7 +13470,9 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
   const apPE = pe.reduce((t, p) => t + ((peDet[p.id] || {}).apPer || 0) * share(p), 0);
   const clases = [
     {n:'Propiedades', inv:propsInvertido, cie:propsCierre, ap:compProp, act:propsActual},
-    {n:'Bancos', inv:aportesBancos, cie:bancosCierre, ap:-(compProp + compAuto + apPE), act:bancosActual},
+    // v255 — bancos en dos renglones (Timoteo, 28/10): en inversión la variación histórica es rendimiento; las operativas son caja
+    {n:'Bancos · inversión', inv:bancosInvInv, cie:bancosDietz.filter(d=>!d.oper).reduce((t,d)=>t+d.vBeg,0), ap:0, act:bancosActual-bancosOpAct},
+    {n:'Bancos · operativas', inv:bancosOpAct, cie:bancosDietz.filter(d=>d.oper).reduce((t,d)=>t+d.vBeg,0), ap:-(compProp + compAuto + apPE), act:bancosOpAct},
     {n:'Private Equity', inv:peInvertido, cie:peCierre, ap:apPE, act:peActual},
     {n:'Autos', inv:autosInvertido, cie:autosCierre, ap:compAuto, act:autosActual},
   ];
@@ -13577,6 +13608,9 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
       .rep-doc .section-title{font-size:14.5px!important;padding:7px 11px!important;}
       .rep-doc .rep-mini table{font-size:8.5px!important;} .rep-doc .rep-mini th,.rep-doc .rep-mini td{padding:2px 3px!important;font-size:8.5px!important;white-space:nowrap;}
       .rep-doc .rep-mini th{font-size:7.5px!important;}
+      /* v255 — histórico y mensual con la misma letra y el mismo ancho; el nombre de la propiedad puede ir en dos renglones */
+      .rep-doc .rep-mini table{table-layout:fixed;width:100%;} .rep-doc .rep-mini td:first-child,.rep-doc .rep-mini th:first-child{white-space:normal!important;width:17%;word-break:break-word;}
+      .rep-doc .rep-mini td:nth-child(2),.rep-doc .rep-mini th:nth-child(2){width:12%;}
       .rep-doc td.num,.rep-doc th.num{white-space:nowrap;}
       .rep-doc [style*="font-size:10px"]{font-size:11.5px!important;} .rep-doc [style*="font-size:11px"]{font-size:12px!important;}
       .rep-doc .rep-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:8px;}
@@ -13750,7 +13784,7 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
 
     ${/* v253 — los dos cuadros de detalle van lado a lado y CHICOS (.rep-mini, Timoteo 28/10): el mensual se cortaba en mayo.
          El mensual lleva más ancho porque tiene más columnas. Si hay uno solo, ocupa todo el ancho. */''}
-    <div class="rep-mini" style="display:grid;grid-template-columns:${(propsHist.length && propsMens.length) ? 'minmax(0,1fr) minmax(0,1.35fr)' : '1fr'};gap:10px;align-items:start;margin-top:14px">
+    <div class="rep-mini" style="display:grid;grid-template-columns:${(propsHist.length && propsMens.length) ? 'minmax(0,1fr) minmax(0,1fr)' : '1fr'};gap:10px;align-items:start;margin-top:14px">
     ${propsHist.length ? `<div class="card" style="margin:0;padding:8px!important">
       <div class="section-title" style="font-size:14px;margin-bottom:12px">Renta, gastos y renta neta — histórico por año</div>
       <div class="table-wrap"><table>
@@ -13778,6 +13812,7 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
         </tbody></table></div>
     </div>` : ''}
     </div>
+    <div class="junto">
     ${rentabDetalleHTML}
     ${/* v248 — orden de Propiedades (Timoteo, 26/10): resultado del período → renta y gastos (histórico y mensual) →
          rentabilidad por año → cartera completa al final. */''}
@@ -13792,6 +13827,7 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
         <tr style="${OFF_TOT_CSS}"><td>Total</td><td></td><td class="num">$${fmt(totVC)}</td><td class="num">${totVV>0?'$'+fmt(totVV):'—'}</td><td class="num">$${fmt(totVA)}</td><td class="num" style="color:${totRN>=0?'var(--esp)':'var(--usa)'}">${totRN>=0?'+':''}$${fmt(totRN)}</td><td></td><td class="num" style="color:${totNE>=0?'var(--esp)':'var(--usa)'}">${totNE>=0?'+':''}$${fmt(totNE)}</td></tr>
         </tbody></table></div>
       <p style="color:var(--text3);font-size:11px;margin-top:8px">Neto económico = valorización + renta neta acumulada. Renta neta acumulada = histórico anual + ${PER_NOMBRE} en curso.</p>
+    </div>
     </div>
 
     ${/* v248 — SECCIÓN BANCOS DEL SEMESTRAL REHECHA (Timoteo, 26/10). Inversión y operativas por separado, como en el
@@ -13895,7 +13931,7 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
         <p style="color:var(--text3);font-size:10px;margin-top:6px">Los años anteriores van en un renglón por año; ${ANIO}, un renglón por mes. Incluye las incorporaciones (aporte inicial de una cuenta).</p>
       </div>`;
       // v248 — "desde el inicio de los registros" se unió con "saldo al cierre de cada año" (Timoteo, 26/10): queda una sola tabla.
-      return `<div class="rep-h2 pgbreak">Bancos</div>${cInv}${cOp}${cAnios}${cAp}`; })()}
+      return `<div class="rep-h2 pgbreak">Bancos</div><div class="junto">${cInv}${cOp}${cAnios}</div>${cAp}`; })()}
 
     ${/* v245 — PE con la misma tabla de múltiplos que el mensual y el patrimonial (_peMultHTML) */''}
     ${(() => { if (!pe.length) return '';
@@ -15857,6 +15893,10 @@ async function hidratarBancosHist() {
         if (!_yaImp(h.nro, y)) {
           // la 1002 va con el titular que ese año tenía la 7335 (son una sola cuenta, el bloque de JC hasta 2025)
           let t = h.titular;
+          /* v255 — cuentas que hasta el traspaso de 2026 eran de JC y no están en el hardcode (Timoteo, 28/10): la 4682
+             (BNY Juan Cocci) es de JC hasta 2025 y de FC desde 2026. */
+          const _antes = { '4682': { hasta: 2025, t: 'JC' } }[_nroCta(h.nombre)];
+          if (_antes && +y <= _antes.hasta) t = _antes.t;
           if (_jpmParte(h) === '1002') { const h7 = BANCOS_HIST_DATA.find(b => _jpmParte(b) === '7335'); const t7 = h7 && _yaImp(h7.nro, y); if (t7) t = t7; }
           if (t) { const A = (BANCOS_ATTR[t] = BANCOS_ATTR[t] || {}); (A[y] = A[y] || {})[h.nro] = 1; } } }
       const u = bancoMovUSD(m);
@@ -19507,7 +19547,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20261028-254';
+const APP_VERSION = '20261028-255';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
