@@ -4498,8 +4498,18 @@ const soloSumables= (arr, anio) => (arr || []).filter(r => sumaTit(r, anio));
 const hayMFL      = arr => (arr || []).length !== soloSumables(arr).length;
 const notaSinMFL  = arr => hayMFL(arr)
   ? '<span style="font-weight:400;color:var(--text3);font-size:11px"> · sin MFL</span>' : '';
+/* v259 — COPROPIEDAD (Timoteo, 02/11: Embajada Chile es 50/50 de FC y FCC). El titular se carga como 'FC/FCC' y cada
+   uno ve su parte. En el consolidado cuenta una sola vez, entera. Para sumar otra, agregarla acá. */
+const COTIT = { 'FC/FCC': { FC: 0.5, FCC: 0.5 } };
+const _coKeys  = t => Object.keys(COTIT).filter(k => COTIT[k][t]);
+const _fracTit = (titular, t) => COTIT[titular] ? (COTIT[titular][t] || 0) : (titular === t ? 1 : 0);
+const _escalarCo = (r, f) => { if (f === 1) return r; const o = { ...r, _frac: f };
+  for (const k in o) if ((k.indexOf('valor') === 0 || k === 'precio_alquiler') && typeof o[k] === 'number') o[k] = o[k] * f; return o; };
 function aplicarFiltroTit(q){
   if (!verComo) return q;
+  if (!H_SHARE.includes(verComo) && _coKeys(verComo).length)
+    return q.in('titular', [verComo, ..._coKeys(verComo)]).then(res => (res && Array.isArray(res.data))
+      ? { ...res, data: res.data.map(r => COTIT[r.titular] ? { ..._escalarCo(r, COTIT[r.titular][verComo]), titular: verComo, _co: r.titular } : r) } : res);
   if (!H_SHARE.includes(verComo)) return q.eq('titular', verComo);
   // FC/YAC/FCC: incluir tambien las filas 'H' y dividir su valor /3 al resolver
   return q.in('titular', [verComo, 'H']).then(res => {
@@ -4532,6 +4542,7 @@ function aplicarFiltroTit(q){
    ("tu parte"), sin afectar ningún total. Decisión de Timoteo (11/09). */
 const H_SHARE = [];
 function splitTitular(titular, valor){
+  if (COTIT[titular]) return Object.entries(COTIT[titular]).map(([t, f]) => ({ titular: t, valor: (valor||0) * f }));   // v259
   if (titular === 'H' && H_SHARE.length)
     return H_SHARE.map(t => ({ titular: t, valor: (valor||0) / H_SHARE.length }));
   return [{ titular, valor: valor||0 }];
@@ -9496,11 +9507,12 @@ async function renderRepCliente() {
     ]);
   } catch (e) { cont.innerHTML = `<div class="card" style="color:var(--usa)">No se pudieron leer los datos: ${e.message}</div>`; return; }
 
-  const mio = x => _rcTit(x) === CLI;
+  const mio = x => _rcTit(x) === CLI || !!(COTIT[x.titular] && COTIT[x.titular][CLI]);   // v259 — copropiedad
+  const _co = x => COTIT[x.titular] ? _escalarCo(x, COTIT[x.titular][CLI]) : x;
   /* v256 — titular DEL AÑO (Nordelta: JC hasta 2024) y una vendida en un año posterior sigue en los años de antes
      aunque hoy esté inactiva (auditoría 30/10: Colegiales, vendida en 2022, faltaba en el patrimonial de 2021). */
-  const props  = B.props .map(p => conTitAnio(p, Y)).filter(p => mio(p) && !_rcVendido(p, Y) && (p.activa !== false || p.vendida === true));
-  const autos  = B.autos .map(a => conTitAnio(a, Y)).filter(a => mio(a) && !_rcVendido(a, Y));
+  const props  = B.props .map(p => conTitAnio(p, Y)).filter(p => mio(p) && !_rcVendido(p, Y) && (p.activa !== false || p.vendida === true)).map(_co);
+  const autos  = B.autos .map(a => conTitAnio(a, Y)).filter(a => mio(a) && !_rcVendido(a, Y)).map(_co);
   const bancos = B.bancos.map(b => conTitAnio(b, Y)).filter(b => mio(b));   // v256 — titular del año
   const pes    = B.pe    .map(p => conTitAnio(p, Y)).filter(p => mio(p) && p.activo !== false);
 
@@ -9519,7 +9531,7 @@ async function renderRepCliente() {
   // ── Renta, gastos e impuestos de propiedades
   let renta = 0, gastos = 0, imp = 0;
   props.forEach(p => { const d = D.prop[p.id] || (p.nro != null ? D.propNro[p.nro] : null);
-    if (!d) return; renta += d.renta||0; gastos += d.gastos||0; imp += d.imp||0; });
+    if (!d) return; const f = p._frac || 1; renta += (d.renta||0)*f; gastos += (d.gastos||0)*f; imp += (d.imp||0)*f; });
   const gastosAuto = autos.reduce((s,a) => s + (D.auto[a.id] || (a.nro!=null ? D.autoNro[a.nro] : 0) || 0), 0);
   const neta = renta - gastos - imp;
   /* v257 — el promedio del año en curso se divide por los meses CARGADOS (el último mes con movimientos de estas
@@ -9632,8 +9644,9 @@ async function renderRepCliente() {
   const _misProp = new Set(props.map(p => p.id));
   const _desg = (campos, secMon) => {
     const acc = {};
+    const _fr = {}; props.forEach(p => _fr[p.id] = p._frac || 1);
     (movRub||[]).forEach(m => { if (!_misProp.has(m.propiedad_id)) return;
-      campos.forEach(f => { const v = rubroPropUSD(m, f, secMon); if (Math.abs(v) > 0.005) acc[f] = (acc[f]||0) + v; }); });
+      campos.forEach(f => { const v = rubroPropUSD(m, f, secMon) * _fr[m.propiedad_id]; if (Math.abs(v) > 0.005) acc[f] = (acc[f]||0) + v; }); });
     return Object.entries(acc).sort((a,b) => Math.abs(b[1]) - Math.abs(a[1]));
   };
   const dIn = _desg(_RB_IN,'moneda_renta'), dGa = _desg(_RB_GA,'moneda_gastos'), dIm = _desg(_RB_IM,'moneda_impuestos');
@@ -9641,7 +9654,8 @@ async function renderRepCliente() {
 
   /* ── DETALLE POR PROPIEDAD ── */
   const detalle = props.map(p => {
-    const d = D.prop[p.id] || (p.nro != null ? D.propNro[p.nro] : null) || {};
+    const d0 = D.prop[p.id] || (p.nro != null ? D.propNro[p.nro] : null) || {}, f = p._frac || 1;
+    const d = { renta: (d0.renta||0)*f, gastos: (d0.gastos||0)*f, imp: (d0.imp||0)*f };
     const val = Number(p['valor_'+Y]) || 0;
     const n = (d.renta||0) - (d.gastos||0) - (d.imp||0);
     return { p, val, renta: d.renta||0, neta: n, yld: val > 0 ? (n/val*100) : null,
@@ -12285,8 +12299,8 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
      (generarInforme): trae los 8 titulares de FO_TITULARES y saca MFL con cuentaFO (salvo Nordelta ≤ 2024). */
   const esFO = (tit === 'FO');
   const esH = !esFO && H_SHARE_REP.includes(tit);
-  const titFilter = esFO ? FO_TITULARES : (esH ? [tit,'H'] : [tit]);
-  const share = r => (r && r.titular==='H' && esH) ? 1/3 : 1;
+  const titFilter = esFO ? [...FO_TITULARES, ...Object.keys(COTIT)] : (esH ? [tit,'H'] : [tit, ..._coKeys(tit)]);
+  const share = r => (r && r.titular==='H' && esH) ? 1/3 : ((!esFO && r && COTIT[r.titular]) ? COTIT[r.titular][tit] || 0 : 1);   // v259 — copropiedad
   const cuentaFO = r => !esFO || r.titular !== 'MFL' || (r.nro === 3 && anio <= 2024);
 
   const [propsR, peR, autosR, bancosR, prestamosR] = await Promise.all([
@@ -13320,8 +13334,8 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
   cont.innerHTML = '<div class="loader"><div class="spinner"></div></div>';
   const esFO = (tit === 'FO');
   const esH = !esFO && H_SHARE_REP.includes(tit);
-  const titFilter = esFO ? FO_TITULARES : (esH ? [tit, 'H'] : [tit]);
-  const share = r => (r.titular === 'H' && esH) ? 1/3 : 1;
+  const titFilter = esFO ? [...FO_TITULARES, ...Object.keys(COTIT)] : (esH ? [tit, 'H'] : [tit, ..._coKeys(tit)]);
+  const share = r => (r.titular === 'H' && esH) ? 1/3 : ((!esFO && COTIT[r.titular]) ? COTIT[r.titular][tit] || 0 : 1);   // v259 — copropiedad
 
   const [propsR, peR, autosR, bancosR, prestamosR] = await Promise.all([
     sb.from('propiedades').select('*'),   // v211 — todas: cuenta el titular DEL AÑO (titularEn)
@@ -13527,7 +13541,7 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
   /* v257 — cierre = lo que el cliente tenía el día antes del período, con el titular de ese año; incorporaciones = lo
      que hoy es del cliente y ese día era de otro (a su valor de ese día) menos lo que pasó a otro titular. */
   const _antesPer = x => !x.fecha_compra || String(x.fecha_compra).slice(0, 10) < PER_INI;
-  const _shY = (r, y) => (esH && titularEn(r, y) === 'H') ? 1/3 : 1;
+  const _shY = (r, y) => { const t = titularEn(r, y); return (esH && t === 'H') ? 1/3 : ((!esFO && COTIT[t]) ? COTIT[t][tit] || 0 : 1); };
   const _vIniProp = p => vProp(p, _yC), _vIniAuto = a => vAuto(a, _yC);
   const _vIniPE = x => { try { return (M1 === 1 ? peCalc(x, ANIO - 1) : peCalc(x, ANIO, null, M1 - 1)).tenencia || 0; } catch(e) { return 0; } };
   const _ini = (arr, ok, vf) => { let ini = 0, hoy = 0, inc = [];
@@ -13656,7 +13670,19 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
   const trasIn = _trasPer.filter(p => pe.some(x => _nPE(x.nombre) === _nPE(p.traspaso_a))).reduce((t, p) => t + Number(p.traspaso_usd) * _shY(p, ANIO), 0);
   const trasOut = _trasPer.filter(p => !pe.some(x => _nPE(x.nombre) === _nPE(p.traspaso_a))).reduce((t, p) => t + Number(p.traspaso_usd) * _shY(p, ANIO), 0);
   if (trasOut > 0.5) incorporaciones.det.push(..._trasPer.filter(p => !pe.some(x => _nPE(x.nombre) === _nPE(p.traspaso_a))).map(p => ({ n: p.nombre + ' (traspasada)', v: -Number(p.traspaso_usd), de: titularEn(p, ANIO), a: p.traspaso_a || 'otra posición' })));
-  const apPEcaja = apPE - trasIn;
+  /* v259 — LO QUE LLEGA DE UNA POSICIÓN DE OTRO TITULAR (TGA FINANCIAL de FC se convirtió en TGA de H, abril 2026: 90.000).
+     Del lado que recibe, el aporte no salió de sus bancos: es una incorporación. Se toma lo traspasado (traspaso_usd) o,
+     si fue una conversión, la utilidad "sin movimiento de fondos" de ese mes. */
+  const _rx = /particip|convier|convers|transforma|sin movimiento/i;
+  const _recibido = (peR.data || []).filter(p => !_esDe(p, ANIO) && p.cerrada === true && _enPer(p.fecha_cierre) && p.traspaso_a
+      && pe.some(x => _nPE(x.nombre) === _nPE(p.traspaso_a)))
+    .map(p => { const mc = +String(p.fecha_cierre).slice(5, 7);
+      const conv = ((window._peMovsByPe || {})[p.id] || []).filter(m => +m.anio === ANIO && +m.mes === mc && _rx.test(JSON.stringify(m.comentarios || {}) + ' ' + (m.notas || ''))).reduce((t, m) => t + (Number(m.utilidad) || 0), 0);
+      const dest = pe.find(x => _nPE(x.nombre) === _nPE(p.traspaso_a));
+      return { p, v: ((Number(p.traspaso_usd) || 0) || conv) * share(dest), dest }; }).filter(x => x.v > 0.5);
+  const trasInExt = _recibido.reduce((t, x) => t + x.v, 0);
+  _recibido.forEach(x => incorporaciones.det.push({ n: x.dest.nombre + ' (desde ' + x.p.nombre + ')', v: x.v, de: titularEn(x.p, ANIO), a: titularEn(x.dest, ANIO) }));
+  const apPEcaja = apPE - trasIn - trasInExt;
   // en el consolidado la conversión queda adentro (TGA FINANCIAL de FC → TGA de H): no sale del patrimonio
   const convPE = esFO ? 0 : pe.reduce((t, p) => t + ((peDet[p.id] || {}).convPer || 0) * share(p), 0);
   const clases = [
@@ -13664,7 +13690,7 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
     // v255 — bancos en dos renglones (Timoteo, 28/10): en inversión la variación histórica es rendimiento; las operativas son caja
     {n:'Bancos · inversión', inv:bancosInvInv, cie:_bkIniInv, ap:_bkFl.int.inv, inc:incorporaciones.bInv + _bkFl.ext.inv, act:bancosActual-bancosOpAct},
     {n:'Bancos · operativas', inv:bancosOpAct, cie:_bkIniOp, ap:_bkFl.int.op - (compProp + compAuto + apPEcaja) + (venProp + venAuto + cobPE), inc:incorporaciones.bOp + _bkFl.ext.op, act:bancosOpAct},
-    {n:'Private Equity', inv:peInvertido, cie:peCierre, ap:apPEcaja - cobPE, inc:incorporaciones.pe - convPE - trasOut, act:peActual},
+    {n:'Private Equity', inv:peInvertido, cie:peCierre, ap:apPEcaja - cobPE, inc:incorporaciones.pe - convPE - trasOut + trasInExt, act:peActual},
     {n:'Autos', inv:autosInvertido, cie:autosCierre, ap:compAuto - venAuto, inc:incorporaciones.auto, act:autosActual},
   ];
   if (Math.abs(convPE) > 0.5) incorporaciones.det.push(...pe.filter(p => Math.abs((peDet[p.id] || {}).convPer || 0) > 0.5)
@@ -13695,7 +13721,8 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
     autos.filter(a => _enPer(a.fecha_compra)).forEach(a => H.push({ f: a.fecha_compra, t: `Compra del auto <b>${a.nombre}</b> por ${$h((Number(a.valor_compra)||0) * share(a))}.` }));
     (autosR.data || []).filter(a => titFilter.includes(a.titular) && cuentaFO(a) && _enPer(a.fecha_venta))
       .forEach(a => H.push({ f: a.fecha_venta, t: `Venta del auto <b>${a.nombre}</b>${Number(a.valor_venta) > 0.5 ? ' por ' + $h(Number(a.valor_venta) * share(a)) : ''}.` }));
-    pe.forEach(p => { const tr = _trasPer.filter(x => _nPE(x.traspaso_a) === _nPE(p.nombre)).reduce((t, x) => t + Number(x.traspaso_usd), 0);   // v258 — lo traspasado no es aporte
+    pe.forEach(p => { const tr = _trasPer.filter(x => _nPE(x.traspaso_a) === _nPE(p.nombre)).reduce((t, x) => t + Number(x.traspaso_usd), 0)   // v258 — lo traspasado no es aporte
+        + _recibido.filter(x => x.dest.id === p.id).reduce((t, x) => t + x.v / (share(p) || 1), 0);
       const v = (((peDet[p.id] || {}).apPer || 0) - tr) * share(p); if (v > 0.5) H.push({ f: PER_FIN, t: `Aporte de capital a <b>${p.nombre}</b> (private equity): ${$h(v)}.` }); });
     _peC.filter(x => x.c.finalizada && _enPer(x.p.fecha_cierre)).forEach(x => H.push({ f: x.p.fecha_cierre, t: `Terminó la posición en <b>${x.p.nombre}</b>${(Number(x.p.traspaso_usd) || 0) > 0.5 ? ' (traspasada' + (x.p.traspaso_a ? ' a ' + x.p.traspaso_a : '') + ')' : ''}.` }));
     // v252 — una incorporación vinculada con el retiro de otra cuenta propia es un traspaso, no plata nueva
@@ -19789,7 +19816,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20261102-258';
+const APP_VERSION = '20261102-259';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
