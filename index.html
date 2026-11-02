@@ -6219,7 +6219,7 @@ const PE_HIST_DATA = [
   // v252 — Ulster: los aportes de 2023 son 500.000 (80.000 ene + 320.000 jun + 100.000 jul, movimientos_pe); el acumulado
   // de 2024 en adelante decía 400.000 y el M de 2024–2025 quedaba 100.000 abajo del COMPLETO (Timoteo, 28/10).
   {nro:6,nombre:"Ulster",titular:"M",aporteHist:500000,utilHist:97322,terminado:false,byY:{"2023":{ia:0,ap:500000,ut:97322},"2024":{ia:500000,ap:0,ut:0},"2025":{ia:500000,ap:0,ut:0},"2026":{ia:500000,ap:0,ut:0}}},
-  {nro:7,nombre:"Palm Bay",titular:"M",aporteHist:708644,utilHist:0,terminado:false,byY:{"2024":{ia:0,ap:250000,ut:0},"2025":{ia:250000,ap:8644,ut:0},"2026":{ia:708644,ap:0,ut:0}}},
+  {nro:7,nombre:"Palm Bay",titular:"M",aporteHist:708644,utilHist:0,terminado:false,byY:{"2024":{ia:0,ap:250000,ut:0},"2025":{ia:250000,ap:8644,ut:0},"2026":{ia:258644,ap:450000,ut:0}}},   /* v258 — los 450.000 de Ashland entran el 23/06/2026 (SQL 36), no el 1/1 */
   {nro:8,nombre:"Boston",titular:"M",aporteHist:100000,utilHist:100000,terminado:true,byY:{"2023":{ia:0,ap:100000,ut:0},"2024":{ia:100000,ap:0,ut:0},"2025":{ia:0,ap:0,ut:100000}}},
   {nro:9,nombre:"Ventus",titular:"M",aporteHist:125000,utilHist:0,terminado:false,byY:{"2024":{ia:0,ap:50000,ut:0},"2025":{ia:50000,ap:75000,ut:0},"2026":{ia:125000,ap:0,ut:0}}},
   {nro:10,nombre:"TGA",titular:"M",aporteHist:100000,utilHist:0,terminado:false,byY:{"2024":{ia:0,ap:100000,ut:0},"2025":{ia:100000,ap:0,ut:0},"2026":{ia:100000,ap:0,ut:0}}},
@@ -13648,14 +13648,23 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
   const _venPer = (arr, vk) => (arr || []).filter(r => _esDe(r, _yC) && _enPer(r.fecha_venta)).reduce((t, r) => t + (Number(r.valor_venta)||0) * _shY(r, _yC), 0);
   const venProp = _venPer(propsR.data, 'p'), venAuto = _venPer(autosR.data, 'a');
   const cobPE = pe.reduce((t, p) => t + ((peDet[p.id] || {}).cobPer || 0) * share(p), 0);
+  /* v258 — TRASPASOS ENTRE POSICIONES (Ashland → Palm Bay, 23/06/2026, 450.000). La posición que cierra traspasa su capital y
+     la que recibe lo registra como aporte: no salió de ningún banco. Si la que recibe es del cliente, es un movimiento interno
+     del PE (el aporte no se paga con los bancos); si es de otro titular, sale del patrimonio (va a "Ingresos e incorporaciones"). */
+  const _nPE = x => String(x || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const _trasPer = (peR.data || []).filter(p => (Number(p.traspaso_usd) || 0) > 0.5 && p.cerrada === true && _enPer(p.fecha_cierre) && _esDe(p, ANIO));
+  const trasIn = _trasPer.filter(p => pe.some(x => _nPE(x.nombre) === _nPE(p.traspaso_a))).reduce((t, p) => t + Number(p.traspaso_usd) * _shY(p, ANIO), 0);
+  const trasOut = _trasPer.filter(p => !pe.some(x => _nPE(x.nombre) === _nPE(p.traspaso_a))).reduce((t, p) => t + Number(p.traspaso_usd) * _shY(p, ANIO), 0);
+  if (trasOut > 0.5) incorporaciones.det.push(..._trasPer.filter(p => !pe.some(x => _nPE(x.nombre) === _nPE(p.traspaso_a))).map(p => ({ n: p.nombre + ' (traspasada)', v: -Number(p.traspaso_usd), de: titularEn(p, ANIO), a: p.traspaso_a || 'otra posición' })));
+  const apPEcaja = apPE - trasIn;
   // en el consolidado la conversión queda adentro (TGA FINANCIAL de FC → TGA de H): no sale del patrimonio
   const convPE = esFO ? 0 : pe.reduce((t, p) => t + ((peDet[p.id] || {}).convPer || 0) * share(p), 0);
   const clases = [
     {n:'Propiedades', inv:propsInvertido, cie:propsCierre, ap:compProp - venProp, inc:incorporaciones.prop, act:propsActual},
     // v255 — bancos en dos renglones (Timoteo, 28/10): en inversión la variación histórica es rendimiento; las operativas son caja
     {n:'Bancos · inversión', inv:bancosInvInv, cie:_bkIniInv, ap:_bkFl.int.inv, inc:incorporaciones.bInv + _bkFl.ext.inv, act:bancosActual-bancosOpAct},
-    {n:'Bancos · operativas', inv:bancosOpAct, cie:_bkIniOp, ap:_bkFl.int.op - (compProp + compAuto + apPE) + (venProp + venAuto + cobPE), inc:incorporaciones.bOp + _bkFl.ext.op, act:bancosOpAct},
-    {n:'Private Equity', inv:peInvertido, cie:peCierre, ap:apPE - cobPE, inc:incorporaciones.pe - convPE, act:peActual},
+    {n:'Bancos · operativas', inv:bancosOpAct, cie:_bkIniOp, ap:_bkFl.int.op - (compProp + compAuto + apPEcaja) + (venProp + venAuto + cobPE), inc:incorporaciones.bOp + _bkFl.ext.op, act:bancosOpAct},
+    {n:'Private Equity', inv:peInvertido, cie:peCierre, ap:apPEcaja - cobPE, inc:incorporaciones.pe - convPE - trasOut, act:peActual},
     {n:'Autos', inv:autosInvertido, cie:autosCierre, ap:compAuto - venAuto, inc:incorporaciones.auto, act:autosActual},
   ];
   if (Math.abs(convPE) > 0.5) incorporaciones.det.push(...pe.filter(p => Math.abs((peDet[p.id] || {}).convPer || 0) > 0.5)
@@ -13686,7 +13695,8 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
     autos.filter(a => _enPer(a.fecha_compra)).forEach(a => H.push({ f: a.fecha_compra, t: `Compra del auto <b>${a.nombre}</b> por ${$h((Number(a.valor_compra)||0) * share(a))}.` }));
     (autosR.data || []).filter(a => titFilter.includes(a.titular) && cuentaFO(a) && _enPer(a.fecha_venta))
       .forEach(a => H.push({ f: a.fecha_venta, t: `Venta del auto <b>${a.nombre}</b>${Number(a.valor_venta) > 0.5 ? ' por ' + $h(Number(a.valor_venta) * share(a)) : ''}.` }));
-    pe.forEach(p => { const v = ((peDet[p.id] || {}).apPer || 0) * share(p); if (v > 0.5) H.push({ f: PER_FIN, t: `Aporte de capital a <b>${p.nombre}</b> (private equity): ${$h(v)}.` }); });
+    pe.forEach(p => { const tr = _trasPer.filter(x => _nPE(x.traspaso_a) === _nPE(p.nombre)).reduce((t, x) => t + Number(x.traspaso_usd), 0);   // v258 — lo traspasado no es aporte
+      const v = (((peDet[p.id] || {}).apPer || 0) - tr) * share(p); if (v > 0.5) H.push({ f: PER_FIN, t: `Aporte de capital a <b>${p.nombre}</b> (private equity): ${$h(v)}.` }); });
     _peC.filter(x => x.c.finalizada && _enPer(x.p.fecha_cierre)).forEach(x => H.push({ f: x.p.fecha_cierre, t: `Terminó la posición en <b>${x.p.nombre}</b>${(Number(x.p.traspaso_usd) || 0) > 0.5 ? ' (traspasada' + (x.p.traspaso_a ? ' a ' + x.p.traspaso_a : '') + ')' : ''}.` }));
     // v252 — una incorporación vinculada con el retiro de otra cuenta propia es un traspaso, no plata nueva
     const _apTodos = [].concat(...bancosDietz.map(d => (d.aportes || []).map(a => ({ a, d }))));
@@ -19779,7 +19789,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20261030-257';
+const APP_VERSION = '20261102-258';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
