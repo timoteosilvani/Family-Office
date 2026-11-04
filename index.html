@@ -7912,7 +7912,7 @@ async function loadAportes() {
   if (!_apEditId) apRestaurarForm();
   const cont = document.getElementById('aportes-lista');
   if (!cont) return;
-  const { data, error } = await sb.from('aportes_bancos').select('*').order('fecha', { ascending: true });
+  const { data, error } = await sb.from('aportes_bancos').select('*').order('fecha', { ascending: false });   // v260 — el más reciente primero (Timoteo, 03/11)
   if (error) { cont.innerHTML = `<p style="color:var(--usa);font-size:13px">No se pudo leer aportes (${error.message}). ¿Creaste la tabla <code>aportes_bancos</code>?</p>`; return; }
   const rows = data || [];
   _apRows = {}; rows.forEach(r => _apRows[r.id] = r);
@@ -10201,7 +10201,7 @@ async function _exportarPDF(opt) {
     .no-corta{page-break-inside:avoid;break-inside:avoid;}
     @media print{body{padding:0;width:auto;margin:0;}}
   </style></head><body>
-  <div class="hdr"><div style="display:flex;align-items:center;gap:12px"><img src="${OFFIDA_LOGO}" style="height:54px;width:auto"><div><div style="font-family:Georgia,'Times New Roman',serif;font-size:22px;letter-spacing:3px;color:#A8842F;font-weight:700;line-height:1">OFFIDA</div><h1 style="font-size:18px;margin:3px 0 0">${opt.titulo}</h1><div style="color:var(--text3);font-size:12px">${cliNom} \u00b7 ${opt.subtitulo} \u00b7 Cifras en USD</div></div></div><div style="color:var(--text3);font-size:11px;text-align:right">Generado ${new Date().toLocaleDateString('es-AR')}</div></div>
+  <div class="hdr"><div style="display:flex;align-items:center;gap:12px"><img src="${OFFIDA_LOGO}" style="height:54px;width:auto"><div><div style="font-family:Georgia,'Times New Roman',serif;font-size:22px;letter-spacing:3px;color:#A8842F;font-weight:700;line-height:1">OFFIDA</div><h1 style="font-size:18px;margin:3px 0 0">${opt.titulo}</h1><div style="color:var(--text3);font-size:12px">${cliNom} \u00b7 ${opt.subtitulo} \u00b7 Cifras en USD</div></div></div></div>${/* v260 — sin la fecha de generado (Timoteo, 03/11): el período ya está en el subtítulo */''}
   ${htmlBody}
   <script>
   /* v243 — AJUSTE A LA HOJA ANTES DE IMPRIMIR (Timoteo, 21/10).
@@ -14157,13 +14157,22 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
       const ap3 = (a, r) => `<td class="num">${a > 0.5 ? '<span style="color:var(--esp)">+$' + fmt(a) + '</span>' : '—'}</td><td class="num">${r > 0.5 ? '<span style="color:var(--usa)">−$' + fmt(r) + '</span>' : '—'}</td><td class="num">${SG0(a - r)}</td>`;
       /* v253 — APORTES EN DOS CUADROS LADO A LADO (Timoteo, 28/10): las cuentas se reparten en el orden del COMPLETO para que
          los dos cuadros queden más o menos del mismo largo; abajo, un solo total de todas. Columnas angostas. */
+      /* v260 — APORTES (Timoteo, 03/11): un renglón con todo lo anterior al período y uno por mes del período, del más
+         reciente al más viejo (el primero debajo del nombre de la cuenta es el último movimiento). El total de abajo no
+         suma los traspasos entre cuentas propias (aporte en una y retiro en otra, vinculados): sólo lo que entró o salió. */
+      const _propias = new Set(bancosDietz.map(d => d.b.id)), _byVin = {};
+      bancosDietz.forEach(d => (d.aportes || []).forEach(a => { if (a.vinculo_id) (_byVin[a.vinculo_id] = _byVin[a.vinculo_id] || []).push({ a, b: d.b.id }); }));
+      const _esTraspaso = a => a.vinculo_id && (_byVin[a.vinculo_id] || []).some(o => o.a.id !== a.id && _propias.has(o.b));
+      let TAx = 0, TRx = 0;
       const ctsAp = bancosDietz.filter(d => (d.aportes || []).some(a => a.fecha && a.fecha <= PER_FIN)).sort((x, y) => _nroCompleto(x.b) - _nroCompleto(y.b)).map(d => {
         const g = {}; let ta = 0, tr = 0;
-        (d.aportes || []).filter(a => a.fecha && a.fecha <= PER_FIN).forEach(a => { const y = +String(a.fecha).slice(0, 4), m = +String(a.fecha).slice(5, 7);
-          const k = y < ANIO ? String(y) : ANIO + '-' + String(m).padStart(2, '0'); const e = g[k] = g[k] || { a: 0, r: 0, lbl: y < ANIO ? 'Año ' + y : _mesN[m] + ' ' + ANIO, act: y >= ANIO };
-          const v = Math.abs(Number(a.monto) || 0); if (a.tipo === 'retiro') { e.r += v; tr += v; } else { e.a += v; ta += v; } });
+        (d.aportes || []).filter(a => a.fecha && a.fecha <= PER_FIN).forEach(a => { const enPer = a.fecha >= PER_INI, m = +String(a.fecha).slice(5, 7);
+          const k = enPer ? ANIO + '-' + String(m).padStart(2, '0') : '0000';
+          const e = g[k] = g[k] || { a: 0, r: 0, lbl: enPer ? _mesN[m] + ' ' + ANIO : 'Hasta el ' + _ultDia(ANIO - (M1 === 1 ? 1 : 0), M1 === 1 ? 12 : M1 - 1) + '/' + _pad(M1 === 1 ? 12 : M1 - 1) + '/' + (M1 === 1 ? ANIO - 1 : ANIO), act: enPer };
+          const v = Math.abs(Number(a.monto) || 0); if (a.tipo === 'retiro') { e.r += v; tr += v; } else { e.a += v; ta += v; }
+          if (enPer && !_esTraspaso(a)) { if (a.tipo === 'retiro') TRx += v; else TAx += v; } });
         const rows = `<tr><td colspan="4" style="font-weight:700;color:var(--navy);border-bottom:1.5px solid var(--navy)">${d.nombre}</td></tr>`
-          + Object.keys(g).sort().map(k => `<tr${g[k].act ? '' : ' style="color:var(--text3)"'}><td style="padding-left:12px">${g[k].lbl}</td>${ap3(g[k].a, g[k].r)}</tr>`).join('')
+          + Object.keys(g).sort().reverse().map(k => `<tr${g[k].act ? '' : ' style="color:var(--text3)"'}><td style="padding-left:12px">${g[k].lbl}</td>${ap3(g[k].a, g[k].r)}</tr>`).join('')
           + `<tr style="background:var(--bg3);font-weight:600"><td style="padding-left:12px">Total</td>${ap3(ta, tr)}</tr>`;
         return { rows, n: Object.keys(g).length + 2, ta, tr }; });
       const totN = ctsAp.reduce((t, c) => t + c.n, 0); const izq = [], der = []; let acc = 0;
@@ -14174,9 +14183,9 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
         <div class="section-title" style="font-size:14px;margin-bottom:10px">Aportes y retiros de capital</div>
         ${ctsAp.length ? `<div style="display:grid;grid-template-columns:${der.length ? 'minmax(0,1fr) minmax(0,1fr)' : '1fr'};gap:12px;align-items:start">
           <div class="table-wrap">${tabAp(izq)}</div>${der.length ? `<div class="table-wrap">${tabAp(der)}</div>` : ''}</div>
-        <table class="tbl-compacta" style="margin-top:8px"><tbody><tr style="${T}"><td>Total de todas las cuentas</td>${ap3(TA, TR)}</tr></tbody></table>`
+        <table class="tbl-compacta" style="margin-top:8px"><tbody><tr style="${T}"><td>Entró y salió en el ${PER_NOMBRE} (sin traspasos entre cuentas propias)</td>${ap3(TAx, TRx)}</tr></tbody></table>`
           : '<p style="color:var(--text3);font-size:12px">Sin aportes registrados</p>'}
-        <p style="color:var(--text3);font-size:10px;margin-top:6px">Los años anteriores van en un renglón por año; ${ANIO}, un renglón por mes. Incluye las incorporaciones (aporte inicial de una cuenta).</p>
+        <p style="color:var(--text3);font-size:10px;margin-top:6px">Lo anterior al período va en un solo renglón; el período, un renglón por mes, del más reciente al más viejo. El total de abajo es sólo el ${PER_NOMBRE} y no cuenta los traspasos entre cuentas propias.</p>
       </div>`;
       // v248 — "desde el inicio de los registros" se unió con "saldo al cierre de cada año" (Timoteo, 26/10): queda una sola tabla.
       return `<div class="rep-h2 pgbreak">Bancos</div><div class="junto">${cInv}${cOp}${cAnios}</div>${cAp}`; })()}
@@ -19816,7 +19825,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20261102-259';
+const APP_VERSION = '20261103-260';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
