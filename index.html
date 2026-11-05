@@ -4092,6 +4092,7 @@ tr.row-esp td:first-child { border-left: 3px solid var(--esp); }
             <option value="YAC">YAC - Yanina Alicia Cocci</option><option value="FCC">FCC - Fiorella Carla Cocci</option>
             <option value="G">G - Grupillo</option>
             <option value="H">H - Compartido (se divide entre FC, FCC y YAC)</option>
+            <option value="FC/FCC">FC/FCC - 50% FC y 50% FCC</option>
           </select>
         </div>
       </div>
@@ -9202,7 +9203,8 @@ async function exportarReportePDF() {
       if (tipo === 'semestral') return 'Informe Semestral';
       if (tipo === 'anual') return 'Informe Anual';
       return 'Informe Periódico'; })(),
-    subtitulo: window._repTitulo || 'Informe',
+    subtitulo: (window._repTitulo || 'Informe').replace(/^Informe (Mensual )?· /, ''),   // v261 — el título ya dice "Informe Mensual" (Timoteo, 04/11)
+    horizontal: REP_HORIZONTAL,   // v261 — boceto apaisado
     vacio: 'Generá el informe primero',
   });
 }
@@ -9511,8 +9513,16 @@ async function renderRepCliente() {
   const _co = x => COTIT[x.titular] ? _escalarCo(x, COTIT[x.titular][CLI]) : x;
   /* v256 — titular DEL AÑO (Nordelta: JC hasta 2024) y una vendida en un año posterior sigue en los años de antes
      aunque hoy esté inactiva (auditoría 30/10: Colegiales, vendida en 2022, faltaba en el patrimonial de 2021). */
-  const props  = B.props .map(p => conTitAnio(p, Y)).filter(p => mio(p) && !_rcVendido(p, Y) && (p.activa !== false || p.vendida === true)).map(_co);
-  const autos  = B.autos .map(a => conTitAnio(a, Y)).filter(a => mio(a) && !_rcVendido(a, Y)).map(_co);
+  /* v261 — UNA COMPRA POSTERIOR A LA FECHA DEL INFORME NO ESTÁ (Timoteo, 04/11: Embajada de Chile entra recién en los
+     informes posteriores al 13/10). La fecha del informe es el último mes con saldos cargados del año (31/12 si está cerrado). */
+  _revIni();
+  const _lastM0 = Math.max(1, ...Object.values(D.ban || {}).map(m => +m.mes || 0));
+  const _fRepISO = Y < new Date().getFullYear() ? Y + '-12-31' : Y + '-' + String(_lastM0).padStart(2, '0') + '-' + String(new Date(Y, _lastM0, 0).getDate()).padStart(2, '0');
+  const _postCompra = x => x.fecha_compra && String(x.fecha_compra).slice(0, 10) > _fRepISO;
+  const props  = B.props .map(p => conTitAnio(p, Y)).filter(p => mio(p) && !_rcVendido(p, Y) && (p.activa !== false || p.vendida === true) && !_postCompra(p)).map(_co);
+  const autos  = B.autos .map(a => conTitAnio(a, Y)).filter(a => mio(a) && !_rcVendido(a, Y) && !_postCompra(a)).map(_co);
+  _rev('Compras posteriores a la fecha del informe (no entran)', [...B.props, ...B.autos].map(x => conTitAnio(x, Y)).filter(x => mio(x) && _postCompra(x)).map(x => `${x.nombre} · comprada el ${String(x.fecha_compra).slice(8, 10)}/${String(x.fecha_compra).slice(5, 7)}/${String(x.fecha_compra).slice(0, 4)}`),
+    'Entran solas cuando se carguen los saldos de ese mes.');
   const bancos = B.bancos.map(b => conTitAnio(b, Y)).filter(b => mio(b));   // v256 — titular del año
   const pes    = B.pe    .map(p => conTitAnio(p, Y)).filter(p => mio(p) && p.activo !== false);
 
@@ -9631,7 +9641,7 @@ async function renderRepCliente() {
     { n:'Propiedades',    inv:invProp,  act:vP },
     { n:'Cuentas de inversión', inv:invBanco, act:vBinv },
     { n:'Cuentas operativas',   inv:0,        act:vBop },
-    { n:'Private equity', inv:invPE,    act:vE },
+    { n:'Private equity', inv:invPE,    act:vE, cob: pes.reduce((a,x) => { let c = null; try { c = peCalc(x, Y); } catch(e){} return a + (c ? (c.distribuido || 0) + (c.traspaso || 0) : 0); }, 0) },   // v261 — lo ya cobrado (antes: −27 %)
     { n:'Autos',          inv:invAuto,  act:vA },
   ].filter(x => Math.abs(x.inv) > 0.5 || Math.abs(x.act) > 0.5);
 
@@ -9658,7 +9668,7 @@ async function renderRepCliente() {
     const d = { renta: (d0.renta||0)*f, gastos: (d0.gastos||0)*f, imp: (d0.imp||0)*f };
     const val = Number(p['valor_'+Y]) || 0;
     const n = (d.renta||0) - (d.gastos||0) - (d.imp||0);
-    return { p, val, renta: d.renta||0, neta: n, yld: val > 0 ? (n/val*100) : null,
+    return { p, val, renta: d.renta||0, neta: n, yld: val > 0 ? (n/val*100*(12/Math.max(1,_mesesY))) : null,   // v261 — anualizado
              ocupada: conContrato.has(p.id) };
   }).sort((a,b) => (b.yld ?? -999) - (a.yld ?? -999));
 
@@ -9818,15 +9828,19 @@ async function renderRepCliente() {
   const _bkHTML = !_bkDat.length ? '' : `
     <div class="card" style="margin-bottom:14px">
       <div class="section-title" style="font-size:13px;margin:0 0 12px">Bancos</div>
+      ${/* v261 — inversión al lado de operativas: las columnas quedan cerca del nombre de la cuenta (Timoteo, 04/11) */''}
+      <div style="display:grid;grid-template-columns:${_bkInv.length && _bkOper.length ? '1.2fr 0.8fr' : '1fr'};gap:16px;align-items:start"><div>
       ${_bkInv.length ? `<div style="font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--text3);font-weight:700;margin:2px 0 8px">Cuentas de inversión</div>
-        <div class="table-wrap" style="margin-bottom:${_bkOper.length?'18px':'0'}"><table class="tbl-compacta" style="table-layout:fixed"><colgroup><col style="width:28%"><col style="width:15%"><col style="width:14%"><col style="width:15%"><col style="width:16%"><col style="width:12%"></colgroup>
+        <div class="table-wrap" style="margin-bottom:0"><table class="tbl-compacta" style="table-layout:fixed"><colgroup><col style="width:28%"><col style="width:15%"><col style="width:14%"><col style="width:15%"><col style="width:16%"><col style="width:12%"></colgroup>
           <thead><tr><th>Cuenta</th><th class="num">Saldo al 1/1</th><th class="num">Aportes netos</th><th class="num">Al cierre de ${Y}</th><th class="num">Rendimiento</th><th class="num">%</th></tr></thead>
           <tbody>${_tablaBk(_bkInv, true)}</tbody></table></div>` : ''}
+      </div><div>
       ${_bkOper.length ? `<div style="font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--text3);font-weight:700;margin:2px 0 8px">Cuentas operativas</div>
         <div class="table-wrap"><table class="tbl-compacta" style="table-layout:fixed">${_COLGB}
           <thead><tr><th>Cuenta</th><th class="num">Saldo al 1/1</th><th class="num">Al cierre de ${Y}</th><th class="num">Variación</th></tr></thead>
           <tbody>${_tablaBk(_bkOper)}</tbody></table></div>` : ''}
-      <div class="table-wrap" style="margin-top:12px"><table class="tbl-compacta" style="table-layout:fixed">${_COLGB}<tbody>
+      </div></div>
+      <div class="table-wrap" style="margin-top:12px;max-width:${_bkInv.length && _bkOper.length ? '60%' : '100%'}"><table class="tbl-compacta" style="table-layout:fixed">${_COLGB}<tbody>
         ${(() => { const ti = _bkDat.reduce((s,x)=>s+x.i,0) - _bkDat.reduce((s,x)=>s+x.credI,0);
                    const tcash = _bkDat.reduce((s,x)=>s+x.c,0), tf = tcash - _crTot;
           return `<tr style="${OFF_TOT_CSS}">
@@ -9885,15 +9899,25 @@ async function renderRepCliente() {
   const _peFin   = _peTodas.filter(x =>  x.c.finalizada).sort((a,b) => b.c.aportado - a.c.aportado);
   // v242 — tabla de múltiplos en vez de tarjetas (boceto del 20/10)
   const _peM = _peMultHTML(_peTodas, F);
-  const _peHTML = !_peTodas.length ? '' : `
-    ${_peVivas.length ? `<div class="card" style="margin-bottom:14px">
-      <div class="section-title" style="font-size:13px;margin:0 0 12px">Private equity · ${_peVivas.length}</div>
-      ${_peM.vivas}
-    </div>` : ''}
-    ${_peFin.length ? `<div class="card" style="margin-bottom:14px">
-      <div class="section-title" style="font-size:13px;margin:0 0 12px">Private equity finalizado · ${_peFin.length}</div>
-      ${_peM.fin}
-    </div>` : ''}`;
+  /* v261 — PE EN EL PATRIMONIAL: foto de las posiciones vivas (las terminadas van al anual): aportado, cobrado, capital a
+     recuperar, valor, % del patrimonio, tasa y vencimiento. */
+  _rev('Invertido incompleto (faltan aportes cargados)', _INV.filter(x => x.flojo).map(x => x.n), 'El "Generado" de ese tipo sale inflado hasta que se carguen los aportes.');
+  _rev('Préstamos de PE sin tasa o vencimiento cargados', _peVivas.filter(({ p, c }) => c.tipo === 'prestamo' && (p.tasa == null || !(p.fecha_vencimiento || p.plazo_meses))).map(({ p }) => p.nombre), 'En el informe salen con "—".');
+  _rev('Créditos bancarios sin tasa cargada', bancos.filter(b => { const c = D.ban && D.ban[b.id]; return c && (Number(bancoMovUSD(c).cred) || 0) > 0.5; }).map(b => _bNom(b)), 'En la tabla de deuda la tasa, el vencimiento y la garantía salen con "—".');
+  const _peHTML = !_peVivas.length ? '' : `<div class="card" style="margin-bottom:14px">
+      <div class="section-title" style="font-size:13px;margin:0 0 10px">Private equity · ${_peVivas.length}</div>
+      <table class="tbl-compacta"><thead><tr><th>Posición</th><th class="num">Aportado</th><th class="num">Cobrado</th><th class="num">Capital a recuperar</th><th class="num">Valor</th><th class="num">% patrimonio</th><th class="num">Tasa</th><th class="num">Vence</th></tr></thead><tbody>
+      ${_peVivas.map(({ p, c }) => { const f = p._frac || 1, rec = Math.max(0, c.aportado - c.distribuido) * f;
+        const vence = p.fecha_vencimiento || (p.plazo_meses ? p.plazo_meses + ' meses' : null);
+        return `<tr><td style="font-weight:600">${p.nombre}<div style="font-size:9.5px;color:var(--text3);font-weight:400">${(PE_TIPOS[c.tipo] || {}).lbl || c.tipo}${p.pais ? ' · ' + p.pais : ''}</div></td>
+          <td class="num">${F(c.aportado * f)}</td><td class="num" style="color:${c.distribuido > 0.5 ? 'var(--esp)' : 'var(--text3)'}">${c.distribuido > 0.5 ? F(c.distribuido * f) : '—'}</td>
+          <td class="num" style="font-weight:700;color:${rec > 0.5 ? 'var(--usa)' : 'var(--text3)'}">${rec > 0.5 ? F(rec) : 'recuperado'}</td>
+          <td class="num">${F(c.tenencia * f)}</td><td class="num">${TOT ? (c.tenencia * f / TOT * 100).toFixed(1).replace('.', ',') + '%' : '—'}</td>
+          <td class="num">${p.tasa ? Number(p.tasa).toFixed(2).replace('.', ',') + '%' : '—'}</td>
+          <td class="num">${vence || '—'}</td></tr>`; }).join('')}
+      <tr style="${_TOT}"><td>Total</td><td class="num">${F(_peVivas.reduce((t, x) => t + x.c.aportado * (x.p._frac || 1), 0))}</td><td class="num">${F(_peVivas.reduce((t, x) => t + x.c.distribuido * (x.p._frac || 1), 0))}</td><td class="num">${F(_peVivas.reduce((t, x) => t + Math.max(0, x.c.aportado - x.c.distribuido) * (x.p._frac || 1), 0))}</td><td class="num">${F(vE)}</td><td class="num">${TOT ? (vE / TOT * 100).toFixed(1).replace('.', ',') + '%' : '—'}</td><td></td><td></td></tr>
+      </tbody></table>
+      <p style="font-size:10.5px;color:var(--text3);margin:6px 0 0">Capital a recuperar = aportado − cobrado. Las posiciones terminadas están en el informe anual.</p></div>`;
 
   /* ── AUTOS, con valor de compra (v188) ── */
   const _auDat = autos.map(a => ({ a, vc:Number(a.valor_compra)||0, v:Number(a['valor_'+Y])||0 }))
@@ -9935,40 +9959,101 @@ async function renderRepCliente() {
     { n:'Autos',          color:TIPO_COL['Autos'],          vals:_serie.map(d=>d.autos) },
   ].filter(x => x.vals.some(v => v > 0.5));
 
-  cont.innerHTML = `${_avisoAnioCerrado(Y, B.bancos)}
-    <div class="card" style="margin-bottom:14px">
-      <div class="section-title" style="font-size:14px;margin:0 0 4px">${CLI} · ${RC_NOM[CLI]||CLI} — ${Y}</div>
-      <p style="font-size:11px;color:var(--text3);margin:0 0 12px">
-        ${props.length} propiedades · ${bancos.length} cuentas · ${pes.length} posiciones de PE · ${autos.length} autos
-        ${esH ? ' · el bloque se reparte ÷3 entre FC, FCC y YAC' : ''}</p>
-      <div class="form-row ${compartido ? 'cols-3' : 'cols-2'}" style="margin:0">
-        ${kpi('Patrimonio', F(TOT), 'var(--gold)', Y < new Date().getFullYear() ? 'al cierre de ' + Y : 'al ' + new Date().toLocaleDateString('es-AR'))}
-        ${compartido ? kpi('Tu parte (÷3)', F(TOT/3), 'var(--esp)', 'FC · FCC · YAC') : ''}
-        ${/* v188 — sin el texto del yield: es un dato de propiedades, no del patrimonio. */''}
-        ${kpi('Renta neta ' + Y, F(neta), CV(neta))}
-      </div>
-      ${esH && Y < 2026 ? `<p style="font-size:11px;color:var(--gold);margin:12px 0 0">
-        El reparto ÷3 entre FC, FCC y YAC rige desde 2026. En ${Y} estas tenencias se imputaban a JC,
-        así que el bloque vale lo que dice arriba pero no se dividía.</p>` : ''}
+  /* ═══ v261 — BOCETO PATRIMONIAL (Timoteo, 03/11): mira para adelante. KPIs: patrimonio · lo que genera en un año ·
+     liquidez · deuda/patrimonio. "Lo que genera en un año" reemplaza a "Qué rinde" (el desglose por rubro pasa al anual). */
+  const _lastM = Math.max(1, ...Object.values(D.ban || {}).map(m => +m.mes || 0));
+  const _fechaRep = Y < new Date().getFullYear() ? '31/12/' + Y : String(new Date(Y, _lastM, 0).getDate()).padStart(2, '0') + '/' + String(_lastM).padStart(2, '0') + '/' + Y;
+  // gasto familiar del año: mismo cálculo del mensual
+  let _GFY = null;
+  /* v261 — suma de los meses, igual que el semestral y el anual (Timoteo, 04/11: "no dan lo mismo") */
+  try { const _codeRep = CLI === 'H' ? 'H' : CLI; let t = 0; for (let m = 1; m <= _lastM; m++) { await generarReportePeriodo(_codeRep, Y, m, m, '', '_gf'); t += (window._ultMensual || {}).GF || 0; } _GFY = t; } catch (e) { console.warn('gasto familiar:', e.message); }
+  const _f12 = 12 / Math.max(1, _lastM);
+  let _contr = []; try { const r = await sb.from('contratos_alquiler').select('propiedad_id,fecha_inicio,fecha_fin,activo,precio_base,moneda'); _contr = (r && r.data) || []; } catch (e) {}
+  const _hoyC = _fechaRep.split('/').reverse().join('-');
+  const _tcY = (tcFor(Y, _lastM) || {});
+  const _usdC = c => { const v = Number(c.precio_base) || 0, m = (c.moneda || 'USD').toUpperCase(); return m === 'USD' ? v : (m === 'ARS' ? v / (_tcY.ars_usd || 1) : (m === 'UYU' ? v / (_tcY.uyu_usd || 1) : v)); };
+  const _alqDet = props.map(p => { const c = _contr.find(c => c.propiedad_id === p.id && c.activo !== false && (!c.fecha_fin || c.fecha_fin >= _hoyC) && (!c.fecha_inicio || String(c.fecha_inicio).slice(0, 10) <= _hoyC));
+    return c ? { n: p.nombre, v: _usdC(c) * (p._frac || 1) } : null; }).filter(Boolean);
+  const _alq = _alqDet.reduce((t, x) => t + x.v, 0) * 12;
+  const _ini12 = (Y - 1) * 12 + _lastM, _en12 = m => { const k = (+m.anio) * 12 + (+m.mes); return k > _ini12 - 12 && k <= _ini12; };
+  const _partic = pes.filter(p => peTipoDe(p) === 'participacion');
+  const _dist12 = _partic.reduce((t, p) => t + ((window._peMovsByPe || {})[p.id] || []).filter(_en12).reduce((a, m) => a + (Number(m.utilidad) || 0), 0), 0);
+  const _rendRef = vBinv * 0.04;
+  const _gProp12 = (gastos + imp) * _f12, _gAuto12 = gastosAuto * _f12;
+  const _misSocs = (B.socs || []).filter(x => x.titular === CLI);
+  const _gSoc12 = _misSocs.reduce((t, x) => { const d = (D.soc || {})[x.id]; return t + (d ? (d.imp || 0) + (d.og || 0) : 0); }, 0) * _f12;
+  const GEN = _alq + _dist12 + _rendRef - _gProp12 - _gAuto12 - _gSoc12;
+  const GF12 = _GFY == null ? null : _GFY * _f12;
+  const _prestRec = pes.filter(p => peTipoDe(p) === 'prestamo').reduce((t, p) => { let c = null; try { c = peCalc(p, Y); } catch (e) {} return t + (c && !c.finalizada ? c.tenencia : 0); }, 0);
+  const _sv = v => (v >= 0 ? '+' : '−') + '$' + fmt(Math.round(Math.abs(v)));
+  const _genHTML = `<div class="card" style="margin-bottom:14px">
+      <div class="section-title" style="font-size:13px;margin:0 0 8px">Lo que genera en un año <span style="font-weight:400;font-size:11px;opacity:.85">· al ritmo de hoy, no lo que va del año</span></div>
+      <table class="tbl-compacta"><thead><tr><th>Componente</th><th class="num">USD / año</th></tr></thead><tbody>
+        <tr><td>Alquileres de contratos vigentes × 12<div style="font-size:10px;color:var(--text3)">${_alqDet.length ? _alqDet.map(x => x.n + ' ' + fmt(Math.round(x.v))).join(' · ') : 'sin contratos vigentes cargados'}</div></td><td class="num" style="color:var(--esp)">${_sv(_alq)}</td></tr>
+        <tr><td>Distribuciones de participaciones<div style="font-size:10px;color:var(--text3)">lo cobrado en los últimos 12 meses${_partic.length ? ' · ' + _partic.map(p => p.nombre).join(', ') : ''}</div></td><td class="num" style="color:var(--esp)">${_sv(_dist12)}</td></tr>
+        <tr><td>Rendimiento de cuentas de inversión<div style="font-size:10px;color:var(--text3)">$${fmt(Math.round(vBinv))} × 4% (tasa de referencia, editable)</div></td><td class="num" style="color:var(--esp)">${_sv(_rendRef)}</td></tr>
+        <tr><td>Gastos e impuestos de propiedades<div style="font-size:10px;color:var(--text3)">ritmo ${Y}: $${fmt(Math.round(gastos + imp))} × 12/${_lastM}</div></td><td class="num" style="color:var(--usa)">${_sv(-_gProp12)}</td></tr>
+        <tr><td>Gastos de autos<div style="font-size:10px;color:var(--text3)">ritmo ${Y}: $${fmt(Math.round(gastosAuto))} × 12/${_lastM}</div></td><td class="num" style="color:var(--usa)">${_sv(-_gAuto12)}</td></tr>
+        <tr><td>Gastos de sociedades<div style="font-size:10px;color:var(--text3)">ritmo ${Y}</div></td><td class="num" style="color:var(--usa)">${_sv(-_gSoc12)}</td></tr>
+        <tr style="background:var(--gold-soft,#f6efe0);font-weight:700"><td>Renta neta anual estimada</td><td class="num" style="color:${CV(GEN)}">${_sv(GEN)}</td></tr>
+        <tr><td>Como % del patrimonio</td><td class="num">${TOT ? (GEN / TOT * 100).toFixed(2).replace('.', ',') + '%' : '—'}</td></tr>
+        <tr><td>Gasto familiar anual<div style="font-size:10px;color:var(--text3)">ritmo ${Y}${_GFY != null ? ': $' + fmt(Math.round(_GFY)) + ' × 12/' + _lastM : ''}</div></td><td class="num" style="color:var(--usa)">${GF12 == null ? '—' : _sv(-GF12)}</td></tr>
+        <tr style="background:var(--gold-soft,#f6efe0);font-weight:700"><td>Cobertura = renta neta anual ÷ gasto familiar</td><td class="num">${GF12 ? Math.round(GEN / GF12 * 100) + '%' : '—'}</td></tr>
+        ${_prestRec > 0.5 ? `<tr><td style="color:var(--text3)">Aparte, no es renta: capital de préstamos PE por recuperar</td><td class="num" style="color:var(--text3)">$${fmt(Math.round(_prestRec))}</td></tr>` : ''}
+      </tbody></table>
+      <p style="font-size:10.5px;color:var(--text3);margin:6px 0 0">Es la base del "Real contra lo proyectado" del semestral y de la proyección del anual. Préstamos de PE: lo cobrado devuelve capital, así que no suma a la renta hasta recuperar todo lo aportado.</p></div>`;
+  // Liquidez
+  const _liqP = (() => { const inm = vB, prest = _prestRec, ili = TOT - inm - prest, T = TOT || 1, w = v => Math.max(0, v / T * 100).toFixed(2), pp = v => (v / T * 100).toFixed(1).replace('.', ',') + '%';
+    return `<div class="card" style="margin-bottom:14px"><div class="section-title" style="font-size:13px;margin:0 0 8px">Liquidez <span style="font-weight:400;font-size:11px;opacity:.85">· en cuánto tiempo se convierte en efectivo</span></div>
+      <div style="display:flex;height:18px;border-radius:4px;overflow:hidden;margin:2px 0 8px"><div style="width:${w(inm)}%;background:#2E9B8F"></div><div style="width:${w(prest)}%;background:#c9a24b"></div><div style="width:${w(ili)}%;background:#0F2A43"></div></div>
+      <div style="display:flex;gap:18px;flex-wrap:wrap;font-size:11.5px">
+        <span><span style="display:inline-block;width:10px;height:10px;background:#2E9B8F;border-radius:2px;margin-right:5px"></span>Inmediata · cuentas, neto de crédito · <b>${F(inm)}</b> · ${pp(inm)}</span>
+        <span><span style="display:inline-block;width:10px;height:10px;background:#c9a24b;border-radius:2px;margin-right:5px"></span>Menos de 2 años · préstamos PE · <b>${F(prest)}</b> · ${pp(prest)}</span>
+        <span><span style="display:inline-block;width:10px;height:10px;background:#0F2A43;border-radius:2px;margin-right:5px"></span>Ilíquido · propiedades, participaciones, autos · <b>${F(ili)}</b> · ${pp(ili)}</span></div></div>`; })();
+  // Deuda
+  const _deu = bancos.map(b => { const a = Dp.ban && Dp.ban[b.id], c = D.ban && D.ban[b.id]; return { n: _bNom(b), a: a ? (Number(bancoMovUSD(a).cred) || 0) : 0, c: c ? (Number(bancoMovUSD(c).cred) || 0) : 0 }; }).filter(x => x.a > 0.5 || x.c > 0.5);
+  const _deuTot = _deu.reduce((t, x) => t + x.c, 0);
+  const _deuHTML = !_deu.length ? '' : `<div class="card" style="margin-bottom:14px"><div class="section-title" style="font-size:13px;margin:0 0 8px">Deuda</div>
+      <table class="tbl-compacta"><thead><tr><th>Línea</th><th class="num">1/1/${Y}</th><th class="num">${_fechaRep}</th><th class="num">Tasa</th><th class="num">Vence</th><th class="num">Garantía</th></tr></thead><tbody>
+      ${_deu.map(x => `<tr><td>Crédito ${x.n}</td><td class="num" style="color:var(--usa)">${x.a > 0.5 ? '−$' + fmt(Math.round(x.a)) : '—'}</td><td class="num" style="color:var(--usa)">${x.c > 0.5 ? '−$' + fmt(Math.round(x.c)) : '—'}</td><td class="num" style="color:var(--text3)">—</td><td class="num" style="color:var(--text3)">—</td><td class="num" style="color:var(--text3)">—</td></tr>`).join('')}
+      <tr style="${_TOT}"><td>Total</td><td class="num">−$${fmt(Math.round(_deu.reduce((t, x) => t + x.a, 0)))}</td><td class="num">−$${fmt(Math.round(_deuTot))}</td><td></td><td></td><td></td></tr></tbody></table>
+      <p style="font-size:10.5px;color:var(--text3);margin:6px 0 0">Deuda ÷ patrimonio ${TOT ? (_deuTot / TOT * 100).toFixed(1).replace('.', ',') : 0}% · deuda ÷ liquidez ${vB ? (_deuTot / vB * 100).toFixed(1).replace('.', ',') : 0}%.</p></div>`;
+  // conteos que coinciden con lo listado
+  const _nCtas = _bkDat.length, _nPE = _peVivas.length, _nAut = autos.filter(a => (Number(a['valor_' + Y]) || 0) > 0.5).length;
+  const _nAut0 = autos.filter(a => (Number(a['valor_' + Y]) || 0) > 0.5).length;
+  /* v261 — PATRIMONIAL APAISADO (Timoteo, 04/11): los KPIs son lo primero (sin la franja azul), con el gasto familiar;
+     abajo los conteos. Hoja 1: liquidez y evolución (más chicas) + composición. Hoja 2: cómo llegó + invertido y generado.
+     Hoja 3: por tipo y por país lado a lado, arriba de lo que genera y la deuda. */
+  cont.innerHTML = `${_avisoAnioCerrado(Y, B.bancos)}${_revHTML()}
+    <div class="hoja-fija">
+    <div style="display:grid;grid-template-columns:repeat(${compartido ? 6 : 5},1fr);gap:10px;margin:0 0 6px">
+      ${kpi('Patrimonio', F(TOT), 'var(--gold)', 'al ' + _fechaRep)}
+      ${compartido ? kpi('Tu parte (÷3)', F(TOT/3), 'var(--esp)', 'FC · FCC · YAC') : ''}
+      ${kpi('Lo que genera en un año', _sv(GEN), CV(GEN), 'renta neta estimada · ' + (TOT ? (GEN / TOT * 100).toFixed(2).replace('.', ',') : 0) + '% del patrimonio')}
+      ${kpi('Gasto familiar ' + Y, _GFY == null ? '—' : '−$' + fmt(Math.round(_GFY)), 'var(--usa)', _GFY == null ? '' : (_lastM < 12 ? 'a ' + String(MESNOM[_lastM]).toLowerCase() + ' · ritmo anual −$' + fmt(Math.round(GF12)) : 'promedio mensual −$' + fmt(Math.round(_GFY / 12))))}
+      ${kpi('Liquidez inmediata', (TOT ? (vB / TOT * 100).toFixed(1).replace('.', ',') : 0) + '%', 'var(--navy)', F(vB) + (GF12 ? ' · ' + (vB / GF12).toFixed(1).replace('.', ',') + ' años de gasto' : ''))}
+      ${kpi('Deuda / patrimonio', (TOT ? (_deuTot / TOT * 100).toFixed(1).replace('.', ',') : 0) + '%', 'var(--navy)', _deuTot > 0.5 ? '−$' + fmt(Math.round(_deuTot)) + ' de crédito' : 'sin deuda')}
     </div>
-
-    ${_serie.length > 1 ? `<div class="card" style="margin-bottom:14px">
-      <div class="section-title" style="font-size:13px;margin:0 0 10px">Evolución patrimonial</div>
-      ${/* v190 — en millones con dos decimales, pedido de Timoteo. */''}
-      ${offBarrasVal(_serie.map(d => ({ lbl:d.y, v:d.tot })),
-          v => Math.abs(v) >= 1e6 ? '$'+(v/1e6).toFixed(2)+'M' : '$'+fmt(Math.round(v/1000))+'k')}
+    <p style="font-size:11.5px;color:var(--text3);margin:0 0 12px;text-align:center">
+      ${props.length} propiedades · ${_nCtas} cuentas · ${_nPE} posiciones de PE · ${_nAut0} autos · al ${_fechaRep} (último mes cargado)${esH ? ' · el bloque se reparte ÷3 entre FC, FCC y YAC' : ''}</p>
+    ${esH && Y < 2026 ? `<p style="font-size:11px;color:var(--gold);margin:0 0 12px">El reparto ÷3 entre FC, FCC y YAC rige desde 2026. En ${Y} estas tenencias se imputaban a JC, así que el bloque vale lo que dice arriba pero no se dividía.</p>` : ''}
+    <div style="display:grid;grid-template-columns:0.9fr 0.9fr 1.2fr;gap:12px;align-items:stretch">
+      ${_liqP.replace('margin-bottom:14px', 'margin:0')}
+      ${_serie.length > 1 ? `<div class="card" style="margin-bottom:0">
+        <div class="section-title" style="font-size:13px;margin:0 0 8px">Evolución patrimonial</div>
+        ${offBarrasVal(_serie.map(d => ({ lbl:d.y, v:d.tot })), v => Math.abs(v) >= 1e6 ? '$'+(v/1e6).toFixed(2)+'M' : '$'+fmt(Math.round(v/1000))+'k', 120)}
+      </div>` : ''}
+      ${_serie.length > 1 ? `<div class="card" style="margin-bottom:0">
+        <div class="section-title" style="font-size:13px;margin:0 0 4px">Composición por activo</div>
+        <p style="font-size:11px;color:var(--text3);margin:0 0 10px">Cada año, cuánto pesa cada tipo de activo.</p>
+        ${offBarrasGrupo(_cats, _series, 150)}
+      </div>` : ''}
     </div>
-
-    <div class="card" style="margin-bottom:14px">
-      <div class="section-title" style="font-size:13px;margin:0 0 4px">Composición por activo</div>
-      <p style="font-size:11px;color:var(--text3);margin:0 0 10px">Cada año, cuánto pesa cada tipo de activo.</p>
-      ${offBarrasGrupo(_cats, _series)}
-    </div>` : ''}
-
-    <div class="card" style="margin-bottom:14px">
+    ${/* v261 — "Cómo llegó hasta acá" en la hoja 1, abajo de la composición (Timoteo, 05/11) */''}
+    <div class="card" style="margin:12px 0 0">
       <div class="section-title" style="font-size:13px;margin:0 0 4px">Cómo llegó hasta acá</div>
       <p style="font-size:11px;color:var(--text3);margin:0 0 12px">El patrimonio al cierre de cada año y cuánto se movió contra el anterior.</p>
-      <div class="table-wrap"><table style="font-size:12px">
+      <div class="table-wrap"><table class="tbl-compacta" style="font-size:11.5px">
         <thead><tr><th>Año</th><th class="num">Propiedades</th><th class="num">Bancos</th><th class="num">Private equity</th><th class="num">Autos</th><th class="num">Total</th><th class="num">Variación</th></tr></thead>
         <tbody>${_serie.map((d,i) => `<tr${i===_serie.length-1?` style="${_TOT}"`:''}>
           <td${i===_serie.length-1?'':' class="bold"'}>${d.y}</td>
@@ -9984,8 +10069,14 @@ async function renderRepCliente() {
         const ult = _serie[_serie.length-1], ant = _serie[_serie.length-2];
         if (!ult || !ant) return '';
         const inc = ult.y === Y ? _incY : { prop:0, banco:0, pe:0, autos:0, tot:0, det:[] }, hayInc = Math.abs(inc.tot || 0) > 0.5;
-        const partes = [['propiedades','prop'],['los bancos','banco'],['private equity','pe'],['autos','autos']]
-          .map(([n,k]) => ({ n, d: ult[k] - ant[k] - (inc[k] || 0) })).filter(x => Math.abs(x.d) > 0.5)
+        /* v261 — LAS COMPRAS NO SON CRECIMIENTO (Timoteo, 03/11: "¿qué es el +1.133.957 de propiedades?"): una compra sube
+           propiedades y baja los bancos. Se separan; si el pago no está registrado, la diferencia queda a la vista en bancos. */
+        const _cmp = arr => arr.filter(x => x.fecha_compra && +String(x.fecha_compra).slice(0, 4) === ult.y);
+        const cP = ult.y === Y ? _cmp(props) : [], cA = ult.y === Y ? _cmp(autos) : [];
+        const compP = cP.reduce((t, x) => t + (Number(x.valor_compra) || Number(x['valor_' + Y]) || 0), 0), compA = cA.reduce((t, x) => t + (Number(x.valor_compra) || 0), 0);
+        const adj = { prop: -compP, autos: -compA, banco: compP + compA, pe: 0 };
+        const partes = [['propiedades (revaluación y ventas)','prop'],['los bancos','banco'],['private equity','pe'],['autos','autos']]
+          .map(([n,k]) => ({ n, d: ult[k] - ant[k] - (inc[k] || 0) + (adj[k] || 0) })).filter(x => Math.abs(x.d) > 0.5)
           .sort((a,b) => Math.abs(b.d) - Math.abs(a.d));
         if (!partes.length && !hayInc) return '';
         const _de = [...new Set(inc.det.filter(x => x.v > 0 && x.otro !== 'afuera').map(x => x.otro))], _a = [...new Set(inc.det.filter(x => x.v < 0 && x.otro !== 'afuera').map(x => x.otro))];
@@ -9994,34 +10085,16 @@ async function renderRepCliente() {
           En ${ult.y} el patrimonio ${ult.dif>=0?'subió':'bajó'} <b>${F(Math.abs(ult.dif))}</b> contra ${ant.y}
           (${pc(ant.tot ? ult.dif/ant.tot*100 : null)}).
           ${hayInc ? `De eso, <b style="color:${CV(inc.tot)}">${SG(inc.tot)}</b> no es resultado: son <b>cambios de titular</b>${_txt ? ' (' + _txt + ')' : ''}, a su valor al 31/12/${Y - 1}, y plata que entró o salió hacia otros titulares. El resto, <b style="color:${CV(ult.dif - inc.tot)}">${SG(ult.dif - inc.tot)}</b>, se explica así:` : 'Se explica así:'}
-          ${partes.map(x => `<b style="color:${CV(x.d)}">${SG(x.d)}</b> en ${x.n}`).join(', ')}.</p>
+          ${partes.map(x => `<b style="color:${CV(x.d)}">${SG(x.d)}</b> en ${x.n}`).join(', ')}.
+          ${compP + compA > 0.5 ? `Además se compró ${[...cP, ...cA].map(x => x.nombre).join(', ')} por <b>${F(compP + compA)}</b>: entra al patrimonio y sale lo mismo de los bancos, así que no es crecimiento (si el pago no está registrado, la diferencia aparece en "los bancos").` : ''}</p>
           ${hayInc ? `<p style="font-size:10.5px;color:var(--text3);margin:6px 0 0">Cambios de titular y movimientos con otros titulares en ${Y}: ${inc.det.map(x => `${x.n} ${SG(x.v)}${x.otro && x.otro !== 'afuera' ? ' (' + (x.v >= 0 ? 'de ' : 'a ') + x.otro + ')' : ''}`).join(' · ')}. Los años anteriores son sólo el patrimonio de ${CLI}.</p>` : ''}`;
       })()}
     </div>
-
-    <div class="card" style="margin-bottom:14px">
-      <div class="section-title" style="font-size:13px;margin:0 0 4px">Invertido y actual</div>
-      <p style="font-size:11px;color:var(--text3);margin:0 0 12px">Lo que se puso contra lo que vale hoy, por tipo de activo.</p>
-      <div class="table-wrap"><table style="font-size:12px">
-        <thead><tr><th>Tipo</th><th class="num">Invertido</th><th class="num">Actual</th><th class="num">Variación</th><th class="num">%</th></tr></thead>
-        <tbody>${_INV.map(x => { const d = x.act - x.inv; return `<tr>
-          <td class="bold">${x.n}${x.flojo?'<span style="color:var(--gold);font-size:10px;display:block">faltan aportes cargados</span>':''}</td>
-          <td class="num" style="color:var(--text3)">${x.inv>0.5?F(x.inv):'—'}</td>
-          <td class="num">${F(x.act)}</td>
-          <td class="num" style="color:${x.inv>0.5?CV(d):'var(--text3)'};font-weight:600">${x.inv>0.5?SG(d):'—'}</td>
-          <td class="num" style="color:${x.inv>0.5?CV(d):'var(--text3)'}">${x.inv>0.5?pc(d/x.inv*100):'—'}</td></tr>`; }).join('')}
-          ${(() => { const ti=_INV.reduce((a,x)=>a+(x.inv>0.5?x.inv:0),0), ta=_INV.reduce((a,x)=>a+(x.inv>0.5?x.act:0),0), d=ta-ti;
-            return ti>0.5 ? `<tr style="${_TOT}"><td>Total comparable</td><td class="num">${F(ti)}</td><td class="num">${F(ta)}</td>
-              <td class="num" style="color:${CV(d)}">${SG(d)}</td><td class="num" style="color:${CV(d)}">${pc(d/ti*100)}</td></tr>` : ''; })()}
-        </tbody>
-      </table></div>
-      <p style="font-size:11px;color:var(--text3);margin:10px 0 0">
-        En propiedades y autos el invertido es el valor de compra; en private equity, el capital aportado;
-        en las cuentas de inversión, el saldo al inicio de sus registros (31/12 del año anterior a su primer aporte cargado) más los
-        aportes netos. Las cuentas operativas son caja: no tienen invertido y quedan fuera del total comparable.</p>
     </div>
 
-    <div class="form-row cols-2" style="margin:0 0 14px">
+    ${/* v261 — hoja 2: tipo y país, lo que genera, deuda e invertido y generado (Timoteo, 05/11: de 3 hojas a 2) */''}
+    <div class="pgbreak junto">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:0 0 14px">
       <div class="card" style="margin:0">
         <div class="section-title" style="font-size:13px;margin:0 0 10px">Por tipo de activo</div>
         ${porTipo.length ? apilada(porTipo, TOT, _colTipo) : ''}
@@ -10034,46 +10107,44 @@ async function renderRepCliente() {
         ${paises.length ? conDonut(barra(paises, totPais, _colPais), paises, _colPais) : '<p style="font-size:12px;color:var(--text3)">—</p>'}
       </div>
     </div>
-
-    <div class="card" style="margin-bottom:14px">
-      <div class="section-title" style="font-size:13px;margin:0 0 10px">Qué rinde · ${Y}</div>
-      <div class="form-row cols-4" style="margin:0 0 14px">
-        ${kpi('Ingresos', F(renta), 'var(--esp)')}
-        ${kpi('Gastos', F(-gastos), 'var(--usa)', gastosAuto ? `+ ${F(gastosAuto)} de autos` : '')}
-        ${kpi('Impuestos', F(-imp), 'var(--usa)')}
-        ${/* v256 — en el año en curso se promedia sobre los meses cerrados, no sobre 12 (auditoría 30/10) */''}
-        ${kpi('Promedio mensual', F(neta/_mesesY), CV(neta),
-              compartido ? `${F(neta/_mesesY/3)} cada uno` : (_mesesY < 12 ? `promedio de ${_mesesY} ${_mesesY === 1 ? 'mes' : 'meses'} (enero a ${String(MESNOM[_mesesY]).toLowerCase()})` : ''))}
-      </div>
-      <div class="form-row cols-3" style="margin:0 0 12px">
-        ${_desgHTML('Ingresos', dIn, renta, false)}
-        ${_desgHTML('Gastos', dGa, gastos, true)}
-        ${_desgHTML('Impuestos', dIm, imp, true)}
-      </div>
-      <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:12px;padding-top:10px;border-top:1px solid var(--border)">
-        <span>De las <b>${_deRenta.length}</b> propiedades de renta:</span>
-        <span><b style="color:var(--esp)">${alquiladas.length}</b> con contrato vigente</span>
-        <span><b style="color:${vacias.length ? 'var(--usa)' : 'var(--esp)'}">${vacias.length}</b> sin contrato vigente${vacias.length ? ' (' + vacias.map(p => p.nombre).join(', ') + ')' : ''}</span>
-        ${vacias.length ? `<span style="color:var(--text3)">— ${F(valVacias)} de valor sin generar renta</span>` : ''}
-      </div>
+    <div style="display:grid;grid-template-columns:1.1fr 0.9fr;gap:14px;align-items:start">
+      <div>${_genHTML}</div>
+      <div>${_deuHTML}
+    <div class="card" style="margin-bottom:0">
+      <div class="section-title" style="font-size:13px;margin:0 0 4px">Invertido y generado</div>
+      <p style="font-size:11px;color:var(--text3);margin:0 0 12px">Lo que se puso contra lo que vale hoy más lo que ya se cobró, por tipo de activo.</p>
+      <div class="table-wrap"><table style="font-size:12px">
+        <thead><tr><th>Tipo</th><th class="num">Invertido</th><th class="num">Actual</th><th class="num">Ya cobrado</th><th class="num">Generado</th><th class="num">%</th></tr></thead>
+        <tbody>${_INV.map(x => { const d = x.act + (x.cob || 0) - x.inv; return `<tr>
+          <td class="bold">${x.n}</td>
+          <td class="num" style="color:var(--text3)">${x.inv>0.5?F(x.inv):'—'}</td>
+          <td class="num">${F(x.act)}</td>
+          <td class="num" style="color:${(x.cob || 0) > 0.5 ? 'var(--esp)' : 'var(--text3)'}">${(x.cob || 0) > 0.5 ? F(x.cob) : '—'}</td>
+          <td class="num" style="color:${x.inv>0.5?CV(d):'var(--text3)'};font-weight:600">${x.inv>0.5?SG(d):'—'}</td>
+          <td class="num" style="color:${x.inv>0.5?CV(d):'var(--text3)'}">${x.inv>0.5?pc(d/x.inv*100):'—'}</td></tr>`; }).join('')}
+          ${(() => { const ti=_INV.reduce((a,x)=>a+(x.inv>0.5?x.inv:0),0), ta=_INV.reduce((a,x)=>a+(x.inv>0.5?x.act:0),0), tc=_INV.reduce((a,x)=>a+(x.inv>0.5?(x.cob||0):0),0), d=ta+tc-ti;
+            return ti>0.5 ? `<tr style="${_TOT}"><td>Total comparable</td><td class="num">${F(ti)}</td><td class="num">${F(ta)}</td><td class="num">${tc > 0.5 ? F(tc) : '—'}</td>
+              <td class="num" style="color:${CV(d)}">${SG(d)}</td><td class="num" style="color:${CV(d)}">${pc(d/ti*100)}</td></tr>` : ''; })()}
+        </tbody>
+      </table></div>
       <p style="font-size:11px;color:var(--text3);margin:10px 0 0">
-        Los desgloses salen de los rubros cargados mes a mes, convertidos a dólares con el tipo de cambio de cada mes.
-        Pueden no llegar al total si un año se cargó como cifra anual y no rubro por rubro.</p>
+        En propiedades y autos el invertido es el valor de compra; en private equity, el capital aportado;
+        en las cuentas de inversión, el saldo al inicio de sus registros (31/12 del año anterior a su primer aporte cargado) más los
+        aportes netos. Las cuentas operativas son caja: no tienen invertido y quedan fuera del total comparable.</p>
+    </div>
+      </div>
+    </div>
     </div>
 
-    ${/* v188 — de acá para abajo el orden es propiedades, bancos, PE y autos. */''}
-    <div class="card" style="margin-bottom:14px">
+    <div class="card pgbreak" style="margin-bottom:14px">
       <div class="section-title" style="font-size:13px;margin:0 0 10px">Propiedad por propiedad <span style="font-weight:400;color:var(--text3);font-size:11px">· ordenadas por rendimiento dentro de cada grupo</span></div>
       <div class="table-wrap"><table class="tbl-compacta">
-        <thead><tr><th></th><th>Propiedad</th><th>País</th><th class="num">Valor</th><th class="num">Renta neta</th><th class="num">Yield</th></tr></thead>
+        <thead><tr><th></th><th>Propiedad</th><th>País</th><th class="num">Valor</th><th class="num">Renta neta</th><th class="num">Yield anualizado</th></tr></thead>
         <tbody>${filasDet}</tbody></table></div>
       <p style="font-size:11px;color:var(--text3);margin:10px 0 0">● con contrato vigente · ○ sin contrato. El yield es la renta neta del año sobre el valor del activo. Valuación: tasación de enero de ${Y} (las propiedades se tasan a principio de cada año).</p>
     </div>
-
     ${_bkHTML}
-    ${_peHTML}
-    ${_auHTML}
-    ${_fuentesHTML(Y)}`;
+    ${/* v261 — PE y autos en la misma hoja, con las fuentes (Timoteo, 05/11) */''}<div class="junto pgbreak">${_peHTML}${_auHTML}${_fuentesHTML(Y)}</div>`;
 }
 
 async function exportarRepClientePDF() {
@@ -10082,7 +10153,7 @@ async function exportarRepClientePDF() {
      arrancaban con el nombre del cliente: salia "FCC · F.C. Cocci · FCC ·
      F.C. Cocci · Ejercicio 2026". Ahora va solo el codigo del cliente. */
   return _exportarPDF({
-    contId: 'rc-contenido',
+    contId: 'rc-contenido', horizontal: REP_HORIZONTAL,
     cliNom: c ? c.value : '',
     titulo: 'Reporte patrimonial',
     subtitulo: 'Patrimonio ' + (y ? y.value : ''),
@@ -10147,7 +10218,7 @@ async function _exportarPDF(opt) {
   w.document.write(`<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>${opt.titulo} — ${cliNom}</title>
   <style>
     :root{--navy:#0F2A43;--green:#2f9e63;--red:#c0605f;--teal:#2E9B8F;--border:#e4e7ec;--text:#1a1a1a;--text2:#444;--text3:#888;--esp:#2f9e63;--usa:#c0605f;--gold:#A8842F;--gold-soft:#f5efe0;--bg2:#f7f7f5;--bg:#fff;}
-    *{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact;} body{font-family:Helvetica,Arial,sans-serif;color:var(--text);margin:0 auto;padding:0;width:190mm;font-size:11px;line-height:1.35;}
+    *{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact;} body{font-family:Helvetica,Arial,sans-serif;color:var(--text);margin:0 auto;padding:0;width:${opt.horizontal?'277mm':'190mm'};font-size:11px;line-height:1.35;}
     .card{border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:16px;page-break-inside:avoid;background:var(--bg);}
     .table-wrap{overflow:visible;} table{width:100%;border-collapse:collapse;font-size:11.5px;} th{color:var(--navy);font-size:10px;text-transform:uppercase;letter-spacing:.5px;font-weight:700;}
     th,td{padding:6px 8px;text-align:left;border-bottom:1px solid var(--border);} .num{text-align:right;font-variant-numeric:tabular-nums;} .negative{color:var(--usa);} .positive{color:var(--esp);}
@@ -10161,7 +10232,7 @@ async function _exportarPDF(opt) {
     /* v243 — SIN ENCABEZADO NI PIE DEL NAVEGADOR (Timoteo, 21/10). Chrome (131+) deja de imprimir su
        fecha/título arriba y su URL/"página x de y" abajo cuando la página define sus propias cajas de margen.
        La de arriba va vacía y la de abajo lleva el número de hoja. */
-    @page{size:A4 portrait;margin:10mm 10mm 12mm;@top-center{content:"";}@bottom-center{content:counter(page);font-size:9px;color:#888;font-family:Helvetica,Arial,sans-serif;}}
+    @page{size:A4 ${opt.horizontal?'landscape':'portrait'};margin:10mm 10mm 12mm;@top-center{content:"";}@bottom-center{content:counter(page);font-size:9px;color:#888;font-family:Helvetica,Arial,sans-serif;}}
     .pgbreak{page-break-before:always;break-before:page;}
     .hoja-fija{break-inside:avoid;page-break-inside:avoid;}
     body > .hdr + .hoja-fija{break-inside:auto;page-break-inside:auto;}
@@ -10219,7 +10290,7 @@ async function _exportarPDF(opt) {
        Ahora: (1) se mide contra la hoja con 3 % de margen de seguridad, (2) se repite el ajuste hasta que entre
        (hasta 60 %), y (3) si ni así entra, la hoja fija deja de ser "inseparable": se corta, pero no deja una hoja vacía.
        Lo mismo para los cuadros: el que mide más que una hoja se achica contra el alto con margen. */
-    var H = (275 * 96 / 25.4) * 0.94;   // v250 — 6 % de margen de seguridad
+    var H = (${opt.horizontal?188:275} * 96 / 25.4) * 0.94;   // v250 — 6 % de margen de seguridad
     function alto(el) { return el.getBoundingClientRect().height; }
     function ajustar() {
       var hdr = document.querySelector('body > .hdr');
@@ -10235,7 +10306,7 @@ async function _exportarPDF(opt) {
         if (i === 0 && hdr && !el.classList.contains('pgbreak')) { var cs = getComputedStyle(hdr); extra = alto(hdr) + parseFloat(cs.marginTop || 0) + parseFloat(cs.marginBottom || 0); }
         /* v251 — la primera hoja se ajusta contra 88 % del alto (Timoteo, 27/10: en su Chrome la impresión sale ~7 % más
            alta que lo que se mide en la ventana y "El mes en breve" pasaba a la hoja 2). */
-        var Hf = (i === 0) ? (275 * 96 / 25.4) * 0.88 : H;
+        var Hf = (i === 0) ? (${opt.horizontal?188:275} * 96 / 25.4) * 0.90 : H;
         for (var k = 0; k < 8; k++) { var h = alto(el); if (h + extra <= Hf) break;
           var z = (parseFloat(el.style.zoom) || 1) * (Hf - extra) / h * 0.99; el.style.zoom = Math.max(0.6, Math.floor(z * 1000) / 1000);
           if (parseFloat(el.style.zoom) <= 0.6) break; }
@@ -10272,7 +10343,8 @@ const REP_CLIENTES = [
   {code:'H',nombre:'Hermanos (FC · FCC · YAC)'},   // v181 — H es un cliente más desde v180
   {code:'FO',nombre:'Family Office (consolidado)'}
 ];
-const H_SHARE_REP = [];   // v180 — ver el comentario de H_SHARE
+const H_SHARE_REP = [];
+const REP_HORIZONTAL = true;   // v261 — informes en A4 apaisado   // v180 — ver el comentario de H_SHARE
 
 const MESNOM = ['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 
@@ -12258,7 +12330,7 @@ function _resultadoHTML(r, o) {
     conNoRealizado ? banda('Realizado · plata que entró o salió') : '',
     ln('Renta neta de propiedades', 'Alquileres cobrados, menos gastos e impuestos', rentaNeta),
     ln('Rendimiento de las cuentas de inversión', 'Descontados aportes y retiros', rendInv),
-    ln('Private equity cobrado', 'Distribuciones, utilidades e intereses · en préstamos e inversiones, sólo lo que supera al capital (o la pérdida al cerrar)' + (Math.abs(r.peExcl) > 0.5 ? ` · no incluye ${'$' + fmt(Math.round(r.peExcl))} de una conversión sin movimiento de fondos` : ''), r.peCob),
+    ln('Private equity cobrado', 'Distribuciones e intereses · préstamos: lo que supera el capital' + (Math.abs(r.peExcl) > 0.5 ? ` · no incluye ${'$' + fmt(Math.round(r.peExcl))} de una conversión sin movimiento de fondos` : ''), r.peCob),
     ln('Gastos de autos', 'Patente, seguro, service, arreglos y otros', -r.gAutos),
     ln('Gastos de las sociedades', 'Impuestos y gastos de estructura', -r.gSoc),
     conNoRealizado ? `<tr style="background:var(--bg3);font-weight:700"><td>Resultado realizado</td><td class="num">${f(real)}</td></tr>` : '',
@@ -12287,12 +12359,53 @@ function _avisoAnioCerrado(anio, bancosTodos) {
     Para años cerrados la referencia es la solapa <b>Patrimonio histórico</b>.</div>`;
 }
 
+/* v261 — CRUCE TRANSFERENCIAS ↔ APORTES Y RETIROS (auditoría del puente, 04/11). Las cuentas de inversión registran lo que
+   entra y sale como aportes/retiros; las transferencias entre cuentas se cargan aparte. Una transferencia "tiene" su aporte o
+   retiro si es de la misma cuenta y sentido, ±5 días, monto ±0,5 % (comisiones y acreditación: 4976 manda 100.000 el 09/09 y
+   Galicia recibe 99.955 el 10/09); un retiro puede ser varias transferencias (BNY 2048, 26/02: 54.000 = 9.000 a MFL + 45.000 a
+   la 7335), hasta 4. Devuelve los aportes que tienen transferencia y las patas de transferencia que no tienen aporte. */
+function _cruzarTrAp(trs, aps, bIds) {
+  const _dd = (x, y) => Math.abs(Date.parse(x) - Date.parse(y)) / 864e5, _ok = (x, v) => Math.abs(x - v) <= Math.max(1, v * 0.005);
+  const legs = []; (trs || []).forEach(r => [[r.banco_origen_id, true, r.banco_destino_id], [r.banco_destino_id, false, r.banco_origen_id]].forEach(([id, sale, otro]) => {
+    const v = Math.abs(Number(r.monto_usd) || 0); if (id && bIds.has(id) && v >= 0.5) legs.push({ id, sale, v, f: r.fecha, r, propio: !!(otro && bIds.has(otro)), u: false }); }));
+  const apConTr = new Set();
+  (aps || []).filter(a => a.fecha && bIds.has(a.banco_id)).sort((x, y) => String(x.fecha).localeCompare(String(y.fecha))).forEach(a => {
+    const v = Math.abs(Number(a.monto) || 0), sale = a.tipo === 'retiro';
+    const c = legs.filter(l => !l.u && l.id === a.banco_id && l.sale === sale && _dd(l.f, a.fecha) <= 5); if (!c.length) return;
+    const uno = c.find(l => _ok(l.v, v)); let hit = uno ? [uno] : null;
+    if (!hit && c.length <= 12) { const n = c.length;
+      for (let k = 2; k <= Math.min(4, n) && !hit; k++) { const idx = [...Array(k).keys()];
+        while (true) { if (_ok(idx.reduce((t, i) => t + c[i].v, 0), v)) { hit = idx.map(i => c[i]); break; }
+          let j = k - 1; while (j >= 0 && idx[j] === n - k + j) j--; if (j < 0) break; idx[j]++; for (let q = j + 1; q < k; q++) idx[q] = idx[q - 1] + 1; } } }
+    if (hit) { hit.forEach(l => l.u = true); apConTr.add(a.id); } });
+  return { apConTr, sinAp: legs.filter(l => !l.u) };
+}
+
+/* v261 — PARA REVISAR ANTES DE MANDAR ESTE INFORME (Timoteo, 04/11: "todo lo sin identificar o con aviso mostrámelo antes,
+   y que no aparezca en el reporte del cliente"). Cada informe junta acá lo que no cierra o falta cargar; se muestra arriba del
+   informe en pantalla (.no-pdf: no viaja al PDF) y en el informe del cliente no queda ningún aviso. */
+function _revIni() { window._repRev = []; }
+function _rev(tit, items, ayuda) { if (!window._repRev) window._repRev = []; items = (items || []).filter(Boolean); if (items.length) window._repRev.push({ tit, items, ayuda }); }
+function _revHTML() {
+  const r = window._repRev || [];
+  if (!r.length) return `<div class="no-pdf" style="border:1px solid var(--esp);border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:12px;color:var(--esp)"><b>Para revisar antes de mandar:</b> nada pendiente en este informe.</div>`;
+  return `<div class="no-pdf" style="border:1px solid var(--gold);background:var(--gold-soft,#f6efe0);border-radius:8px;padding:10px 14px;margin-bottom:14px">
+    <div style="display:flex;justify-content:space-between;align-items:baseline"><div style="font-weight:700;font-size:14px;color:var(--gold)">Para revisar antes de mandar · ${r.length}</div>
+    <span style="font-size:11px;color:var(--text3)">sólo para vos · no sale en el PDF</span></div>
+    ${r.map(x => `<div style="padding:7px 0 2px;border-top:1px solid #e6d3a3;margin-top:6px">
+      <div style="font-weight:600;font-size:12.5px">${x.tit}</div>
+      <ul style="margin:3px 0 0 18px;padding:0;font-size:12px;line-height:1.45">${x.items.map(i => `<li>${i}</li>`).join('')}</ul>
+      ${x.ayuda ? `<div style="font-size:11px;color:var(--text3);margin-top:2px">${x.ayuda}</div>` : ''}</div>`).join('')}
+  </div>`;
+}
+
 async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
   const cont = document.getElementById('rep-contenido');
   if (!cont) return;
-  cont.innerHTML = '<div class="loader"><div class="spinner"></div></div>';
+  const _soloGF = periodoTxt === '_gf' || periodoTxt === '_pu';   // v261 — corridas internas (gasto familiar, puente): no tocan la pantalla
+  if (!_soloGF) cont.innerHTML = '<div class="loader"><div class="spinner"></div></div>';
   const esMensual = (m1===m2);
-  window._repTitulo = (esMensual ? 'Informe Mensual · ' : 'Informe · ') + label;
+  if (!_soloGF) window._repTitulo = (esMensual ? 'Informe Mensual · ' : 'Informe · ') + label;
   const cliNom = (REP_CLIENTES.find(c=>c.code===tit)||{}).nombre || tit;
   /* v236 — FAMILY OFFICE CONSOLIDADO. El mensual buscaba titular = 'FO', que no existe en ningún activo:
      el informe salía vacío (todo en cero). Ahora usa la misma regla que el semestral y el anual
@@ -12383,7 +12496,11 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
     props.forEach(p => { if (p.fecha_compra && String(p.fecha_compra).slice(0, 10) > f) v += (Number(p[_vY])||0) * share(p); });
     autos.forEach(a => { if (a.fecha_compra && String(a.fecha_compra).slice(0, 10) > f) v += (Number(a[_vY])||0) * share(a); });
     return v; };
-  const _fijoEn = m => patFijo - _comprasDesp(m);
+  /* v261 — EL PE DE CADA MES (antes se usaba el del último mes para todos: una baja como Ashland LOAN, −40.000 en septiembre,
+     estaba en el resultado pero no movía el patrimonio, y la "Var. mes" de PE daba siempre "—"). */
+  const _peEn = m => pe.reduce((a,p) => { let t = 0; try { t = (m >= 1 ? peCalc(p, anio, null, m) : peCalc(p, anio - 1)).tenencia || 0; } catch(e) {} return a + t*share(p); }, 0);
+  const _peMes = {}; const _peAt = m => (_peMes[m] ??= _peEn(m));
+  const _fijoEn = m => vProps + vAutos + _peAt(m) - _comprasDesp(m);
   const _comprasMes = [...props.map(p => ({ x: p, t: 'prop' })), ...autos.map(a => ({ x: a, t: 'auto' }))]
     .filter(o => o.x.fecha_compra && String(o.x.fecha_compra).slice(0, 10) > _finMes(m1 - 1) && String(o.x.fecha_compra).slice(0, 10) <= _finMes(m2))
     .map(o => ({ nom: o.x.nombre, v: (Number(o.x[_vY])||0) * share(o.x) }));
@@ -12426,10 +12543,10 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
   // entre en la primera pagina y no se quede solo en la segunda.
   // v248 — más chicos todavía (Timoteo, 26/10): la primera hoja de FC no entraba y salía en blanco.
   // v255 — mismo tamaño de cuadro, letra que lo llena (Timoteo, 28/10): menos aire, número más grande
-  const kpi = (l,v,s,c) => `<div style="border:1px solid var(--border2);border-top:3px solid var(--gold);border-radius:8px;padding:5px 6px;text-align:center;display:flex;flex-direction:column;justify-content:center">
-    <div style="font-size:10px;letter-spacing:.6px;color:var(--text3);text-transform:uppercase;margin-bottom:1px;font-weight:600">${l}</div>
-    <div style="font-size:24px;font-weight:700;line-height:1.1;color:${c||'var(--text)'}">${v}</div>
-    <div style="font-size:11px;color:var(--text3);margin-top:1px;line-height:1.25">${s||''}</div></div>`;
+  const kpi = (l,v,s,c) => `<div style="border:1px solid var(--border2);border-top:3px solid var(--gold);border-radius:8px;padding:6px 6px;text-align:center;display:flex;flex-direction:column;justify-content:center">
+    <div style="font-size:11px;letter-spacing:.6px;color:var(--text3);text-transform:uppercase;margin-bottom:2px;font-weight:600">${l}</div>
+    <div style="font-size:28px;font-weight:700;line-height:1.1;color:${c||'var(--text)'}">${v}</div>
+    <div style="font-size:12px;color:var(--text3);margin-top:2px;line-height:1.25">${s||''}</div></div>`;
 
   const DONUT_COL = OFF_CAT;   // v186 — el donut vive en offDonut(), global
   const donut = offDonut;
@@ -12456,12 +12573,12 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
     /* El piso NO es cero a proposito: dentro del año solo se mueve la caja, y
        desde cero las doce columnas se verian iguales. Para que igual se entienda
        cuanto vale cada barra, el eje de la izquierda dice los montos. */
-    const piso = min - (max - min || max*0.04) * 0.35;
+    const piso = 0;   // v261 — el eje arranca en cero (Timoteo, 03/11) y cada barra lleva su valor arriba
     // PADT deja aire arriba para que la etiqueta mas alta del eje no se corte.
-    const PADL = 60, PADT = 10, W = 760, H = 150, padB = 20;   // v242 — ancho completo
+    const PADL = 38, PADT = 16, W = 300, H = 158, padB = 18;   // v261 — más angosto: columnas finas y juntas (Timoteo, 04/11)
     const alto = H - padB - PADT;
     const ancho = W - PADL;
-    const paso = ancho/_serieMes.length, an = Math.min(paso*0.56, 46);
+    const paso = ancho/_serieMes.length, an = Math.min(paso*0.55, 22), _fsL = paso >= 30 ? 9.5 : 8.5, _decL = paso >= 34 ? 2 : 1;
     const N = 4, esc = v => PADT + alto - ((v - piso) / ((max - piso) || 1)) * alto;
     /* Los decimales se deciden por el PASO entre lineas, no por el valor: con
        un rango de 3M sobre 127M, redondear a millon entero repetia "$126M" dos
@@ -12484,11 +12601,11 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
       const esUlt = i === _serieMes.length-1;
       out += `<rect x="${(cx-an/2).toFixed(1)}" y="${y.toFixed(1)}" width="${an.toFixed(1)}" height="${h.toFixed(1)}" fill="${esUlt?'#a87316':'#d8c49a'}" rx="2"/>`;
       out += `<text x="${cx.toFixed(1)}" y="${(H-6).toFixed(1)}" text-anchor="middle" font-size="10" fill="var(--text3,#888)" ${esUlt?'font-weight="700"':''}>${it.lbl}</text>`;
+      out += `<text x="${cx.toFixed(1)}" y="${(y-4).toFixed(1)}" text-anchor="middle" font-size="${_fsL.toFixed(1)}" fill="${esUlt?'#7a5410':'#555'}" font-weight="${esUlt?700:500}">$${(it.v/1e6).toFixed(_decL).replace('.',',')}M</text>`;
     });
     return `<div class="card no-corta" style="margin:0">
-      <div class="section-title" style="margin-bottom:4px">Patrimonio mes a mes · ${anio}</div>
-      <p style="font-size:11px;color:var(--text3);margin:0 0 8px">Cierre de cada mes del año hasta ${label}.</p>
-      <svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" preserveAspectRatio="none" role="img">${out}</svg>
+      <div class="section-title" style="margin-bottom:8px">Patrimonio mes a mes · ${anio}</div>
+      <svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" preserveAspectRatio="xMidYMid meet" role="img" style="display:block">${out}</svg>
     </div>`;
   })();
 
@@ -12496,7 +12613,7 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
     // v248 — una compra del mes es variación de propiedades / autos (entra desde el mes de la compra)
     { n:'Propiedades',    v:vProps,    d:(() => { const f0 = _finMes(m1 - 1), f1 = _finMes(m2); const v = props.filter(p => p.fecha_compra && String(p.fecha_compra).slice(0,10) > f0 && String(p.fecha_compra).slice(0,10) <= f1).reduce((t,p) => t + (Number(p[_vY])||0)*share(p), 0); return v > 0.5 ? v : null; })() },
     { n:'Bancos',         v:bancosMes, d:varBancos },
-    { n:'Private Equity', v:vPE,       d:null },
+    { n:'Private Equity', v:vPE,       d:_peAt(m2) - _peAt(m1 - 1) },
     { n:'Autos',          v:vAutos,    d:(() => { const f0 = _finMes(m1 - 1), f1 = _finMes(m2); const v = autos.filter(a => a.fecha_compra && String(a.fecha_compra).slice(0,10) > f0 && String(a.fecha_compra).slice(0,10) <= f1).reduce((t,a) => t + (Number(a[_vY])||0)*share(a), 0); return v > 0.5 ? v : null; })() },
   ].filter(t => Math.abs(t.v) > 0.5).sort((a,b) => b.v - a.v);
 
@@ -12507,7 +12624,7 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
       <td class="num">${$m(t.v)}</td>
       <td class="num" style="color:var(--text3)">${p.toFixed(1)}%</td>
       <td class="num" style="color:${t.d==null?'var(--text3)':col(t.d)};font-weight:${t.d==null?400:600}">
-        ${t.d==null ? '—' : sg(t.d)+$m(Math.abs(t.d)).slice(1)}</td>
+        ${t.d==null ? '—' : sg(t.d)+$m(Math.abs(t.d))}</td>
     </tr>`; }).join('');
 
   /* ── DETALLE POR ACTIVO (v185) ───────────────────────────────────────────
@@ -12531,7 +12648,7 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
   /* v243 — TODAS LAS FILAS DE TOTAL IGUALES (Timoteo, 21/10): fondo dorado claro, negrita y raya dorada
      arriba. Lo usan propiedades, cuentas, TOTAL BANCOS, PE, autos y las tablas de la primera hoja. */
   const _BG_TOT = OFF_TOT_CSS;
-  const _dash = v => Math.abs(v) < 0.5 ? '—' : sg(v) + $m(Math.abs(v)).slice(1);
+  const _dash = v => Math.abs(v) < 0.5 ? '—' : sg(v) + $m(Math.abs(v));
   const _mesLbl = ['','enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
 
   /* ── PROPIEDADES: de renta / no renta, con subtotal de cada grupo ── */
@@ -12543,8 +12660,8 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
     _gProp[m.propiedad_id] = (_gProp[m.propiedad_id]||0) + ((m.total_gastos_usd||0) + (m.total_impuestos_usd||0)) * sh; });
   const _propsOrd = props.map(p => { const r = _rProp[p.id]||0, g = _gProp[p.id]||0; return { p, v:(Number(p[_vY])||0)*share(p), r, g, n:r - g }; })
                          .sort((a,b) => (a.p.nro||9999) - (b.p.nro||9999));
-  const _cR = r => Math.abs(r)<0.5 ? '<span style="color:var(--text3)">—</span>' : `<span style="color:var(--esp)">+${$m(r).slice(1)}</span>`;
-  const _cG = g => Math.abs(g)<0.5 ? '<span style="color:var(--text3)">—</span>' : `<span style="color:var(--usa)">−${$m(g).slice(1)}</span>`;
+  const _cR = r => Math.abs(r)<0.5 ? '<span style="color:var(--text3)">—</span>' : `<span style="color:var(--esp)">+${$m(r)}</span>`;
+  const _cG = g => Math.abs(g)<0.5 ? '<span style="color:var(--text3)">—</span>' : `<span style="color:var(--usa)">−${$m(g)}</span>`;
   const _filaProp = ({p,v,r,g,n}) => `<tr>
       <td style="font-weight:600">${p.nombre||'—'}</td>
       <td class="num" style="color:var(--text3)">${p.pais||'—'}</td>
@@ -12620,6 +12737,19 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
     if (a.tipo === 'retiro') _reMes[a.banco_id] = (_reMes[a.banco_id]||0) + v;
     else                     _apMes[a.banco_id] = (_apMes[a.banco_id]||0) + v;
   });
+  /* v261 — TRANSFERENCIAS SIN SU APORTE O RETIRO (auditoría del puente, 04/11). Las cuentas de inversión registran la plata
+     que entra y sale como aportes/retiros; las transferencias entre cuentas se cargan aparte. Cuando una transferencia no
+     tiene su aporte o retiro en esa cuenta (misma cuenta y sentido, ±5 días, monto ±0,5 %), se toma como aporte o retiro:
+     si no, la salida se leía como pérdida de rendimiento. En las operativas, antes del linkeo (meses sin "movimientos
+     relevantes"), las transferencias no se miraban: lo que llegaba de otra cuenta propia tapaba gasto familiar. Ahora cuentan
+     como cobrado o pagado de la cuenta, igual que con el linkeo. */
+  let _trsPer = [];
+  try { const r = await sb.from('transferencias_bancos').select('*').gte('fecha', _ini).lte('fecha', _fin); _trsPer = (r && r.data) || []; } catch(e) {}
+  /* Un retiro puede ser varias transferencias (BNY 2048, 26/02: retiro de 54.000 = 9.000 a MFL + 45.000 a la 7335): se busca
+     una transferencia del mismo monto y, si no hay, una combinación de hasta 4 del mismo sentido que sume lo mismo. */
+  const _trSinAp = {}, _cx = _cruzarTrAp(_trsPer, apR.data, new Set(bancos.map(b => b.id))), _apConTr = _cx.apConTr;
+  _cx.sinAp.forEach(l => { const t = _trSinAp[l.id] = _trSinAp[l.id] || { ent: 0, sal: 0 }; if (l.sale) t.sal += l.v; else t.ent += l.v; });
+  const _edOn0 = (() => { for (let m = m1; m <= m2; m++) if (!lkVigente(anio, m)) return false; return true; })();
 
   /* ── CUENTAS DE BANCO ── */
   // v187 — el credito se separa. `bancoMovUSD` da neto = inv + cash - cred;
@@ -12651,10 +12781,11 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
   const _bDat = bancos.map(b => {
     const i = (prevDic[b.id] || 0) + _credIni(b.id), a = _cashPrev(b), c = _cashAt(b.id, m2);
     const cred = _credEn(b.id, m2), credI = _credIni(b.id), credA = _credEn(b.id, m1-1);
-    const ap = _apMes[b.id]||0, re = _reMes[b.id]||0;
+    const _ts = _trSinAp[b.id] || { ent: 0, sal: 0 }, _inv0 = b.es_operativa !== true;
+    const ap = (_apMes[b.id]||0) + (_inv0 ? _ts.ent : 0), re = (_reMes[b.id]||0) + (_inv0 ? _ts.sal : 0);
     const lk = _porCuenta[b.id] || {};
-    const cobro = Object.values(lk).reduce((s,x)=>s+x.cobro,0);
-    const pago  = Object.values(lk).reduce((s,x)=>s+x.pago,0);
+    const cobro = Object.values(lk).reduce((s,x)=>s+x.cobro,0) + (!_inv0 && !_edOn0 ? _ts.ent : 0);
+    const pago  = Object.values(lk).reduce((s,x)=>s+x.pago,0) + (!_inv0 && !_edOn0 ? _ts.sal : 0);
     // Operativa: lo que la cuenta se movio y los cobros/pagos no explican, se consumio.
     // c y a ya son CASH: el credito no entra en el consumo ni en el rendimiento.
     const personales = (cobro - pago) + (ap - re) - (c - a);
@@ -12685,16 +12816,17 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
   const _BG_POS = 'background:#E2F0D9', _BG_NEG = 'background:#F8D7DA';
   const _bgSigno = v => v > 0.5 ? _BG_POS : (v < -0.5 ? _BG_NEG : '');
   // v245 — `pre`: columnas que van entre el saldo al 1/1 y el cierre del mes anterior (Aportes netos del año)
-  const _tablaCuentas = (grupo, cols, filaExtra, ordCompleto, pre) => {
+  const _tablaCuentas = (grupo, cols, filaExtra, ordCompleto, pre, noIni) => {   // v261 — noIni: sin la columna "Saldo al 1/1"
     if (!grupo.length) return [];
     pre = pre || [];
+    const _ci = v => noIni ? '' : v;
     const byP = {}; grupo.forEach(x => (byP[x.b.pais||'—'] = byP[x.b.pais||'—']||[]).push(x));
     const paises = _ordPais(Object.keys(byP));
-    const nCols = 4 + pre.length + cols.length;
+    const nCols = (noIni ? 3 : 4) + pre.length + cols.length;
     // En los totales la columna del MES REPORTADO va mas marcada que las otras.
     const _linea = (lbl, g, css) => `<tr style="${css}">
       <td>${lbl}</td>
-      <td class="num">${$m(g.reduce((s,x)=>s+x.i,0))}</td>
+      ${_ci(`<td class="num">${$m(g.reduce((s,x)=>s+x.i,0))}</td>`)}
       ${pre.map(cl => `<td class="num" style="${cl.sgn ? _bgSigno(cl.sgn(g)) : ''}">${cl.tot(g)}</td>`).join('')}
       <td class="num">${$m(g.reduce((s,x)=>s+x.a,0))}</td>
       <td class="num" style="${_BG_MES}">${$m(g.reduce((s,x)=>s+x.c,0))}</td>
@@ -12706,7 +12838,7 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
       g.forEach(x => {
         out.push(`<tr>
           <td style="font-weight:600">${x.b.nombre||'—'}</td>
-          <td class="num" style="color:var(--text3)">${$m(x.i)}</td>
+          ${_ci(`<td class="num" style="color:var(--text3)">${$m(x.i)}</td>`)}
           ${pre.map(cl => `<td class="num" style="${cl.css?cl.css(x):''}">${cl.val(x)}</td>`).join('')}
           <td class="num" style="color:var(--text3)">${$m(x.a)}</td>
           <td class="num">${$m(x.c)}</td>
@@ -12715,10 +12847,10 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
         if (x.cred > 0.5 || x.credI > 0.5 || x.credA > 0.5)
           out.push(`<tr>
             <td style="padding-left:26px;color:var(--text3);font-size:11px;border-bottom:1px solid var(--border)">↳ crédito</td>
-            <td class="num" style="color:var(--usa);font-size:11px">${x.credI>0.5?'−'+$m(x.credI).slice(1):'—'}</td>
+            ${_ci(`<td class="num" style="color:var(--usa);font-size:11px">${x.credI>0.5?'−'+$m(x.credI):'—'}</td>`)}
             ${pre.map(() => '<td></td>').join('')}
-            <td class="num" style="color:var(--usa);font-size:11px">${x.credA>0.5?'−'+$m(x.credA).slice(1):'—'}</td>
-            <td class="num" style="color:var(--usa);font-size:11px">${x.cred>0.5?'−'+$m(x.cred).slice(1):'—'}</td>
+            <td class="num" style="color:var(--usa);font-size:11px">${x.credA>0.5?'−'+$m(x.credA):'—'}</td>
+            <td class="num" style="color:var(--usa);font-size:11px">${x.cred>0.5?'−'+$m(x.cred):'—'}</td>
             ${cols.map(() => '<td></td>').join('')}</tr>`);
         const extra = filaExtra ? filaExtra(x, nCols) : '';
         if (extra) out.push(extra);
@@ -12739,8 +12871,9 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
      dicen lo mismo. Todo en USD, como el resto del informe. Umbral para detallar una
      cuenta: |variación| > USD 10.000 o > 10 % del saldo anterior. */
   const _ED_UMBRAL = 10000, _ED_PCT = 0.10, _ED_AVISO = 0.25;
-  let _edHTML = '';
+  let _edHTML = ''; const _edAvisos = [];
   const _trsMes = [];   // v255 — transferencias del período de las cuentas operativas (para justificar TOTAL BANCOS)
+  const _lnOtros = [];  // v261 — cobros y pagos de activos de OTROS titulares hechos desde cuentas del cliente (para el puente)
   const _edVig = []; for (let m = m1; m <= m2; m++) _edVig.push(m);
   const _edOn = _edVig.every(m => lkVigente(anio, m)) && _bDat.some(x => x.b.es_operativa === true);
   if (_edOn) {
@@ -12752,7 +12885,9 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
         const R = await cmLineas(anio, m);
         const tcM = (tcFor(anio, m) || {}).ars_usd || 0;
         (R.bancos || []).forEach(b => _bn[b.id] = _bNom(b));
-        R.lineas.forEach(l => { if (l.cuenta && E[l.cuenta]) E[l.cuenta].lines.push({ ...l, _tc: tcM }); });
+        R.lineas.forEach(l => { if (l.cuenta && E[l.cuenta]) E[l.cuenta].lines.push({ ...l, _tc: tcM });
+          if (l.cuenta && E[l.cuenta] && l.act && l.act.titular && !titFilter.includes(l.act.titular))
+            _lnOtros.push({ n: l.act.nombre, tit: l.act.titular, v: (l.dir === 'cobro' ? 1 : -1) * Math.abs(Number(l.usd) || 0) }); });
         R.trs.forEach(r => [r.banco_origen_id, r.banco_destino_id].forEach(id => { if (id && E[id] && !E[id].trs.some(z => z.id === r.id && z.fecha === r.fecha)) E[id].trs.push({ ...r, _tc: tcM }); }));
       }
       /* v203 — CUENTAS EN PESOS, EN PESOS (Timoteo, 21/09). Una cuenta es ARS si sus
@@ -12844,7 +12979,8 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
         const aviso = Math.abs(vari) > 0.5 && Math.abs(sinExp) > _ED_AVISO * Math.abs(vari);
         const MON = ars ? 'AR$ ' : 'USD ';
         const S = v => (v < 0 ? '−' : '+') + $m(Math.abs(v)).replace('$', MON);
-        bloques.push(`<div style="margin-top:8px">
+        if (aviso) _edAvisos.push(`${x.b.nombre}: lo sin explicar (${S(sinExp)}) es ${Math.round(Math.abs(sinExp) / Math.abs(vari) * 100)} % de la variación`);
+        bloques.push(`<div>
           <div style="display:flex;justify-content:space-between;align-items:baseline;border-bottom:1.5px solid var(--navy,#0F2A43);padding:3px 0 4px">
             <b style="font-size:12.5px;color:var(--navy,#0F2A43)">${x.b.nombre}</b>
             <span style="font-size:11.5px">${$m(sA || 0).replace('$', MON)} → ${$m(sC || 0).replace('$', MON)} &nbsp;
@@ -12852,20 +12988,16 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
           <table style="width:100%;border-collapse:collapse;font-size:11.5px;margin:3px 0 2px"><tbody>
             ${L.map(l => `<tr><td style="width:18px;color:var(--text3);padding:3px 4px">${l.k}</td><td style="padding:3px 4px">${l.txt}</td>
               <td class="num" style="padding:3px 4px;white-space:nowrap;color:${l.v < 0 ? 'var(--usa)' : 'var(--esp)'}">${S(l.v)}</td></tr>`).join('')}
-            <tr><td style="width:18px;color:var(--text3);padding:3px 4px">·</td><td style="padding:3px 4px;font-style:italic;color:var(--gold,#A8842F)">Gastos y transferencias personales</td>
+            <tr><td style="width:18px;color:var(--text3);padding:3px 4px">·</td><td style="padding:3px 4px;font-style:italic;color:var(--gold,#A8842F)">Gasto familiar</td>
               <td class="num" style="padding:3px 4px;white-space:nowrap;font-style:italic;color:var(--gold,#A8842F)">${Math.abs(sinExp) < 0.5 ? '—' : S(sinExp)}</td></tr>
           </tbody></table>
-          ${aviso ? `<div class="no-pdf" style="font-size:11px;color:var(--gold,#A8842F);background:var(--gold-soft,#f7f0e2);border-radius:5px;padding:4px 8px;margin-top:3px">
-            Revisar antes de mandar: lo sin explicar es ${Math.round(Math.abs(sinExp) / Math.abs(vari) * 100)} % de la variación
-            (puede faltar un pago, una regla o una transferencia). Este aviso no sale en el PDF.</div>` : ''}
         </div>`);
       });
-      if (bloques.length) _edHTML = `<div class="card" style="margin-bottom:16px">
-        <div class="section-title" style="margin-bottom:6px">Movimientos relevantes · cuentas operativas</div>
-        ${bloques.join('')}
-        <p style="font-size:11px;color:var(--text3);margin:10px 0 0">Se detallan las cuentas operativas que se movieron más de USD 10.000
-          o más del 10 % en el período. Las demás no se detallan. Las cuentas de inversión no entran: su variación es rendimiento.
-          Las cuentas en pesos se muestran en pesos.</p></div>`;
+      /* v261 — una tarjeta por cuenta: así ninguna se corta entre hojas (Timoteo: ninguna tabla partida) */
+      if (bloques.length) _edHTML = bloques.map((b, i) => `<div class="card no-corta" style="margin-bottom:10px;padding:12px 14px">
+        ${i === 0 ? '<div class="section-title" style="margin-bottom:8px">Movimientos relevantes · cuentas operativas</div>' : ''}${b}
+        ${i === bloques.length - 1 ? `<p style="font-size:11px;color:var(--text3);margin:8px 0 0">Se detallan las cuentas operativas que se movieron más de USD 10.000
+          o más del 10 % en el período. Las cuentas de inversión no entran: su variación es rendimiento. Las cuentas en pesos se muestran en pesos.</p>` : ''}</div>`).join('');
     } catch (e) { console.warn('etapa D:', e.message); }
   }
 
@@ -12880,6 +13012,72 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
   const _compDePer = Math.max(0, Math.min(_compMes, _perBruto));
   const _perTot = _perBruto - _compDePer;
   const _inv  = _bDat.filter(x => x.b.es_operativa !== true);
+  /* v261 — clasificación de transferencias y aportes del mes (puente, gasto familiar y "por qué se movieron los bancos") */
+  const _ids = new Set(bancos.map(b => b.id));
+  const _bnAll = {}; (bancosR.data || []).forEach(b => _bnAll[b.id] = b);
+  let _trsAll = [];
+  try { const _ini0 = anio + '-' + _pad2(m1) + '-01'; const r = await sb.from('transferencias_bancos').select('*').gte('fecha', _ini0).lte('fecha', _fin); _trsAll = (r && r.data) || []; } catch(e) {}
+  const _rxOT = /\((H|JC|M|FCC|YAC|G|MFL|FC)\)|por cuenta de/i;
+  const _compNom = _comprasMes.map(c => String(c.nom || '').toLowerCase());
+  const _clsT = r => {   // clase de una transferencia vista desde el cliente
+    const o = r.banco_origen_id, d = r.banco_destino_id, oIn = o && _ids.has(o), dIn = d && _ids.has(d);
+    if (!oIn && !dIn) return null; if (oIn && dIn) return { k: 'propio' };
+    const v = (oIn ? -1 : 1) * Math.abs(Number(r.monto_usd) || 0), otro = oIn ? d : o, txt = (r.concepto || '') + ' ' + (oIn ? (r.destino_externo || '') : (r.origen_externo || ''));
+    if (otro && _bnAll[otro]) return { k: 'ot', v, n: _bNom(_bnAll[otro]) + ' (' + _bnAll[otro].titular + ')' + (r.concepto ? ' · ' + r.concepto : '') };
+    const cp = _compNom.find(nm => nm && txt.toLowerCase().includes(nm));
+    if (cp) return { k: 'compra', v, n: (_comprasMes.find(c => String(c.nom || '').toLowerCase() === cp) || {}).nom || cp };
+    if (_rxOT.test(txt)) return { k: 'ot', v, n: (r.concepto || r.destino_externo || r.origen_externo || 'sin concepto') };
+    return { k: 'cap', v, n: (oIn ? 'a ' + (r.destino_externo || 'afuera') : 'de ' + (r.origen_externo || 'afuera')) + (r.concepto ? ' · ' + r.concepto : '') + ' · ' + String(r.fecha).slice(8,10) + '/' + String(r.fecha).slice(5,7) };
+  };
+  const _T = { ot: [], compra: [], cap: [] };
+  _trsAll.forEach(r => { const c = _clsT(r); if (c && c.k !== 'propio') _T[c.k].push(c); });
+  // aportes y retiros de las cuentas de inversión que NO están en transferencias ni vinculados con otra cuenta propia
+  const _apsMes = (apR.data || []).filter(a => a.fecha >= _ini && a.fecha <= _fin && _ids.has(a.banco_id));
+  const _vinc = {}; (apR.data || []).forEach(a => { if (a.vinculo_id) (_vinc[a.vinculo_id] = _vinc[a.vinculo_id] || []).push(a); });
+  /* v261 — COBROS DE PE QUE ENTRAN COMO APORTE A UNA CUENTA DE INVERSIÓN (auditoría del puente, 04/11: la cuota de
+     TGA FINANCIAL FC, 5.652,50 por mes, entra a la BNY 2048 como "aporte"). No es plata de afuera: es el PE que se cobra
+     (capital + interés) y pasa a los bancos. Se reconoce por el monto (±0,5 %) en el mismo mes y no va a entradas de capital. */
+  const _peCobMes = [];
+  pe.forEach(p => ((window._peMovsByPe || {})[p.id] || []).filter(m => +m.anio === anio && +m.mes >= m1 && +m.mes <= m2 && (Number(m.utilidad) || 0) > 0.5)
+    .forEach(m => _peCobMes.push({ p: p.nombre, mes: +m.mes, v: (Number(m.utilidad) || 0) * share(p), usado: false })));
+  _apsMes.forEach(a => { if (a.vinculo_id && (_vinc[a.vinculo_id] || []).some(o => o.id !== a.id && _ids.has(o.banco_id))) return;
+    if (a.tipo !== 'retiro') { const _m = +String(a.fecha).slice(5, 7), _v = Math.abs(Number(a.monto) || 0);
+      const _c = _peCobMes.find(c => !c.usado && c.mes === _m && Math.abs(c.v - _v) <= Math.max(1, _v * 0.005)); if (_c) { _c.usado = true; return; } }
+    const v = (a.tipo === 'retiro' ? -1 : 1) * Math.abs(Number(a.monto) || 0);
+    /* ya está como transferencia: misma cuenta y sentido, ±5 días y monto ±0,5 % (el banco descuenta comisiones y la
+       acreditación tarda: 4976 manda 100.000 el 09/09 y Galicia recibe 99.955 el 10/09). Cada transferencia se usa una vez. */
+    if (_apConTr.has(a.id)) return;   // ya está como transferencia (una o varias: ver _apConTr)
+    const b = _bnAll[a.banco_id]; if (b && b.es_operativa) return;   // en las operativas ya cuenta en su variación
+    _T.cap.push({ v, nota: a.notas || '', n: (v < 0 ? 'retiro de ' : 'aporte a ') + _bNom(b || {}) + (a.detalle ? ' · ' + a.detalle : '') + ' · ' + String(a.fecha).slice(8,10) + '/' + String(a.fecha).slice(5,7) }); });
+  _lnOtros.forEach(l => _T.ot.push({ v: l.v, n: l.n + ' (' + l.tit + ')' }));
+  /* v261 — UNA POSICIÓN DE PE QUE PASA A OTRO TITULAR (TGA FINANCIAL de FC → TGA de H, abril 2026) sale del patrimonio sin ser
+     resultado: va con los movimientos con otros titulares. Y al revés, la que llega de otro titular. Valor: lo que valía antes. */
+  { const _todosPE = peR.data || [], _ini0 = anio + '-' + _pad2(m1) + '-01';
+    const _val0 = p => { try { return (m1 > 1 ? peCalc(p, anio, null, m1 - 1) : peCalc(p, anio - 1)).tenencia || 0; } catch(e) { return 0; } };
+    const _enP = p => p.fecha_cierre && String(p.fecha_cierre).slice(0, 10) >= _ini0 && String(p.fecha_cierre).slice(0, 10) <= _fin;
+    pe.forEach(p => { if (!p.traspaso_a || !_enP(p)) return; const q = _todosPE.find(x => x.nombre === p.traspaso_a); if (!q || pe.some(x => x.id === q.id)) return;
+      const v = _val0(p) * share(p); if (Math.abs(v) > 0.5) _T.ot.push({ v: -v, n: p.nombre + ' → ' + q.nombre + ' (' + q.titular + ')' }); });
+    _todosPE.forEach(q => { if (!q.traspaso_a || !_enP(q) || pe.some(x => x.id === q.id)) return; const p = pe.find(x => x.nombre === q.traspaso_a); if (!p) return;
+      const v = _val0(q) * share(p); if (Math.abs(v) > 0.5) _T.ot.push({ v, n: q.nombre + ' (' + q.titular + ') → ' + p.nombre }); }); }
+  const _sum = a => a.reduce((t, x) => t + x.v, 0);
+  const _gfCtas = _oper.map(x => ({ n: x.b.nombre, v: x.personales })).filter(x => Math.abs(x.v) > 0.5).sort((a, b) => b.v - a.v);
+  const GF = _gfCtas.filter(x => x.v > 0).reduce((t, x) => t + x.v, 0);           // gasto familiar = salidas sin explicar
+  const ENTSIN = -_gfCtas.filter(x => x.v < 0).reduce((t, x) => t + x.v, 0);      // entradas sin explicar (van al residuo)
+  const COMP = _compMes, PAGOS = _sum(_T.compra), OT = _sum(_T.ot), CAP = _sum(_T.cap);
+  const CRED = -_oper.reduce((t, x) => t + (x.cred || 0) - (x.credA || 0), 0);   // más deuda en tarjetas/cuentas operativas = baja el patrimonio
+  /* v261 — GASTO FAMILIAR ACUMULADO Y DEL PERÍODO = SUMA DE LOS MESES (Timoteo, 04/11: "no dan lo mismo"). Medido de una
+     vez sobre el semestre, los traspasos que salen un mes y llegan al siguiente se compensan y el total no coincidía con la
+     suma de los meses. Ahora el gasto de cualquier período es la suma del gasto de cada mes. Modo '_gf': corre sólo hasta acá. */
+  if (periodoTxt === '_gf') { window._ultMensual = { GF, gfCtas: _gfCtas, ENTSIN }; return; }
+  let _gfAnio = null;
+  if (periodoTxt === 'mes' && m1 === m2 && m1 > 1) { let t = GF;
+    for (let m = 1; m < m1; m++) { try { await generarReportePeriodo(tit, anio, m, m, '', '_gf'); t += (window._ultMensual || {}).GF || 0; } catch(e) { t = null; break; } }
+    _gfAnio = t; window._repTitulo = 'Informe Mensual · ' + label; }
+  else if (periodoTxt === 'mes' && m1 === m2) _gfAnio = GF;
+  /* v261 — modo '_pu' (lo usa el semestral/anual para armar su puente con la suma de los meses): no reinicia la lista de
+     "Para revisar" y cada aviso lleva el mes. */
+  const _revM = (t, i, a) => _rev((periodoTxt === '_pu' ? MESNOM[m2] + ' · ' : '') + t, i, a);
+  if (periodoTxt !== '_pu') _revIni(); _revM('Cuentas operativas con mucho sin explicar', _edAvisos, 'Puede faltar un pago, una regla o una transferencia.');
 
   // Operativas: bajo cada cuenta, el detalle por propiedad de lo cobrado y lo pagado.
   // v240 — una fila por propiedad, con lo cobrado debajo de "Cobrado" y lo pagado debajo de "Pagado"
@@ -12891,22 +13089,22 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
     if (x.det) {   // v245 — con linkeo vigente: el detalle de todo lo cobrado y pagado (ver etapa D)
       const ks = Object.keys(x.det).filter(k => x.det[k].cobro > 0.5 || x.det[k].pago > 0.5);
       return ks.map(k => ({ nom:k, ...x.det[k] })).sort((a,b) => (b.cobro+b.pago) - (a.cobro+a.pago))
-        .map(d => _subFila(d.nom, { 5: d.cobro>0.5 ? `<span style="color:var(--esp)">+${$m(d.cobro).slice(1)}</span>` : '',
-                                     6: d.pago>0.5 ? `<span style="color:var(--usa)">−${$m(d.pago).slice(1)}</span>` : '' }, nCols)).join('');
+        .map(d => _subFila(d.nom, { 5: d.cobro>0.5 ? `<span style="color:var(--esp)">+${$m(d.cobro)}</span>` : '',
+                                     6: d.pago>0.5 ? `<span style="color:var(--usa)">−${$m(d.pago)}</span>` : '' }, nCols)).join('');
     }
     const ids = Object.keys(x.lk).filter(id => x.lk[id].cobro > 0.5 || x.lk[id].pago > 0.5);
     if (!ids.length) return '';
     return ids
       .map(id => ({ nom:(_propById[id]||{}).nombre||'—', ...x.lk[id] }))
       .sort((a,b) => (b.cobro+b.pago) - (a.cobro+a.pago))
-      .map(d => _subFila(d.nom, { 5: d.cobro>0.5 ? `<span style="color:var(--esp)">+${$m(d.cobro).slice(1)}</span>` : '',
-                                   6: d.pago>0.5 ? `<span style="color:var(--usa)">−${$m(d.pago).slice(1)}</span>` : '' }, nCols)).join('');
+      .map(d => _subFila(d.nom, { 5: d.cobro>0.5 ? `<span style="color:var(--esp)">+${$m(d.cobro)}</span>` : '',
+                                   6: d.pago>0.5 ? `<span style="color:var(--usa)">−${$m(d.pago)}</span>` : '' }, nCols)).join('');
   };
   // Cuentas de inversion: bajo cada cuenta, los aportes y retiros del mes, debajo de "Aportes netos".
   const _detCap = (x, nCols) => {
     if (x.ap < 0.5 && x.re < 0.5) return '';
-    return (x.ap>0.5 ? _subFila(esMensual ? 'Aportes del mes' : 'Aportes del período', { 2: `<span style="color:var(--esp)">+${$m(x.ap).slice(1)}</span>` }, nCols) : '')
-         + (x.re>0.5 ? _subFila(esMensual ? 'Retiros del mes' : 'Retiros del período', { 2: `<span style="color:var(--usa)">−${$m(x.re).slice(1)}</span>` }, nCols) : '');
+    return (x.ap>0.5 ? _subFila(esMensual ? 'Aportes del mes' : 'Aportes del período', { 2: `<span style="color:var(--esp)">+${$m(x.ap)}</span>` }, nCols) : '')
+         + (x.re>0.5 ? _subFila(esMensual ? 'Retiros del mes' : 'Retiros del período', { 2: `<span style="color:var(--usa)">−${$m(x.re)}</span>` }, nCols) : '');
   };
 
   const _colsOper = [
@@ -12915,15 +13113,15 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
     { val:x=>{ const v=x.c-x.a; return Math.abs(v)<0.5?'—':_dash(v); },
       css:x=>{ const v=x.c-x.a; return 'color:'+(Math.abs(v)<0.5?'var(--text3)':col(v))+';font-weight:600'; },
       tot:g=>_dash(g.reduce((s,x)=>s+x.c-x.a,0)), sgn:g=>g.reduce((s,x)=>s+x.c-x.a,0) },
-    { val:x=>x.cobro>0.5?'<span style="color:var(--esp)">+'+$m(x.cobro).slice(1)+'</span>':'—',
-      tot:g=>{const v=g.reduce((s,x)=>s+x.cobro,0); return v>0.5?'+'+$m(v).slice(1):'—';},
+    { val:x=>x.cobro>0.5?'<span style="color:var(--esp)">+'+$m(x.cobro)+'</span>':'—',
+      tot:g=>{const v=g.reduce((s,x)=>s+x.cobro,0); return v>0.5?'+'+$m(v):'—';},
       sgn:g=>g.reduce((s,x)=>s+x.cobro,0) },
-    { val:x=>x.pago>0.5?'<span style="color:var(--usa)">−'+$m(x.pago).slice(1)+'</span>':'—',
-      tot:g=>{const v=g.reduce((s,x)=>s+x.pago,0); return v>0.5?'−'+$m(v).slice(1):'—';},
+    { val:x=>x.pago>0.5?'<span style="color:var(--usa)">−'+$m(x.pago)+'</span>':'—',
+      tot:g=>{const v=g.reduce((s,x)=>s+x.pago,0); return v>0.5?'−'+$m(v):'—';},
       sgn:g=>-g.reduce((s,x)=>s+x.pago,0) },
-    { val:x=>Math.abs(x.personales)<0.5?'—':(x.personales>0?'−':'+')+$m(Math.abs(x.personales)).slice(1),
+    { val:x=>Math.abs(x.personales)<0.5?'—':(x.personales>0?'−':'+')+$m(Math.abs(x.personales)),
       css:x=>'color:'+(Math.abs(x.personales)<0.5?'var(--text3)':(x.personales>0?'var(--usa)':'var(--esp)')),
-      tot:g=>{const v=g.reduce((s,x)=>s+x.personales,0); return Math.abs(v)<0.5?'—':(v>0?'−':'+')+$m(Math.abs(v)).slice(1);},
+      tot:g=>{const v=g.reduce((s,x)=>s+x.personales,0); return Math.abs(v)<0.5?'—':(v>0?'−':'+')+$m(Math.abs(v));},
       sgn:g=>-g.reduce((s,x)=>s+x.personales,0) },
   ];
   /* v245 — CUENTAS DE INVERSIÓN EN 9 COLUMNAS (Timoteo, 23/10): Cuenta · Saldo 1/1 · Aportes netos del año · cierre del
@@ -12992,15 +13190,15 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
     const ta = _bDat.reduce((s,x)=>s+x.a,0)     - _bDat.reduce((s,x)=>s+x.credA,0);
     const tcash = _bDat.reduce((s,x)=>s+x.c,0), tc = _bDat.reduce((s,x)=>s+x.cred,0);
     return `<div class="table-wrap" style="margin-top:12px"><table class="tbl-compacta" style="table-layout:fixed">
-      ${_COLG(['',''])}
+      <colgroup><col style="width:26%"><col style="width:12%"><col style="width:12%"><col style="width:12.5%"><col style="width:37.5%"></colgroup>
       <tbody>
         <tr style="${_BG_TOT}">
           <td>TOTAL BANCOS</td>
-          <td class="num">${$m(ti)}</td>
           <td class="num">${$m(ta)}</td>
           <td class="num">${$m(tcash - tc)}</td>
-          <td></td><td></td></tr>
-        ${tc > 0.5 ? `<tr><td colspan="6" style="padding:5px 10px;font-size:11px;color:var(--text3);border:0">
+          <td class="num">${sg(tcash - tc - ta)}${$m(Math.abs(tcash - tc - ta))}</td>
+          <td></td></tr>
+        ${tc > 0.5 ? `<tr><td colspan="5" style="padding:5px 10px;font-size:11px;color:var(--text3);border:0">
           Cash ${$m(tcash)} menos ${$m(tc)} de crédito utilizado. Los subtotales de arriba suman
           sólo el cash: el crédito es deuda y se descuenta una sola vez, acá.</td></tr>` : ''}
       </tbody></table></div>
@@ -13013,11 +13211,15 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
         if (Math.abs(vT) < 0.5) return '';
         const rend = _inv.reduce((s,x)=>s+x.rend,0);
         const cob = _oper.reduce((s,x)=>s+(x.cobroL ?? x.cobro),0), pag = _oper.reduce((s,x)=>s+(x.pagoL ?? x.pago),0);
-        const per = _perTot, comp = _compMes;   // v257 — la compra va aparte
-        const cap = vT - (rend + cob - pag - per - comp);
-        const F = v => `<b style="color:${v >= 0 ? 'var(--esp)' : 'var(--usa)'}">${sg(v)}${$m(Math.abs(v)).slice(1)}</b>`;
-        const partes = [[rend, 'rendimiento de las inversiones'], [cob, 'cobrado (rentas, PE)'], [-pag, 'pagado (gastos de propiedades, autos y sociedades)'],
-          [-comp, 'compra de ' + _comprasMes.map(c => c.nom).join(', ') + ' (pasa a propiedades)'], [-per, per >= 0 ? 'gastos y transferencias personales' : 'entradas sin explicar en las operativas (falta linkear)'], [cap, 'entradas y salidas de capital']].filter(p => Math.abs(p[0]) > 0.5);
+        /* v261 — NO SE DIBUJA (Timoteo, 03/11): cada renglón sale de un movimiento registrado; lo que no se explica queda a la
+           vista como "sin identificar". La compra NO resta lo que vale la propiedad: resta sólo los pagos registrados. */
+        const lnOT = _lnOtros.reduce((t, l) => t + l.v, 0);
+        const own = (cob - pag) - lnOT;
+        const resto = vT - (rend + own + OT + PAGOS - GF + CAP + CRED);
+        const F = v => `<b style="color:${v >= 0 ? 'var(--esp)' : 'var(--usa)'}">${sg(v)}${$m(Math.abs(v))}</b>`;
+        const partes = [[rend, 'rendimiento de las inversiones'], [own, 'cobrado − pagado de los activos de ' + cliNom.split(' ')[0]], [OT, 'movimientos con otros titulares'],
+          [PAGOS, 'pagos de ' + (_comprasMes.map(c => c.nom).join(', ') || 'compras')], [-GF, 'gasto familiar'], [CRED, 'crédito de las operativas'], [CAP, 'entradas y salidas de capital'],
+          [resto, 'otros movimientos']].filter(p => Math.abs(p[0]) > 0.5);
         const big = _trsMes.filter(r => Math.abs(Number(r.monto_usd) || 0) >= 20000).sort((x, y) => Math.abs(y.monto_usd) - Math.abs(x.monto_usd)).slice(0, 4);
         const _nm = (r, id, ext) => id ? ((r._bn || {})[id] || 'otra cuenta') : (ext || 'externo');
         return `<p style="font-size:11.5px;margin:10px 4px 0;line-height:1.5">
@@ -13038,22 +13240,20 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
         no es resultado, y pagar el crédito con plata aportada tampoco. El % es Dietz modificado: rendimiento ÷ capital promedio del lapso
         (saldo inicial más cada aporte por los días que estuvo invertido), así tiene siempre el mismo signo que los $.</p>
     </div>` : ''}
-    ${_oper.length ? `<div class="card" style="margin-bottom:16px">
-      <div class="section-title" style="margin-bottom:12px">Cuentas de banco · operativas</div>
-      ${(() => { /* v248 — AVISO SÓLO PARA EL ADMINISTRADOR (Timoteo, 26/10): gastos y transferencias personales grandes,
-           para revisar antes de mandar el informe. Va con .no-pdf: no sale en el PDF del cliente. Umbral USD 20.000. */
-        const _alto = _oper.filter(x => Math.abs(x.personales) > 20000).sort((a, b) => Math.abs(b.personales) - Math.abs(a.personales));
-        return _alto.length ? `<div class="no-pdf" style="font-size:11.5px;color:#7a5a12;background:#f7f0e2;border:1px solid #e6d3a3;border-radius:6px;padding:7px 10px;margin:0 0 10px">
-          <b>Para revisar (no sale en el PDF):</b> gastos y transferencias personales sin explicar de más de USD 20.000 —
-          ${_alto.map(x => `${x.b.nombre} <b>${x.personales > 0 ? '−' : '+'}${$m(Math.abs(x.personales)).slice(1)}</b>`).join(' · ')}.
-          Puede faltar un linkeo o una transferencia.</div>` : ''; })()}
-      <div class="table-wrap"><table class="tbl-compacta" style="table-layout:fixed">
-        ${_COLG(['Variación','Cobrado','Pagado','Gastos personales'])}
-        <thead><tr>${[..._hdrBase,esMensual ? 'Variación del mes' : 'Variación','Cobrado','Pagado','Gastos personales'].map((h,i)=>`<th${i?' class="num"':''}>${h}</th>`).join('')}</tr></thead>
-        <tbody>${_tablaCuentas(_oper, _colsOper, _detProp).join('')}</tbody>
-      </table></div>
-      ${_totBancos}
-    </div>` : ''}`;
+    <!--OPER-->${_oper.length ? (() => {
+      /* v261 — UNA TARJETA POR PAÍS (Timoteo: ninguna tabla partida entre hojas). Las operativas con su detalle por propiedad
+         no entran en una hoja apaisada; por país sí, y cada una sale entera con su subtotal. La última lleva el total. */
+      const _head = `<div class="table-wrap"><table class="tbl-compacta" style="table-layout:fixed">
+        <colgroup><col style="width:26%"><col style="width:12%"><col style="width:12%"><col style="width:12.5%"><col style="width:12.5%"><col style="width:12.5%"><col style="width:12.5%"></colgroup>
+        <thead><tr>${[_hdrBase[0],_hdrBase[2],_hdrBase[3],esMensual ? 'Variación del mes' : 'Variación','Cobrado','Pagado','Gasto familiar'].map((h,i)=>`<th${i?' class="num"':''}>${h}</th>`).join('')}</tr></thead><tbody>`;
+      const _byP = {}; _oper.forEach(x => (_byP[x.b.pais || '—'] = _byP[x.b.pais || '—'] || []).push(x));
+      const _ps = _ordPais(Object.keys(_byP)), _PN = { ARG:'Argentina', URU:'Uruguay', USA:'Estados Unidos', ESP:'España', PAR:'Paraguay' };
+      const _todo = _tablaCuentas(_oper, _colsOper, _detProp, false, [], true);
+      if (_ps.length < 2) return `<div class="card" style="margin-bottom:16px"><div class="section-title" style="margin-bottom:12px">Cuentas de banco · operativas</div>${_head}${_todo.join('')}</tbody></table></div>${_totBancos}</div>`;
+      return _ps.map((pz, i) => { const f = _tablaCuentas(_byP[pz], _colsOper, _detProp, false, [], true); f[f.length - 1] = f[f.length - 1].replace('<td>Total</td>', '<td>Subtotal ' + (_PN[pz] || pz) + '</td>');
+        const ult = i === _ps.length - 1;
+        return `<div class="card" style="margin-bottom:12px"><div class="section-title" style="margin-bottom:10px">Cuentas de banco · operativas · ${_PN[pz] || pz}</div>${_head}${f.join('')}${ult ? _todo[_todo.length - 1].replace('<td>Total</td>', '<td>Total operativas</td>') : ''}</tbody></table></div>${ult ? _totBancos : ''}</div>`; }).join('');
+    })() : ''}`;
 
   /* ── AUTOS ── */
   const _gAuto = {}, _gAutoMes = {};
@@ -13072,8 +13272,8 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
       <td style="font-weight:600">${a.nombre||'—'}</td>
       <td class="num" style="color:var(--text3)">${Math.abs(vc)<0.5 ? '—' : $m(vc)}</td>
       <td class="num">${$m(v)}</td>
-      <td class="num" style="color:${Math.abs(gm)<0.5?'var(--text3)':'var(--usa)'}">${Math.abs(gm)<0.5 ? '—' : '−'+$m(gm).slice(1)}</td>
-      <td class="num" style="color:${Math.abs(g)<0.5?'var(--text3)':'var(--usa)'}">${Math.abs(g)<0.5 ? '—' : '−'+$m(g).slice(1)}</td></tr>`);
+      <td class="num" style="color:${Math.abs(gm)<0.5?'var(--text3)':'var(--usa)'}">${Math.abs(gm)<0.5 ? '—' : '−'+$m(gm)}</td>
+      <td class="num" style="color:${Math.abs(g)<0.5?'var(--text3)':'var(--usa)'}">${Math.abs(g)<0.5 ? '—' : '−'+$m(g)}</td></tr>`);
   const _nAutos = filasAutos.length;
   if (_nAutos) {
     const tvc = autos.reduce((s,a)=>s+(Number(a.valor_compra)||0)*share(a),0);
@@ -13083,8 +13283,8 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
       <td>Total autos</td>
       <td class="num">${Math.abs(tvc)<0.5?'—':$m(tvc)}</td>
       <td class="num">${$m(vAutos)}</td>
-      <td class="num" style="color:${Math.abs(tgm)<0.5?'var(--text3)':'var(--usa)'}">${Math.abs(tgm)<0.5?'—':'−'+$m(tgm).slice(1)}</td>
-      <td class="num" style="color:${Math.abs(tg)<0.5?'var(--text3)':'var(--usa)'}">${Math.abs(tg)<0.5?'—':'−'+$m(tg).slice(1)}</td></tr>`);
+      <td class="num" style="color:${Math.abs(tgm)<0.5?'var(--text3)':'var(--usa)'}">${Math.abs(tgm)<0.5?'—':'−'+$m(tgm)}</td>
+      <td class="num" style="color:${Math.abs(tg)<0.5?'var(--text3)':'var(--usa)'}">${Math.abs(tg)<0.5?'—':'−'+$m(tg)}</td></tr>`);
   }
 
   /* ── PRIVATE EQUITY (v187) ───────────────────────────────────────────────
@@ -13106,7 +13306,7 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
       ${fila('Distribuciones recibidas', $m(di), 'var(--esp)')}
       ${tr ? fila('Traspasado' + (c.traspasoA ? ' a ' + c.traspasoA : ''), $m(tr), 'var(--esp)') : ''}
       ${c.finalizada
-        ? fila('Resultado final', (res>=0?'+':'−') + $m(Math.abs(res)).slice(1), res>=0?'var(--esp)':'var(--usa)')
+        ? fila('Resultado final', (res>=0?'+':'−') + $m(Math.abs(res)), res>=0?'var(--esp)':'var(--usa)')
         : fila('Capital sin recuperar', $m(sr), sr>0.5?'var(--usa)':'var(--text3)')}
       <div style="margin-top:11px">
         <div style="display:flex;justify-content:space-between;font-size:11.5px;margin-bottom:5px"><span style="color:var(--text3)">Recuperado</span><span style="font-weight:700">${pct.toFixed(0)}%</span></div>
@@ -13137,7 +13337,7 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
       <tbody><tr style="${_BG_TOT}">
         <td>${arr.length} ${arr.length===1?'posición':'posiciones'}</td>
         ${cel('a',$m(ap))}${cel('d',$m(di0),'var(--esp)')}
-        ${cel('r', esFin ? ((di-ap>=0?'+':'−')+$m(Math.abs(di-ap)).slice(1)) : $m(Math.max(0,ap-di)), esFin ? (di-ap>=0?'var(--esp)':'var(--usa)') : (ap-di>0.5?'var(--usa)':''))}
+        ${cel('r', esFin ? ((di-ap>=0?'+':'−')+$m(Math.abs(di-ap))) : $m(Math.max(0,ap-di)), esFin ? (di-ap>=0?'var(--esp)':'var(--usa)') : (ap-di>0.5?'var(--usa)':''))}
         ${cel('p', pct.toFixed(0)+'%')}${cel('t',$m(te))}
       </tr></tbody></table></div>
       ${tr > 0.5 ? `<p style="font-size:11px;color:var(--text3);margin:6px 0 0">El resultado incluye ${$m(tr)} traspasados a otras posiciones (no cobrados).</p>` : ''}`;
@@ -13195,10 +13395,10 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
 
   // v246 — lo que entró y salió en el mes (realizado)
   const _resP = await _resultadoPeriodo({ anio, m1, m2, pe, autos, props, titFilter, share, cuentaFO });
-  const _resM = _resultadoHTML(_resP, { rentaNeta: netaMes, rendInv: _rendTot, personales: _perTot, conNoRealizado: false,
+  const _resM = _resultadoHTML(_resP, { rentaNeta: netaMes, rendInv: _rendTot, personales: null /* v261 — va en el cuadro de gasto familiar */, conNoRealizado: false,
     titulo: (esMensual ? 'Lo que entró y salió · ' : 'Resultado del período · ') + label });
   const frases = [
-    `El patrimonio de ${cliNom} cerró ${label} en <b>${$m(patTotal)}</b>${patPrev?`, ${sg(varMes)}${$m(Math.abs(varMes)).slice(1)} contra el cierre del mes anterior (${sg(varMes)}${Math.abs(varPct).toFixed(1)}%)`:''}.`,
+    `El patrimonio de ${cliNom} cerró ${label} en <b>${$m(patTotal)}</b>${patPrev?`, ${sg(varMes)}${$m(Math.abs(varMes))} contra el cierre del mes anterior (${sg(varMes)}${Math.abs(varPct).toFixed(1)}%)`:''}.`,
     /* v248 — DE DÓNDE SALE LA VARIACIÓN (Timoteo, 26/10: "cierre −532.551 y salieron de la cuenta 1.137.145?").
        La frase vieja hablaba de los retiros de las cuentas de inversión, pero casi todos van a otra cuenta propia
        (o a pagar una compra): no salen del patrimonio, así que el número no se podía comparar con la variación.
@@ -13206,9 +13406,9 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
        transferencias personales, y lo que queda, a la vista (entradas o salidas de capital, transferencias a otros
        titulares, diferencias de cambio de las cuentas en pesos y lo que no está linkeado). No se dibuja: se muestra. */
     patPrev ? (() => { const comp = _compMes, otros = varMes - (_resM.total - _perTot);
-      return `Se explica así: <b>${sg(_resM.total)}${$m(Math.abs(_resM.total)).slice(1)}</b> de resultado del mes`
-        + (Math.abs(_perTot) > 0.5 ? `, <b>${_perTot > 0 ? '−' : '+'}${$m(Math.abs(_perTot)).slice(1)}</b> ${_perTot > 0 ? 'de gastos y transferencias personales' : 'que entraron a las operativas sin explicar (falta linkear)'}` : '')
-        + (Math.abs(otros) > 0.5 ? ` y <b>${sg(otros)}${$m(Math.abs(otros)).slice(1)}</b> de otros movimientos (entradas o salidas de capital, transferencias a otros titulares, diferencias de cambio y lo que no está linkeado)` : '')
+      return `Se explica así: <b>${sg(_resM.total)}${$m(Math.abs(_resM.total))}</b> de resultado del mes`
+        + (Math.abs(_perTot) > 0.5 ? `, <b>${_perTot > 0 ? '−' : '+'}${$m(Math.abs(_perTot))}</b> ${_perTot > 0 ? 'de gastos y transferencias personales' : 'que entraron a las operativas sin explicar (falta linkear)'}` : '')
+        + (Math.abs(otros) > 0.5 ? ` y <b>${sg(otros)}${$m(Math.abs(otros))}</b> de otros movimientos (entradas o salidas de capital, transferencias a otros titulares, diferencias de cambio y lo que no está linkeado)` : '')
         + '. Los traspasos entre cuentas propias no cambian el patrimonio.'
         + (comp > 0.5 ? ` La compra de ${_comprasMes.map(c => c.nom).join(', ')} (${$m(comp)}) no cambia el patrimonio: sube propiedades y baja lo mismo en los bancos.` : ''); })() : null,
     (rMes||gMes||iMes)
@@ -13223,65 +13423,185 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
     deuda>0 ? `Deuda viva de ${$m(deuda)} — ${apal.toFixed(1)}% del patrimonio.` : null,
   ].filter(Boolean);
 
-  cont.innerHTML = `${_avisoAnioCerrado(anio, bancosR.data)}
-    <div class="hoja-fija">
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px">
-      ${kpi('Patrimonio al cierre', $m(patTotal), label)}
-      ${kpi('Variación del mes', (patPrev?sg(varMes)+$m(Math.abs(varMes)).slice(1):'—'),
-            (patPrev?sg(varMes)+Math.abs(varPct).toFixed(1)+'%':'sin mes previo'), col(varMes))}
-      ${kpi('Renta neta del mes', $m(netaMes), 'Propiedades', col(netaMes))}
-      ${kpi('Rendimiento inversiones', _rPer==null ? '—' : _pct(_rPer),
-            (_rPer==null ? 'sin saldo inicial' : (esMensual ? 'en el mes' : 'en el período')) + (_rYTD!=null && m2>1 ? '<br>' + _pct(_rYTD) + ' en el año' : ''),
-            _rPer==null ? '' : col(_rPer))}
+  /* ═══ v261 — BOCETO MENSUAL (Timoteo, 03/11) ═══════════════════════════════════════════════════════════════
+     Página 1: 5 KPIs · patrimonio mes a mes (eje desde 0, valor arriba) · por tipo · resultado del mes · liquidez ·
+     gasto familiar por cuenta · puente del mes (cierra con un residuo a la vista: no se dibuja nada). */
+  const _resNoReal = 0;
+
+  /* v261 — DETALLE DEL MENSUAL EN APAISADO: propiedades + inversión lado a lado; operativas a todo el ancho; movimientos
+     relevantes + PE del mes + autos. PE: sólo lo que se movió en el mes y de dónde salen los números de la página 1. */
+  const _mkOp = '<!--OPER-->';
+  const _cIdx = _cuentasHTML.indexOf(_mkOp);
+  const _invH = _cIdx >= 0 ? _cuentasHTML.slice(0, _cIdx) : _cuentasHTML, _opH = _cIdx >= 0 ? _cuentasHTML.slice(_cIdx) : '';
+  const _peMov = (() => { const rows = []; let resTot = 0;
+    pe.forEach(p => { const sh = share(p); const ms = ((window._peMovsByPe || {})[p.id] || []).filter(m => +m.anio === anio && +m.mes >= m1 && +m.mes <= m2);
+      const t = peTipoDe(p); let enRes = 0;
+      const cRes = mc => { try { return mc < 1 ? 0 : (Number(peCalc(p, anio, null, mc).cobRes) || 0); } catch(e) { return 0; } };
+      if (t === 'prestamo' || t === 'inversion') enRes = (cRes(m2) - cRes(m1 - 1)) * sh;
+      else enRes = ms.reduce((a, m) => a + (Number(m.utilidad) || 0) - (Number(m.gastos) || 0) - (Number(m.impuestos) || 0), 0) * sh;
+      const ap = ms.reduce((a, m) => a + (Number(m.aporte_capital) || 0), 0) * sh, co = ms.reduce((a, m) => a + (Number(m.utilidad) || 0), 0) * sh;
+      const cierra = p.cerrada === true && p.fecha_cierre && String(p.fecha_cierre).slice(0, 10) >= _ini && String(p.fecha_cierre).slice(0, 10) <= _fin;
+      /* v261 — también las posiciones sin movimiento en el mes, arriba, con "sin movimientos" (Timoteo, 04/11) */
+      const _sinMov = Math.abs(ap) < 0.5 && Math.abs(co) < 0.5 && !cierra && Math.abs(enRes) < 0.5;
+      let c0 = null, c1 = null; try { c0 = m1 > 1 ? peCalc(p, anio, null, m1 - 1) : peCalc(p, anio - 1); c1 = peCalc(p, anio, null, m2); } catch(e) {}
+      if (_sinMov && Math.abs((c0 ? c0.tenencia : 0) * sh) < 0.5 && Math.abs((c1 ? c1.tenencia : 0) * sh) < 0.5) return;
+      const qu = [ap > 0.5 ? 'aporte ' + $m(ap) : '', co > 0.5 ? 'cobro ' + $m(co) : '', cierra ? (p.incobrable ? 'baja (incobrable)' : 'terminó' + (p.traspaso_a ? ' → ' + p.traspaso_a : '')) : ''].filter(Boolean).join(' · ');
+      resTot += enRes;
+      rows.push({ n: p.nombre, t, qu: _sinMov ? 'sin movimientos' : qu, sinMov: _sinMov, enRes, v0: (c0 ? c0.tenencia : 0) * sh, v1: (c1 ? c1.tenencia : 0) * sh, rec: c1 && t === 'prestamo' ? Math.max(0, (c1.aportado - c1.distribuido)) * sh : null }); });
+    rows.sort((a, b) => (b.sinMov ? 1 : 0) - (a.sinMov ? 1 : 0) || b.v1 - a.v1);
+    return { rows, resTot }; })();
+  const _peV0 = _peAt(m1 - 1), _peV1 = _peAt(m2);
+  const _peMesHTML = `<div class="card no-corta" style="margin-bottom:12px">
+      <div class="section-title" style="margin-bottom:8px">Private equity · ${label}</div>
+      ${_peMov.rows.length ? `<table class="tbl-compacta"><thead><tr><th>Posición</th><th>Qué pasó</th><th class="num">En el resultado</th><th class="num">Valor antes</th><th class="num">Valor después</th></tr></thead><tbody>
+        ${_peMov.rows.map(r => `<tr><td style="font-weight:600">${r.n}<div style="font-size:9.5px;color:var(--text3);font-weight:400">${(PE_TIPOS[r.t] || {}).lbl || r.t}</div></td><td style="font-size:10.5px${r.sinMov ? ';color:var(--text3)' : ''}">${r.qu || '—'}</td>
+          <td class="num" style="color:${Math.abs(r.enRes) < 0.5 ? 'var(--text3)' : col(r.enRes)}">${Math.abs(r.enRes) < 0.5 ? '—' : sg(r.enRes) + $m(Math.abs(r.enRes))}</td>
+          <td class="num">${$m(r.v0)}</td><td class="num">${$m(r.v1)}</td></tr>`).join('')}
+        <tr style="${OFF_TOT_CSS}"><td colspan="2">Total del mes</td><td class="num">${sg(_peMov.resTot)}${$m(Math.abs(_peMov.resTot))}</td><td class="num">${$m(_peV0)}</td><td class="num">${$m(_peV1)}</td></tr>
+      </tbody></table>` : '<p style="font-size:11.5px;color:var(--text3)">Sin movimientos de private equity en el mes.</p>'}
+      <p style="font-size:10.5px;color:var(--text3);margin:6px 0 0">"En el resultado" es lo que suma al resultado del mes (página 1): en préstamos sólo lo cobrado por encima del capital, o la pérdida al darlo de baja. El PE del patrimonio pasó de ${$m(_peV0)} a ${$m(_peV1)} (${sg(_peV1 - _peV0)}${$m(Math.abs(_peV1 - _peV0))}): baja con cada devolución de capital (la plata pasa a los bancos) y con las bajas; sube con los aportes.</p>
+    </div>`;
+  const _autosHTML = !_nAutos ? '' : `<div class="card no-corta" style="margin-bottom:12px">
+      <div class="section-title" style="margin-bottom:8px">Autos · ${_nAutos}</div>
+      <table class="tbl-compacta"><thead><tr><th>Vehículo</th><th class="num">Valor actual</th><th class="num">${esMensual ? MESNOM[m2] : 'Gastos del período'}</th><th class="num">Gastos ${anio}</th></tr></thead><tbody>
+      ${autos.map(a => ({ a, v: (Number(a[_vY]) || 0) * share(a), g: (_gAuto[a.id] || 0) * share(a), gm: (_gAutoMes[a.id] || 0) * share(a) })).filter(x => Math.abs(x.v) > 0.5 || Math.abs(x.g) > 0.5).sort((x, y) => y.v - x.v)
+        .map(x => `<tr><td>${x.a.nombre}</td><td class="num">${$m(x.v)}</td><td class="num" style="color:${Math.abs(x.gm) < 0.5 ? 'var(--text3)' : 'var(--usa)'}">${Math.abs(x.gm) < 0.5 ? '—' : '−' + $m(x.gm)}</td><td class="num" style="color:${Math.abs(x.g) < 0.5 ? 'var(--text3)' : 'var(--usa)'}">${Math.abs(x.g) < 0.5 ? '—' : '−' + $m(x.g)}</td></tr>`).join('')}
+      <tr style="${OFF_TOT_CSS}"><td>Total</td><td class="num">${$m(vAutos)}</td><td class="num">−${$m(autos.reduce((t, a) => t + (_gAutoMes[a.id] || 0) * share(a), 0))}</td><td class="num">−${$m(autos.reduce((t, a) => t + (_gAuto[a.id] || 0) * share(a), 0))}</td></tr>
+      </tbody></table></div>`;
+  const _deudaHTML = (() => { const ls = _bDat.filter(x => (x.cred || 0) > 0.5 || (x.credA || 0) > 0.5).map(x => ({ n: x.b.nombre, a: x.credA || 0, c: x.cred || 0 }));
+    if (!ls.length || ls.every(l => Math.abs(l.c - l.a) < 0.5)) return '';
+    return `<div class="card no-corta" style="margin-bottom:12px"><div class="section-title" style="margin-bottom:8px">Deuda · se movió en el mes</div>
+      <table class="tbl-compacta"><thead><tr><th>Línea</th><th class="num">${_hdrPrev}</th><th class="num">${_hdrCie}</th><th class="num">Variación</th><th class="num">Tasa</th></tr></thead><tbody>
+      ${ls.map(l => `<tr><td>Crédito ${l.n}</td><td class="num">−${$m(l.a)}</td><td class="num">−${$m(l.c)}</td><td class="num" style="color:${Math.abs(l.a - l.c) < 0.5 ? 'var(--text3)' : col(l.a - l.c)}">${Math.abs(l.a - l.c) < 0.5 ? '—' : sg(l.a - l.c) + $m(Math.abs(l.a - l.c))}</td><td class="num" style="color:var(--text3)">—</td></tr>`).join('')}
+      </tbody></table></div>`; })();
+  const _detalle2 = `
+    <div style="display:grid;grid-template-columns:0.85fr 1.15fr;gap:10px;align-items:start">
+      <div>${_tabla(`Propiedades · ${_propsOrd.length}`, ['Propiedad','País','Valor','Renta','Gastos e impuestos','Renta neta del mes'], filasProps, `Renta, gastos e impuestos del mes. El valor es la tasación de enero de ${anio}.`)}</div>
+      <div>${_invH}</div>
+    </div>
+    ${_opH}
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:start">
+      <div>${_edHTML || ''}</div>
+      <div>${_peMesHTML}</div>
+    </div>`;
+  const PUENTE_SUMA = patPrev + _resM.total + _resNoReal + OT + COMP + PAGOS + CAP - GF + CRED;
+  window._ultMensual = { tit, anio, m1, m2, GF, gfCtas: _gfCtas, OT, CAP, PAGOS, CRED, ENTSIN, patPrev, patTotal, RES: _resM.total, COMP, otItems: _T.ot, compItems: _T.compra };   // v261 — lo usa el semestral (gasto familiar)
+  const RESID = patTotal - PUENTE_SUMA; window._ultMensual.RESID = RESID;
+  { const _$ = v => (v >= 0 ? '+' : '−') + $m(Math.abs(v));
+    if (Math.abs(RESID) > Math.max(1000, patTotal * 0.001))
+      _revM(`El puente no cierra por ${_$(RESID)}`,
+        [`En el informe sale como "± Otros movimientos".`, ENTSIN > 0.5 ? `Entraron ${$m(ENTSIN)} a operativas sin explicar: ${_gfCtas.filter(x => x.v < -0.5).map(x => x.n + ' ' + $m(-x.v)).join(', ')}` : ''],
+        'Suele ser un traspaso entre cuentas propias que no está cargado como transferencia (o llegó al mes siguiente), una diferencia de cambio o un saldo que falta.');
+    _revM('Aportes y retiros de cuentas de inversión sin transferencia que los explique (salen como "Entradas y salidas de capital")',
+      _T.cap.filter(x => Math.abs(x.v) >= 1000 && x.nota !== undefined).map(x => `${x.n} ${_$(x.v)}${x.nota ? ' <span style="color:var(--text3)">· ' + x.nota + '</span>' : ''}`),
+      'Si es plata que fue a otra cuenta propia, cargá la transferencia (o vinculá el aporte con la otra cuenta): así deja de contar como entrada o salida.');
+    if (COMP + PAGOS > 0.5) _revM('Compra sin el pago completo', [`${_comprasMes.map(c => c.nom).join(', ')}: vale ${$m(COMP)}, pagos registrados en el mes ${$m(-PAGOS)}, faltan ${$m(COMP + PAGOS)}`],
+        'Si se pagó antes, cargalo como anticipo; si no, cargá de qué cuenta salió la plata.');
+    const _alto = _oper.filter(x => Math.abs(x.personales) > 20000).sort((a, b) => Math.abs(b.personales) - Math.abs(a.personales));
+    _revM('Gasto familiar de más de USD 20.000 en una cuenta', _alto.map(x => `${x.b.nombre} ${x.personales > 0 ? '−' : '+'}${$m(Math.abs(x.personales))}`), 'Puede faltar un linkeo o una transferencia.');
+    const _cr = _bDat.filter(x => (x.cred || 0) > 0.5 || (x.credA || 0) > 0.5);
+    if (periodoTxt !== '_pu') _revM('Créditos sin tasa cargada', _cr.map(x => x.b.nombre), 'En el informe la columna Tasa sale con "—".');
+    _revM('Transferencias sin su aporte o retiro en una cuenta de inversión (se tomaron como aporte o retiro)', _cx.sinAp.filter(l => { const b = bancos.find(x => x.id === l.id); return b && b.es_operativa !== true; })
+      .map(l => `${_bNom(bancos.find(x => x.id === l.id))} · ${String(l.f).slice(8, 10)}/${String(l.f).slice(5, 7)} · ${l.sale ? 'salida' : 'entrada'} $${fmt(Math.round(l.v))}${l.r.concepto ? ' <span style="color:var(--text3)">· ' + l.r.concepto + '</span>' : ''}`),
+      'Si el aporte o retiro existe con otra fecha o monto, corregilo; si no, cargalo: así coincide con el extracto.');
+    if (!_edOn0) _revM('Cobros de PE sin la cuenta donde entraron', _peCobMes.filter(c => !c.usado).map(c => `${c.p} ${$m(c.v)}`),
+      'Antes del linkeo no se sabe a qué cuenta entró cada cobro: si fue a una operativa, tapó gasto familiar de esa cuenta y la diferencia queda en "Otros movimientos".'); }
+  const _liq = (() => { const inm = bancosMes;
+    const prest = pe.reduce((t, p) => { if (peTipoDe(p) !== 'prestamo') return t; let v = 0; try { v = peCalc(p, anio, null, m2).tenencia || 0; } catch(e) {} return t + v * share(p); }, 0);
+    const ili = patTotal - inm - prest; return { inm, prest, ili }; })();
+  window._ultMensual.liq = _liq;
+  if (periodoTxt === '_pu') return;   // v261 — corrida interna del semestral/anual: ya están los números del puente
+  // gasto familiar acumulado del año: misma cuenta, mes por mes no está guardado → se muestra "a calcular" si no es enero
+  const _pctP = v => patTotal ? (v / patTotal * 100).toFixed(1).replace('.', ',') + '%' : '—';
+  const _liqHTML = (() => { const L = _liq, T = (L.inm + L.prest + L.ili) || 1, w = v => Math.max(0, v / T * 100).toFixed(2);
+    return `<div class="card no-corta" style="margin:0">
+      <div class="section-title" style="margin-bottom:8px">Liquidez al ${_pad2(new Date(anio, m2, 0).getDate())}/${_pad2(m2)}</div>
+      <div style="display:flex;height:16px;border-radius:4px;overflow:hidden;margin:2px 0 8px">
+        <div style="width:${w(L.inm)}%;background:#2E9B8F"></div><div style="width:${w(L.prest)}%;background:#c9a24b"></div><div style="width:${w(L.ili)}%;background:#0F2A43"></div></div>
+      <table class="tbl-compacta"><tbody>
+        <tr><td><span style="display:inline-block;width:9px;height:9px;background:#2E9B8F;border-radius:2px;margin-right:5px"></span>Inmediata <span style="color:var(--text3)">· cuentas, neto de crédito</span></td><td class="num">${$m(L.inm)}</td><td class="num" style="color:var(--text3)">${_pctP(L.inm)}</td></tr>
+        <tr><td><span style="display:inline-block;width:9px;height:9px;background:#c9a24b;border-radius:2px;margin-right:5px"></span>Menos de 2 años <span style="color:var(--text3)">· préstamos de PE</span></td><td class="num">${$m(L.prest)}</td><td class="num" style="color:var(--text3)">${_pctP(L.prest)}</td></tr>
+        <tr><td><span style="display:inline-block;width:9px;height:9px;background:#0F2A43;border-radius:2px;margin-right:5px"></span>Ilíquido <span style="color:var(--text3)">· propiedades, participaciones, autos</span></td><td class="num">${$m(L.ili)}</td><td class="num" style="color:var(--text3)">${_pctP(L.ili)}</td></tr>
+      </tbody></table>
+      ${GF > 0.5 ? `<p style="font-size:10.5px;color:var(--text3);margin:6px 0 0">Al gasto familiar de este mes, la liquidez inmediata alcanza para ${Math.floor(L.inm / GF)} meses.</p>` : ''}
+    </div>`; })();
+  const _gfHTML = `<div class="card no-corta" style="margin:0">
+      <div class="section-title" style="margin-bottom:8px">Gasto familiar · ${label}</div>
+      <table class="tbl-compacta"><thead><tr><th>Cuenta</th><th class="num">Gasto</th></tr></thead><tbody>
+        ${_gfCtas.filter(x => x.v > 0.5).map(x => `<tr><td>${x.n}</td><td class="num" style="color:var(--usa)">−${$m(x.v)}</td></tr>`).join('') || '<tr><td colspan="2" style="color:var(--text3)">Sin gasto en el mes</td></tr>'}
+        <tr style="${OFF_TOT_CSS}"><td>Total del mes</td><td class="num">−${$m(GF)}</td></tr>
+      </tbody></table>
+      <p style="font-size:10px;color:var(--text3);margin:5px 0 0">Lo que salió de las cuentas operativas que no es un cobro o pago de un activo, una compra, un traspaso entre cuentas propias ni un movimiento con otro titular.</p>
+    </div>`;
+  const _pf = (t, v, det, alerta, neg) => `<tr${alerta ? ' style="background:#fbeeee"' : ''}><td>${t}${alerta ? ' <b style="color:var(--usa)">⚠</b>' : ''}${det ? `<div style="font-size:9.5px;color:var(--text3);line-height:1.3">${det}</div>` : ''}</td>
+      <td class="num" style="color:${Math.abs(v) < 0.5 ? 'var(--text3)' : (v >= 0 ? 'var(--esp)' : 'var(--usa)')};white-space:nowrap">${Math.abs(v) < 0.5 ? '—' : (v >= 0 ? '+' : '−') + $m(Math.abs(v))}</td></tr>`;
+  const _top = (arr, k) => arr.slice().sort((a, b) => Math.abs(b.v) - Math.abs(a.v)).slice(0, k || 4).map(x => x.n + ' ' + (x.v >= 0 ? '+' : '−') + '$' + fmt(Math.round(Math.abs(x.v)))).join(' · ');
+  const _fechaIni = _pad2(new Date(anio, m1 - 1, 0).getDate()) + '/' + _pad2(m1 === 1 ? 12 : m1 - 1);
+  const _puenteHTML = `<div class="card no-corta" style="margin:0">
+      <div class="section-title" style="margin-bottom:6px">Puente del mes <span style="font-weight:400;font-size:10px;opacity:.85">· de dónde sale cada dólar de diferencia</span></div>
+      <table class="tbl-compacta"><tbody>
+        <tr style="background:var(--bg3);font-weight:700"><td>Patrimonio al ${_fechaIni}</td><td class="num">${$m(patPrev)}</td></tr>
+        ${_pf('+ Resultado del mes', _resM.total, 'lo que ganaron o perdieron los activos (página 1)')}
+        ${_pf('± Movimientos con otros titulares', OT, _T.ot.length ? _top(_T.ot) : '')}
+        ${COMP > 0.5 ? _pf('+ ' + _comprasMes.map(c => c.nom).join(', ') + ': entra a su valor', COMP, '') : ''}
+        ${COMP > 0.5 ? _pf('− Pagado en el mes por la compra', PAGOS, PAGOS ? _top(_T.compra) : 'sin pagos en el mes', false) : ''}
+        ${_pf('− Gasto familiar', -GF, '')}
+        ${Math.abs(CRED) > 0.5 ? _pf('± Crédito de las cuentas operativas', CRED, CRED < 0 ? 'subió la deuda de tarjetas o descubierto' : 'se pagó deuda de tarjetas o descubierto') : ''}
+        ${_pf('± Entradas y salidas de capital', CAP, _T.cap.length ? _top(_T.cap) : '', false)}
+        ${Math.abs(RESID) > 0.5 ? _pf('± Otros movimientos', RESID, '', false) : ''}
+        <tr style="${OFF_TOT_CSS}"><td>= Patrimonio al ${_pad2(new Date(anio, m2, 0).getDate())}/${_pad2(m2)}</td><td class="num">${$m(patTotal)}</td></tr>
+      </tbody></table>
+    </div>`;
+  // el mes en breve: sólo hechos, con números que salen del puente
+  const _breve = [
+    patPrev ? `El patrimonio cerró en <b>${$m(patTotal)}</b>, ${sg(varMes)}${$m(Math.abs(varMes))} contra el mes anterior (${sg(varMes)}${Math.abs(varPct).toFixed(1).replace('.', ',')}%). El resultado de los activos fue ${sg(_resM.total)}${$m(Math.abs(_resM.total))} y el gasto familiar, −${$m(GF)}.` : null,
+    COMP > 0.5 ? `Entró ${_comprasMes.map(c => `<b>${c.nom}</b> (${$m(c.v)})`).join(', ')}${Math.abs(PAGOS) > 0.5 ? `; en el mes se pagaron ${$m(-PAGOS)}` : ''}. La compra no cambia el patrimonio: sube propiedades y baja lo pagado en los bancos.` : null,
+    (() => { const vT = bancosMes - bancosPrev; return `Los bancos ${vT >= 0 ? 'subieron' : 'bajaron'} <b>${$m(Math.abs(vT))}</b> (de ${$m(bancosPrev)} a ${$m(bancosMes)}).`; })(),
+  ].filter(Boolean);
+  /* v261 — PÁGINA 1 DEL MENSUAL (Timoteo, 04/11): letra más grande y entra entera en una hoja apaisada. Vuelven la torta
+     por tipo y el cuadro por país. Para que la letra sea legible (antes la hoja se achicaba al 60 %), el puente del mes y
+     "el mes en breve" pasan a encabezar la hoja 2. */
+  const _cardTorta = (titulo, filas, items, tot, conVar) => `<div class="card no-corta" style="margin:0">
+      <div class="section-title" style="margin-bottom:8px">${titulo}</div>
+      <div style="display:flex;gap:10px;align-items:center">
+      <table class="tbl-compacta" style="flex:1"><thead><tr><th>${conVar ? 'Tipo' : 'País'}</th><th class="num">Valor</th><th class="num">%</th>${conVar ? '<th class="num">Var. mes</th>' : ''}</tr></thead>
+        <tbody>${filas}</tbody>
+        <tfoot><tr style="${OFF_TOT_CSS}"><td>Total</td><td class="num">${$m(tot)}</td><td class="num">100%</td>${conVar ? `<td class="num">${patPrev ? sg(varMes) + $m(Math.abs(varMes)) : '—'}</td>` : ''}</tr></tfoot></table>
+      ${donut(items, 96)}</div>
+    </div>`;
+  cont.innerHTML = `${_avisoAnioCerrado(anio, bancosR.data)}${_revHTML()}
+    <style>.m1 .tbl-compacta td{font-size:12.5px;padding:3.5px 7px}.m1 .tbl-compacta th{font-size:10px;padding:3px 7px}.m1 .section-title{font-size:14px}.m1 p{font-size:11px!important}</style>
+    <div class="hoja-fija m1">
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:10px">
+      ${kpi('Patrimonio al ' + _pad2(new Date(anio, m2, 0).getDate()) + '/' + _pad2(m2), $m(patTotal), patPrev ? `${sg(varMes)}${$m(Math.abs(varMes))} en el mes (${sg(varMes)}${Math.abs(varPct).toFixed(1).replace('.', ',')}%)` : 'sin mes previo')}
+      ${kpi('Resultado del mes', (_resM.total >= 0 ? '+' : '−') + $m(Math.abs(_resM.total)), 'lo que ganaron o perdieron los activos', col(_resM.total))}
+      ${kpi('Renta neta del mes', (netaMes >= 0 ? '+' : '−') + $m(Math.abs(netaMes)), 'propiedades: rentas − gastos e impuestos', col(netaMes))}
+      ${kpi('Rendimiento inversiones', _rPer == null ? '—' : _pct(_rPer), (_rendTot >= 0 ? '+' : '−') + $m(Math.abs(_rendTot)) + ' en el mes' + (_rYTD != null && m2 > 1 ? ' · ' + _pct(_rYTD) + ' en el año' : ''), _rPer == null ? '' : col(_rPer))}
+      ${kpi('Gasto familiar del mes', '−' + $m(GF), _gfAnio != null ? '−' + $m(_gfAnio) + ' en ' + anio : '', 'var(--usa)')}
+    </div>
+    <div style="display:grid;grid-template-columns:0.9fr 1.25fr 0.95fr;gap:10px;align-items:stretch;margin-bottom:10px">
+      ${_barrasMes}
+      ${_cardTorta('Por tipo de activo', filasTipo, TIPOS, patTotal, true)}
+      ${_cardTorta('Por país', filasPais, PAISES, patTotal, false)}
+    </div>
+    <div style="display:grid;grid-template-columns:1.15fr 1fr 0.95fr;gap:10px;align-items:start">
+      <div style="margin:0">${_resM.html.replace('margin-bottom:12px', 'margin:0')}</div>
+      ${_liqHTML}
+      ${_gfHTML}
+    </div>
     </div>
 
-    ${/* v190 — el grafico y la composicion van LADO A LADO. Apilados, "El mes
-          en breve" no llegaba a entrar en la primera hoja; asi sobran ~270px
-          y la foto del mes queda completa en la pagina 1. En pantalla angosta
-          la grilla se apila sola. */''}
-    ${/* v242 — boceto del 20/10: el mes a mes ocupa todo el ancho y abajo van, lado a lado, tipo de activo y país. */''}
-    ${_barrasMes ? `<div style="margin-bottom:12px">${_barrasMes}</div>` : ''}
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px;align-items:start">
-    <div class="card no-corta" style="margin:0">
-      <div class="section-title" style="margin-bottom:10px">Por tipo de activo · ${label}</div>
-      <div class="table-wrap"><table class="tbl-compacta">
-        <thead><tr><th>Tipo</th><th class="num">Valor</th><th class="num">%</th><th class="num">Var. mes</th></tr></thead>
-        <tbody>${filasTipo}</tbody>
-        <tfoot><tr style="${OFF_TOT_CSS}">
-          <td style="font-weight:700">Total</td>
-          <td class="num" style="font-weight:700">${$m(patTotal)}</td>
-          <td class="num" style="color:var(--text3)">100%</td>
-          <td class="num" style="font-weight:700;color:${col(varMes)}">${patPrev?sg(varMes)+$m(Math.abs(varMes)).slice(1):'—'}</td>
-        </tr></tfoot>
-      </table></div>
-      <div style="display:flex;justify-content:center;margin-top:8px">${donut(TIPOS, 104)}</div>
+    <div class="pgbreak m1" style="display:grid;grid-template-columns:1.2fr 1fr;gap:10px;align-items:start;margin-bottom:12px">
+      ${_puenteHTML}
+      <div>
+      <div class="card no-corta" style="margin:0 0 10px">
+        <div class="section-title" style="margin-bottom:8px">El mes en breve</div>
+        ${_breve.map(f => `<p style="margin:3px 0 6px;font-size:12px;line-height:1.45">• ${f}</p>`).join('')}
+      </div>
+      ${_deudaHTML}${_autosHTML}
+      </div>
     </div>
-    <div class="card no-corta" style="margin:0">
-      <div class="section-title" style="margin-bottom:10px">Por país · ${label}</div>
-      <div class="table-wrap"><table class="tbl-compacta">
-        <thead><tr><th>País</th><th class="num">Valor</th><th class="num">%</th></tr></thead>
-        <tbody>${filasPais}</tbody>
-        <tfoot><tr style="${OFF_TOT_CSS}">
-          <td style="font-weight:700">Total</td>
-          <td class="num" style="font-weight:700">${$m(patTotal)}</td>
-          <td class="num" style="color:var(--text3)">100%</td></tr></tfoot>
-      </table></div>
-      <div style="display:flex;justify-content:center;margin-top:8px">${donut(PAISES, 104)}</div>
-    </div>
-    </div>
-    <p style="font-size:10.5px;color:var(--text3);margin:8px 0 12px">
-      Propiedades, private equity y autos se valúan una vez al año: dentro del mes no se mueven, así que la
-      variación mensual del patrimonio es el movimiento de la caja, salvo una compra, que entra desde el mes en que se hizo. El país es el del activo (una cuenta en
-      Nueva York es USA aunque el titular sea argentino).</p>
-
-    ${_resM.html}
-    <div class="card no-corta" style="margin-bottom:16px">
-      <div class="section-title" style="margin-bottom:10px">El mes en breve</div>
-      ${frases.map(f=>`<p style="margin:3px 0;font-size:11.5px;line-height:1.4">• ${f}</p>`).join('')}
-    </div>
-    </div>
-
-    ${detalleHTML}
+    ${_detalle2.replace('<div class="pgbreak" style="display:grid;grid-template-columns:0.85fr 1.15fr', '<div style="display:grid;grid-template-columns:0.85fr 1.15fr')}
     ${_fuentesHTML(anio, m2)}`;
 }
 
@@ -13336,6 +13656,21 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
   const esH = !esFO && H_SHARE_REP.includes(tit);
   const titFilter = esFO ? [...FO_TITULARES, ...Object.keys(COTIT)] : (esH ? [tit, 'H'] : [tit, ..._coKeys(tit)]);
   const share = r => (r.titular === 'H' && esH) ? 1/3 : ((!esFO && COTIT[r.titular]) ? COTIT[r.titular][tit] || 0 : 1);   // v259 — copropiedad
+  /* v261 — GASTO FAMILIAR DEL PERÍODO: sale del mismo cálculo del mensual (lo que salió de las operativas que no es un
+     cobro o pago de un activo, una compra, un traspaso propio ni un movimiento con otro titular), para el período entero y
+     mes por mes. Se corre el motor del mensual sin mostrarlo. */
+  /* v261 — el total del período y el de cada cuenta son la SUMA DE LOS MESES (Timoteo, 04/11: "no dan lo mismo") */
+  const _SOLO = window._repSoloRes === true;   // v261 — corrida interna: sólo el resultado del año (tabla de rentabilidad del anual)
+  if (!_SOLO) _revIni(); const _RESM = {}, _PUM = [];   // _PUM: el puente de cada mes
+  const _GFP = await (async () => { const out = { tot: 0, ctas: [], mes: {} }, _c = {};
+    if (_SOLO) return out;
+    try { for (let m = M1; m <= M2; m++) { await generarReportePeriodo(tit, ANIO, m, m, '', '_pu'); const u = window._ultMensual || {};
+        out.mes[m] = u.GF || 0; out.tot += u.GF || 0; (u.gfCtas || []).forEach(x => { if (x.v > 0) _c[x.n] = (_c[x.n] || 0) + x.v; });
+        _PUM.push({ m, prev: u.patPrev || 0, fin: u.patTotal || 0, res: u.RES || 0, ot: u.OT || 0, comp: u.COMP || 0, pag: u.PAGOS || 0, cap: u.CAP || 0, gf: u.GF || 0, cred: u.CRED || 0, resid: u.RESID || 0,
+          otI: u.otItems || [], capI: u.capItems || [], compI: u.compItems || [], liq: u.liq || null }); }
+      out.ctas = Object.entries(_c).map(([n, v]) => ({ n, v })).sort((a, b) => b.v - a.v);
+    } catch (e) { console.warn('gasto familiar:', e.message); }
+    window._repTitulo = PER_LBL; cont.innerHTML = '<div class="loader"><div class="spinner"></div></div>'; return out; })();
 
   const [propsR, peR, autosR, bancosR, prestamosR] = await Promise.all([
     sb.from('propiedades').select('*'),   // v211 — todas: cuenta el titular DEL AÑO (titularEn)
@@ -13395,6 +13730,14 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
     const _idsIni = new Set(bancosIni.map(b => b.id)), _idsHoy = new Set(bancosHoyIni.map(b => b.id));
     [...bancosHoyIni.filter(b => !_idsIni.has(b.id)), ...bancosIni.filter(b => !_idsHoy.has(b.id))].forEach(b => { const v = _vIni(b) * (_idsHoy.has(b.id) ? 1 : -1);
       if (Math.abs(v) > 0.5) _incBkDet.push({ n: _bNom(b), v, de: titularEn(b, _yC), a: titularEn(b, ANIO) }); });
+    /* v261 — transferencias de cuentas de inversión sin su aporte o retiro: se suman como aporte/retiro (mismo cruce que el
+       mensual, _cruzarTrAp), así el rendimiento del período es la suma del de cada mes. */
+    try { const _rT = await sb.from('transferencias_bancos').select('*').gte('fecha', PER_INI).lte('fecha', PER_FIN);
+      const _bInv = new Set(bancos.filter(b => b.es_operativa !== true).map(b => b.id)), _bAll = new Set(bancoIds);
+      const _cxS = _cruzarTrAp((_rT && _rT.data) || [], apsR.data, _bAll);
+      _cxS.sinAp.filter(l => _bInv.has(l.id)).forEach(l => (apsR.data = apsR.data || []).push({ id: 'tr-' + l.r.id + (l.sale ? '-o' : '-d'), banco_id: l.id, tipo: l.sale ? 'retiro' : 'aporte',
+        monto: l.v, fecha: l.f, vinculo_id: l.propio ? 'tr-' + l.r.id : null, notas: 'transferencia sin aporte/retiro cargado', detalle: l.r.concepto || null }));
+    } catch (e) { console.warn('cruce transferencias:', e.message); }
     const apSem = {}, apTot = {}, apList = {};
     /* v257 — aportes y retiros del período: INTERNOS (vinculados con otra cuenta del cliente: traspaso) o EXTERNOS (plata que
        entra o sale del patrimonio del cliente, p. ej. los 4.000.000 de la venta de Oceana). Los externos van a "Ingresos". */
@@ -13426,7 +13769,8 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
         const cBeg = inicial[b.id] ? (Number(bancoMovUSD(inicial[b.id]).cred)||0) : 0, cEnd = Number(bancoMovUSD(m).cred)||0;
         bancosDietz.push({ b, nombre:_bNom(b), oper:false, vBeg, vEnd, cBeg, cEnd, apSem:(apSem[b.id]||0), apTot:(apTot[b.id]||0), varTot, rend, movCap:(apSem[b.id]||0), aportes:aportesOrd });
       } else {
-        bancosDietz.push({ b, nombre:_bNom(b), oper:true, vBeg, vEnd, apSem:0, apTot:(apTot[b.id]||0), varTot, rend:0, movCap:varTot, aportes:aportesOrd });
+        const cBeg = inicial[b.id] ? (Number(bancoMovUSD(inicial[b.id]).cred)||0) : 0, cEnd = Number(bancoMovUSD(m).cred)||0;   // v261 — para el cuadro de deuda
+        bancosDietz.push({ b, nombre:_bNom(b), oper:true, vBeg, vEnd, cBeg, cEnd, apSem:0, apTot:(apTot[b.id]||0), varTot, rend:0, movCap:varTot, aportes:aportesOrd });
       }
     });
     // Serie mensual (dic 2025 -> jun 2026) para el gráfico de evolución de bancos
@@ -13708,6 +14052,10 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
     + _bkFl.extList.reduce((t, x) => t + x.v * _w(x.f), 0)
     - (esFO ? 0 : pe.reduce((t, p) => t + ((peDet[p.id] || {}).convPer || 0) * share(p) * _w(p.fecha_cierre), 0));
   const rendPatPct = _baseDietz > 0.5 ? resultadoSemestre / _baseDietz * 100 : null;
+  if (_SOLO) { window._repResAnual = { anio: ANIO, real: resultadoSemestre, noReal: _resS.noReal || 0, base: _baseDietz, ini: totCie, fin: patrimonioActual }; return; }
+  // v261 — rendimiento de las cuentas de inversión del período, Dietz modificado sumando todas las cuentas (KPI)
+  const _rInvPct = (() => { let g = 0, d = 0; bancosDietz.filter(x => !x.oper).forEach(x => { const r = _crDietz(x.vBeg, x.vEnd, _crFin(OPEN_Y, OPEN_M), _crD(PER_FIN), (x.aportes || []).filter(a => a.fecha >= PER_INI && a.fecha <= PER_FIN)); g += r.gan; d += r.den; });
+    return d > 1 ? g / d * 100 : null; })();
   const _varGen = patrimonioActual - totCie - clases.reduce((a, c) => a + c.ap + (c.inc || 0), 0);
 
   /* v248 — LO MÁS IMPORTANTE DEL PERÍODO (Timoteo, 26/10: "sí"). Se arma solo con los datos: compras y ventas de
@@ -13745,7 +14093,7 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
   })();
   const kpi = (label,val,sub,color) => `<div class="rep-kpi">
     <div class="l">${label}</div>
-    <div class="v" style="color:${color||'var(--navy)'}">$${fmt(val)}</div>
+    <div class="v" style="color:${color||'var(--navy)'}">${typeof val === 'string' ? val : (val < 0 ? '−$' + fmt(-val) : '$' + fmt(val))}</div>
     <div class="s">${sub||''}</div></div>`;
   const pct = v => patrimonioActual>0 ? (v/patrimonioActual*100).toFixed(1)+'%' : '—';
   const paisNom = {ARG:'Argentina',USA:'Estados Unidos',URU:'Uruguay',ESP:'España'};
@@ -13812,7 +14160,171 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
 
   // v244 — cuadrito de color de cada fila, el mismo del donut (Timoteo, 21/10)
   const _sw = i => `<span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${OFF_CAT[i % OFF_CAT.length]};margin-right:6px"></span>`;
-  cont.innerHTML = `${_avisoAnioCerrado(ANIO, bancosR.data)}
+  /* ═══ v261 — BOCETO SEMESTRAL / ANUAL ═════════════════════════════════════════════════════════════════════ */
+  const ES_ANUAL = PER_NOMBRE === 'ejercicio';
+  const $s = v => (v >= 0 ? '+' : '−') + '$' + fmt(Math.abs(Math.round(v)));
+  const _cv = v => Math.abs(v) < 0.5 ? 'var(--text3)' : (v >= 0 ? 'var(--esp)' : 'var(--usa)');
+  // Puente: patrimonio al inicio → resultado → no realizado → cambios de titular → plata de afuera → gasto familiar → sin identificar
+  const _incTitular = incorporaciones.prop + incorporaciones.auto + incorporaciones.pe + _incBk.inv + _incBk.op + trasInExt - convPE - trasOut;
+  const _extCap = _bkFl.ext.inv + _bkFl.ext.op;
+  /* v261 — EL PUENTE DEL PERÍODO ES LA SUMA DE LOS PUENTES DE CADA MES (Timoteo, 04/11: "igualmente nos debería dar; si no
+     da es porque algo está mal"). Antes el semestral lo armaba con su propio cálculo y no daba lo mismo que los mensuales.
+     Ahora cada renglón suma los meses; arriba, lo que cambia entre el cierre del año anterior (titular de ese año, tasación
+     de ese año) y la apertura de enero (titular y tasación del año nuevo): tasaciones de enero y cambios de titular. */
+  const _S = k => _PUM.reduce((t, x) => t + (x[k] || 0), 0);
+  const _ap0 = _PUM.length ? _PUM[0].prev : totCie, _fin0 = _PUM.length ? _PUM[_PUM.length - 1].fin : patrimonioActual;
+  const _noReal = M1 === 1 ? (_resS.noReal || 0) : 0, _titIni = _ap0 - totCie - _noReal;
+  const _pResid = _S('resid') + (patrimonioActual - _fin0);
+  const _top4 = arr => { const g = {}; arr.forEach(x => { g[x.n] = (g[x.n] || 0) + x.v; }); return Object.entries(g).sort((x, y) => Math.abs(y[1]) - Math.abs(x[1])).slice(0, 4).map(([n, v]) => `${n} ${v >= 0 ? '+' : '−'}$${fmt(Math.round(Math.abs(v)))}`).join(' · '); };
+  const _pRow = (t, v, det) => `<tr><td>${t}${det ? `<div style="font-size:9.5px;color:var(--text3);line-height:1.3">${det}</div>` : ''}</td><td class="num" style="color:${_cv(v)};white-space:nowrap">${Math.abs(v) < 0.5 ? '—' : $s(v)}</td></tr>`;
+  const _incNombres = [...incorporaciones.det, ..._incBkDet].filter(x => x.de !== 'afuera').map(x => `${x.n} ${x.v >= 0 ? '+' : '−'}${fmt(Math.round(Math.abs(x.v)))}`);
+  if (Math.abs(_pResid) > Math.max(1000, patrimonioActual * 0.001)) _rev(`El puente del ${PER_NOMBRE} no cierra por ${$s(_pResid)}`,
+    ['En el informe sale como "± Otros movimientos". Es la suma de lo que no cierra en cada mes: ' + _PUM.map(x => MESNOM[x.m] + ' ' + $s(x.resid)).join(' · ')],
+    'El detalle de cada mes está en los avisos de abajo (aportes y retiros sin transferencia, entradas sin explicar, cobros de PE sin cuenta, compras sin pago).');
+  const _puenteS = `<div class="card no-corta" style="margin-bottom:12px">
+      <div class="section-title" style="font-size:14px;margin-bottom:8px">Puente del ${PER_NOMBRE} <span style="font-weight:400;font-size:10px;opacity:.85">· la suma de los puentes de cada mes</span></div>
+      <table class="tbl-compacta"><tbody>
+        <tr style="background:var(--bg3);font-weight:700"><td>Patrimonio al ${M1 === 1 ? '31/12/' + (ANIO - 1) : OPEN_LBL}</td><td class="num">$${fmt(totCie)}</td></tr>
+        ${M1 === 1 && Math.abs(_noReal) > 0.5 ? _pRow('+ Tasaciones de enero', _noReal, 'propiedades y autos: valor ' + ANIO + ' contra ' + (ANIO - 1) + ' (no realizado)') : ''}
+        ${Math.abs(_titIni) > 0.5 ? _pRow(M1 === 1 ? '± Cambios de titular al 1/1' : '± Ajuste de apertura', _titIni, M1 === 1 ? _incNombres.slice(0, 6).join(' · ') + (_incNombres.length > 6 ? ' y ' + (_incNombres.length - 6) + ' más' : '') : '') : ''}
+        ${_pRow('+ Resultado realizado', _S('res'), 'rentas netas, rendimiento de cuentas, PE por encima del capital, gastos de autos y sociedades')}
+        ${Math.abs(_S('ot')) > 0.5 ? _pRow('± Movimientos con otros titulares', _S('ot'), _top4([].concat(..._PUM.map(x => x.otI)))) : ''}
+        ${Math.abs(_S('comp')) > 0.5 ? _pRow('+ Compras: entran a su valor', _S('comp'), '') : ''}
+        ${Math.abs(_S('comp')) > 0.5 ? _pRow('− Pagado por las compras', _S('pag'), _top4([].concat(..._PUM.map(x => x.compI)))) : ''}
+        ${Math.abs(_S('cap')) > 0.5 ? _pRow('± Entradas y salidas de capital', _S('cap'), _top4([].concat(..._PUM.map(x => x.capI)))) : ''}
+        ${_pRow('− Gasto familiar', -_S('gf'), '')}
+        ${Math.abs(_S('cred')) > 0.5 ? _pRow('± Crédito de las cuentas operativas', _S('cred'), '') : ''}
+        ${Math.abs(_pResid) > 0.5 ? _pRow('± Otros movimientos', _pResid, '') : ''}
+        <tr style="${OFF_TOT_CSS}"><td>= Patrimonio al ${FECHA_CIERRE}</td><td class="num">$${fmt(patrimonioActual)}</td></tr>
+      </tbody></table></div>`;
+  /* v261 — LIQUIDEZ (Timoteo, 05/11: "falta el gráfico de liquidez que está en el mensual"). Es la del último mes del
+     período (sale de la corrida mensual) y los meses que alcanza se miden con el gasto familiar promedio del período. */
+  const _liqS = (() => { const L = (_PUM.length && _PUM[_PUM.length - 1].liq) || null; if (!L) return '';
+    const T = (L.inm + L.prest + L.ili) || 1, w = v => Math.max(0, v / T * 100).toFixed(2), gfm = _GFP.tot / Math.max(1, M2 - M1 + 1);
+    const sw = c => `<span style="display:inline-block;width:9px;height:9px;background:${c};border-radius:2px;margin-right:5px"></span>`;
+    const pc = v => patrimonioActual ? (v / patrimonioActual * 100).toFixed(1).replace('.', ',') + '%' : '—';
+    return `<div class="card no-corta" style="margin:0">
+      <div class="section-title" style="font-size:14px;margin-bottom:8px">Liquidez al ${FECHA_CIERRE}</div>
+      <div style="display:flex;height:16px;border-radius:4px;overflow:hidden;margin:2px 0 8px">
+        <div style="width:${w(L.inm)}%;background:#2E9B8F"></div><div style="width:${w(L.prest)}%;background:#c9a24b"></div><div style="width:${w(L.ili)}%;background:#0F2A43"></div></div>
+      <table class="tbl-compacta"><tbody>
+        <tr><td>${sw('#2E9B8F')}Inmediata <span style="color:var(--text3)">· cuentas, neto de crédito</span></td><td class="num">$${fmt(Math.round(L.inm))}</td><td class="num">${pc(L.inm)}</td></tr>
+        <tr><td>${sw('#c9a24b')}Menos de 2 años <span style="color:var(--text3)">· préstamos de PE</span></td><td class="num">$${fmt(Math.round(L.prest))}</td><td class="num">${pc(L.prest)}</td></tr>
+        <tr><td>${sw('#0F2A43')}Ilíquido <span style="color:var(--text3)">· propiedades, participaciones, autos</span></td><td class="num">$${fmt(Math.round(L.ili))}</td><td class="num">${pc(L.ili)}</td></tr>
+      </tbody></table>
+      ${gfm > 0.5 ? `<p style="font-size:10.5px;color:var(--text3);margin:6px 0 0">Al gasto familiar promedio del ${PER_NOMBRE} ($${fmt(Math.round(gfm))} por mes), la liquidez inmediata alcanza para ${Math.floor(L.inm / gfm)} meses.</p>` : ''}
+    </div>`; })();
+  // Gasto familiar: por cuenta y por mes
+  const _gfS = `<div class="card no-corta" style="margin-bottom:12px">
+      <div class="section-title" style="font-size:14px;margin-bottom:8px">Gasto familiar del ${PER_NOMBRE}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start">
+        <table class="tbl-compacta"><thead><tr><th>Cuenta</th><th class="num">Gasto</th></tr></thead><tbody>
+          ${_GFP.ctas.filter(x => x.v > 0.5).map(x => `<tr><td>${x.n}</td><td class="num" style="color:var(--usa)">−$${fmt(Math.round(x.v))}</td></tr>`).join('') || '<tr><td colspan="2" style="color:var(--text3)">Sin gasto</td></tr>'}
+          <tr style="${OFF_TOT_CSS}"><td>Total</td><td class="num">−$${fmt(Math.round(_GFP.tot))}</td></tr></tbody></table>
+        <table class="tbl-compacta"><thead><tr><th>Mes</th><th class="num">Gasto</th></tr></thead><tbody>
+          ${Object.keys(_GFP.mes).map(m => `<tr><td>${MESNOM[m]}</td><td class="num" style="color:var(--usa)">−$${fmt(Math.round(_GFP.mes[m]))}</td></tr>`).join('')}
+          <tr style="${OFF_TOT_CSS}"><td>Promedio mensual</td><td class="num">−$${fmt(Math.round(_GFP.tot / (M2 - M1 + 1)))}</td></tr></tbody></table>
+      </div>
+      <p style="font-size:10px;color:var(--text3);margin:6px 0 0">Lo que salió de las cuentas operativas que no es un cobro o pago de un activo, una compra, un traspaso entre cuentas propias ni un movimiento con otro titular. El total es la suma de los meses.</p>
+    </div>`;
+  // Deuda: créditos de las cuentas
+  const _dLin = bancosDietz.filter(d => (d.cBeg || 0) > 0.5 || (d.cEnd || 0) > 0.5);
+  _rev('Créditos sin tasa cargada', _dLin.map(d => d.nombre), 'En el informe la tasa y el costo salen con "—".');
+  _rev('Sin fecha de compra (se tomaron como comprados en el período)', _sinFechaList, `Si se compraron después del ${_ultDia(ANIO, M2)}/${_pad(M2)}, cargá la fecha y salen del informe.`);
+  const _deudaS = !_dLin.length && !prestamos.length ? '' : `<div class="card no-corta" style="margin-bottom:12px">
+      <div class="section-title" style="font-size:14px;margin-bottom:8px">Deuda</div>
+      <table class="tbl-compacta"><thead><tr><th>Línea</th><th class="num">${M1 === 1 ? '31/12/' + String(ANIO - 1).slice(2) : OPEN_LBL}</th><th class="num">${FECHA_CIERRE.slice(0, 6) + String(ANIO).slice(2)}</th><th class="num">Variación</th><th class="num">Tasa</th><th class="num">Costo del ${PER_NOMBRE}</th></tr></thead><tbody>
+        ${_dLin.map(d => `<tr><td>Crédito ${d.nombre}</td><td class="num">${d.cBeg > 0.5 ? '−$' + fmt(Math.round(d.cBeg)) : '—'}</td><td class="num">${d.cEnd > 0.5 ? '−$' + fmt(Math.round(d.cEnd)) : '—'}</td><td class="num" style="color:${_cv(d.cBeg - d.cEnd)}">${Math.abs(d.cBeg - d.cEnd) < 0.5 ? '—' : $s(d.cBeg - d.cEnd)}</td><td class="num" style="color:var(--text3)">—</td><td class="num" style="color:var(--text3)">—</td></tr>`).join('')}
+        ${prestamos.map(p => `<tr><td>${p.descripcion || 'Préstamo'}</td><td class="num">—</td><td class="num">−$${fmt(Math.round(prestUSD(p)))}</td><td class="num">—</td><td class="num">${p.tasa != null ? p.tasa + '%' : '—'}</td><td class="num">—</td></tr>`).join('')}
+        <tr style="${OFF_TOT_CSS}"><td>Total</td><td class="num">−$${fmt(Math.round(_dLin.reduce((t, d) => t + d.cBeg, 0)))}</td><td class="num">−$${fmt(Math.round(_dLin.reduce((t, d) => t + d.cEnd, 0) + deudaTotal))}</td><td></td><td></td><td></td></tr>
+      </tbody></table>
+      <p style="font-size:10px;color:var(--text3);margin:6px 0 0">Deuda ÷ patrimonio al ${FECHA_CIERRE}: ${patrimonioActual ? ((_dLin.reduce((t, d) => t + d.cEnd, 0) + deudaTotal) / patrimonioActual * 100).toFixed(1).replace('.', ',') : 0}%.</p>
+    </div>`;
+  // Real contra lo proyectado (mientras no haya un anual con proyección: el ritmo del año anterior)
+  const _fr = (M2 - M1 + 1) / 12;
+  const _rentaAnt = props.reduce((t, p) => { const a = (propDet[p.id] || {}).anual || {}; return t + ((a[ANIO - 1] || {}).renta || 0); }, 0);
+  const _gastAnt = props.reduce((t, p) => { const a = (propDet[p.id] || {}).anual || {}; return t + ((a[ANIO - 1] || {}).gastos || 0); }, 0);
+  const _autAnt = autos.reduce((t, a) => t + ((autoGastos[a.id] || {})[ANIO - 1] || 0) * share(a), 0);
+  const _invIni = bancosDietz.filter(d => !d.oper).reduce((t, d) => t + d.vBeg, 0);
+  const _rentaReal = props.reduce((t, p) => t + ((propDet[p.id] || {}).rentaSem || 0), 0), _gastReal = props.reduce((t, p) => t + ((propDet[p.id] || {}).gastosSem || 0), 0);
+  const _proy = [
+    ['Alquileres', _rentaAnt * _fr, _rentaReal, 'renta ' + (ANIO - 1)],
+    ['Gastos e impuestos de propiedades', -_gastAnt * _fr, -_gastReal, 'gastos ' + (ANIO - 1)],
+    ['Rendimiento de cuentas de inversión', _invIni * 0.04 * _fr, rendimientoBancos, '4% anual sobre el saldo inicial'],
+    ['Private equity', null, _resP.peCob, ''],
+    ['Gastos de autos', -_autAnt * _fr, -(_resP.gAutos || 0), 'gastos ' + (ANIO - 1)],
+    ['Gastos de sociedades', null, -(_resP.gSoc || 0), ''],
+    ['Gasto familiar', null, -_GFP.tot, ''],
+  ];
+  const _pTot = _proy.filter(r => r[1] != null && r[0] !== 'Gasto familiar');
+  // ── ANUAL: flujo de caja, cobertura del gasto y proyección del año próximo
+  const _nM = M2 - M1 + 1, _anu = 12 / _nM;
+  const _ingPas = _rentaReal + Math.max(0, _resP.peCob || 0);
+  const _flujo = [['Alquileres cobrados', _rentaReal], ['PE · cobros por encima del capital', _resP.peCob || 0], ['Ingresos pasivos', _ingPas, 1],
+    ['Gastos e impuestos de propiedades', -_gastReal], ['Gastos de autos', -(_resP.gAutos || 0)], ['Gastos de sociedades', -(_resP.gSoc || 0)],
+    ['Flujo neto de los activos', _ingPas - _gastReal - (_resP.gAutos || 0) - (_resP.gSoc || 0), 1], ['Gasto familiar', -_GFP.tot],
+    ['Necesidad de caja cubierta con capital', _ingPas - _gastReal - (_resP.gAutos || 0) - (_resP.gSoc || 0) - _GFP.tot, 1]];
+  const _flujoA = `<div class="card no-corta" style="margin-bottom:12px">
+      <div class="section-title" style="font-size:14px;margin-bottom:8px">Flujo de caja del año <span style="font-weight:400;font-size:10px;opacity:.85">· lo que entró y salió en efectivo · sin rendimiento de cartera</span></div>
+      <table class="tbl-compacta"><thead><tr><th>Concepto</th><th class="num">${ANIO}${M2 < 12 ? ' (ene–' + String(MESNOM[M2]).slice(0, 3).toLowerCase() + ')' : ''}</th><th class="num">Promedio mensual</th></tr></thead><tbody>
+        ${_flujo.map(([n, v, b]) => `<tr${b ? ' style="background:var(--gold-soft,#f6efe0);font-weight:700"' : ''}><td>${n}</td><td class="num" style="color:${_cv(v)}">${$s(v)}</td><td class="num">${$s(v / _nM)}</td></tr>`).join('')}
+      </tbody></table>
+      <p style="font-size:10px;color:var(--text3);margin:6px 0 0">El rendimiento de las cuentas de inversión no está acá: no es plata que entró, es valor que ganó la cartera. Las compras de activos tampoco: son inversión, no gasto.</p></div>`;
+  const _cob = _GFP.tot > 0.5 ? _ingPas / _GFP.tot * 100 : null;
+  const _cobA = `<div class="card no-corta" style="margin-bottom:12px"><div class="section-title" style="font-size:14px;margin-bottom:8px">Cobertura del gasto</div>
+      <div style="display:flex;gap:14px;align-items:center"><div style="font-size:34px;font-weight:800;color:var(--navy)">${_cob == null ? '—' : Math.round(_cob) + '%'}</div>
+      <div style="font-size:11px;color:var(--text3)">del gasto familiar se pagó con ingresos pasivos.${_cob != null && _cob < 100 ? ` El resto (${'$' + fmt(Math.round(_GFP.tot - _ingPas))}) salió del capital: al ritmo actual equivale al ${(((_GFP.tot - _ingPas) * _anu) / (patrimonioActual || 1) * 100).toFixed(1).replace('.', ',')}% del patrimonio por año.` : ''}</div></div></div>`;
+  // Proyección del año próximo, por tipo de activo (al ritmo de hoy; editable cuando haya contratos y calendario de PE)
+  const _invFin = bancosDietz.filter(d => !d.oper).reduce((t, d) => t + d.vEnd, 0);
+  const _pr = [
+    ['Alquileres', _rentaReal * _anu, 'ritmo ' + ANIO + ' × 12 (cuando estén cargados: contratos vigentes × 12, con sus vencimientos)'],
+    ['Gastos e impuestos de propiedades', -_gastReal * _anu, 'ritmo ' + ANIO],
+    ['Rendimiento de cuentas de inversión', _invFin * 0.04, 'saldo al cierre × 4% (tasa de referencia, editable)'],
+    ['Private equity', null, 'calendario de cobros de cada posición'],
+    ['Gastos de autos', -(_resP.gAutos || 0) * _anu, 'ritmo ' + ANIO],
+    ['Gastos de sociedades', -(_resP.gSoc || 0) * _anu, 'ritmo ' + ANIO],
+  ];
+  const _prNeta = _pr.reduce((t, r) => t + (r[1] || 0), 0), _prGF = -_GFP.tot * _anu;
+  const _proyA = `<div class="card no-corta" style="margin-bottom:12px">
+      <div class="section-title" style="font-size:14px;margin-bottom:8px">Proyección ${ANIO + 1}</div>
+      <table class="tbl-compacta"><thead><tr><th>Componente</th><th class="num">Real ${ANIO}${M2 < 12 ? ' anualizado' : ''}</th><th class="num">Proyectado ${ANIO + 1}</th><th>Cómo se proyecta</th></tr></thead><tbody>
+        ${_pr.map(([n, v, b]) => `<tr><td>${n}</td><td class="num">${n === 'Private equity' ? $s((_resP.peCob || 0) * _anu) : (n.startsWith('Rendimiento') ? $s(rendimientoBancos * _anu) : (v == null ? '—' : $s(v)))}</td><td class="num" style="font-weight:600">${v == null ? '<span style="color:var(--text3)">—</span>' : $s(v)}</td><td style="font-size:9.5px;color:var(--text3)">${b}</td></tr>`).join('')}
+        <tr style="background:var(--gold-soft,#f6efe0);font-weight:700"><td>Renta neta proyectada</td><td></td><td class="num">${$s(_prNeta)}</td><td style="font-size:9.5px;color:var(--text3)">sin PE</td></tr>
+        <tr><td>Gasto familiar</td><td class="num">${$s(_prGF)}</td><td class="num">${$s(_prGF)}</td><td style="font-size:9.5px;color:var(--text3)">promedio mensual × 12</td></tr>
+        <tr style="${OFF_TOT_CSS}"><td>Patrimonio proyectado al 31/12/${ANIO + 1}</td><td></td><td class="num">$${fmt(Math.round(patrimonioActual + _prNeta + _prGF))}</td><td style="font-size:9.5px">sin revaluaciones ni compras</td></tr>
+      </tbody></table>
+      <p style="font-size:10px;color:var(--text3);margin:6px 0 0">Esta proyección es la base del "Real contra lo proyectado" de los semestrales de ${ANIO + 1}.</p></div>`;
+  const _proyS = `<div class="card no-corta" style="margin-bottom:12px">
+      <div class="section-title" style="font-size:14px;margin-bottom:8px">Real contra lo proyectado · ${PER_CORTO}</div>
+      <table class="tbl-compacta"><thead><tr><th>Componente</th><th class="num">${ANIO - 1} completo</th><th class="num">Proyectado</th><th class="num">Real</th><th class="num">Diferencia</th></tr></thead><tbody>
+        ${_proy.map(([n, e, r, b]) => `<tr><td>${n}${b ? `<div style="font-size:9.5px;color:var(--text3)">proyectado con ${b}</div>` : ''}</td>
+          <td class="num" style="color:var(--text3)">${e == null ? '—' : $s(e / _fr)}</td>
+          <td class="num" style="color:var(--text3)">${e == null ? '—' : $s(e)}</td>
+          <td class="num" style="color:${_cv(r)}">${$s(r)}</td>
+          <td class="num" style="color:${e == null ? 'var(--text3)' : _cv(r - e)}">${e == null ? '—' : $s(r - e)}</td></tr>`).join('')}
+        <tr style="${OFF_TOT_CSS}"><td>Total (lo proyectado)</td><td class="num">${$s(_pTot.reduce((t, r) => t + r[1], 0) / _fr)}</td><td class="num">${$s(_pTot.reduce((t, r) => t + r[1], 0))}</td><td class="num">${$s(_pTot.reduce((t, r) => t + r[2], 0))}</td><td class="num">${$s(_pTot.reduce((t, r) => t + r[2] - r[1], 0))}</td></tr>
+      </tbody></table>
+      <p style="font-size:10px;color:var(--text3);margin:6px 0 0">Proyectado: lo que el informe anual del año anterior estima para este año, en la parte que corresponde al ${PER_NOMBRE}. Mientras no haya un anual con proyección, se usa el ritmo de ${ANIO - 1}.</p>
+    </div>`;
+  /* v261 — RENTABILIDAD DEL PATRIMONIO DE LOS ÚLTIMOS 5 AÑOS (Timoteo, 04/11). Cada año sale del mismo cálculo del anual
+     (resultado económico = realizado + no realizado; % Dietz sobre el patrimonio al 31/12 anterior). Sin gasto familiar. */
+  const _rentHist = [];
+  if (ES_ANUAL) {
+    const _ys = histAnios.map(d => +d.anio).filter(y => y < ANIO && y >= ANIO - 4 && histAnios.some(h => +h.anio === y - 1));
+    for (const y of _ys) { try { window._repSoloRes = true; window._repResAnual = null; await generarInforme(tit, y, 1, 12, 'Ejercicio ' + y, String(y), 'ejercicio');
+      if (window._repResAnual) _rentHist.push(window._repResAnual); } catch (e) { console.warn('rentabilidad ' + y + ':', e.message); } finally { window._repSoloRes = false; } }
+    _rentHist.push({ anio: ANIO, real: resultadoSemestre, noReal: _resS.noReal || 0, base: _baseDietz, ini: totCie, fin: patrimonioActual, parcial: M2 < 12 });
+    window._repTitulo = PER_LBL;
+  }
+  const _rentHistHTML = !_rentHist.length ? '' : `<div class="card no-corta" style="margin-bottom:12px">
+      <div class="section-title" style="font-size:14px;margin-bottom:8px">Rentabilidad del patrimonio · últimos ${_rentHist.length} años</div>
+      <table class="tbl-compacta"><thead><tr><th>Año</th><th class="num">Patrimonio al inicio</th><th class="num">Resultado realizado</th><th class="num">No realizado</th><th class="num">Resultado económico</th><th class="num">Rentabilidad</th></tr></thead><tbody>
+      ${_rentHist.map(r => { const t = r.real + r.noReal, pc = r.base > 0.5 ? t / r.base * 100 : null;
+        return `<tr><td style="font-weight:600">${r.anio}${r.parcial ? ' <span style="font-weight:400;color:var(--text3)">(a ' + String(MESNOM[M2]).slice(0, 3).toLowerCase() + ')</span>' : ''}</td><td class="num">$${fmt(Math.round(r.ini))}</td><td class="num" style="color:${_cv(r.real)}">${$s(r.real)}</td><td class="num" style="color:${_cv(r.noReal)}">${Math.abs(r.noReal) < 0.5 ? '—' : $s(r.noReal)}</td><td class="num" style="font-weight:600;color:${_cv(t)}">${$s(t)}</td><td class="num" style="font-weight:700;color:${pc == null ? 'var(--text3)' : _cv(pc)}">${pc == null ? '—' : (pc >= 0 ? '+' : '−') + Math.abs(pc).toFixed(1).replace('.', ',') + '%'}</td></tr>`; }).join('')}
+      </tbody></table>
+      <p style="font-size:10px;color:var(--text3);margin:6px 0 0">Resultado económico = rentas netas, rendimiento de las cuentas, PE, gastos de autos y sociedades, más la revaluación de propiedades y autos. Rentabilidad = resultado económico ÷ patrimonio al inicio del año, ajustado por lo que entró o salió (Dietz). No descuenta el gasto familiar.</p>
+    </div>`;
+  cont.innerHTML = `${_avisoAnioCerrado(ANIO, bancosR.data)}${_revHTML()}
     <style>
       .rep-doc{--esp:#2f9e63;--usa:#c0605f;--navy:#0f2a43;--gold:#A8842F;font-size:11px;}
       .rep-doc .section-title{background:var(--navy);color:#fff!important;font-weight:700!important;font-size:12px!important;padding:6px 10px!important;border-radius:5px;margin-bottom:8px!important;letter-spacing:.2px;border-bottom:none!important;}
@@ -13860,7 +14372,7 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
       .rep-doc .rep-ini table th{font-size:10.5px!important;}
       .rep-doc .rep-ini .tbl-compacta td{font-size:12.5px!important;padding:3px 7px!important;} .rep-doc .rep-ini .tbl-compacta th{font-size:10px!important;}
       .rep-doc .rep-ini .section-title{font-size:15.5px!important;padding:8px 12px!important;}
-      .rep-doc .rep-ini .rep-kpi{padding:10px 8px!important;} .rep-doc .rep-ini .rep-kpi .l{font-size:10.5px;} .rep-doc .rep-ini .rep-kpi .v{font-size:23px;} .rep-doc .rep-ini .rep-kpi .s{font-size:11.5px;}
+      .rep-doc .rep-ini .rep-kpi{padding:9px 6px!important;} .rep-doc .rep-ini .rep-kpi .l{font-size:11px;font-weight:600;} .rep-doc .rep-ini .rep-kpi .v{font-size:27px;} .rep-doc .rep-ini .rep-kpi .s{font-size:12px;}
       .rep-doc .rep-ini [style*="font-size:10px"]{font-size:12.5px!important;}
       .rep-doc .rep-ini [style*="font-size:11px"]{font-size:13.5px!important;}
       .rep-doc .rep-ini [style*="font-size:12px"]{font-size:14.5px!important;}
@@ -13872,96 +14384,91 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
       .rep-doc .rep-xl [style*="font-size:12px"]{font-size:17px!important;line-height:1.6;} .rep-doc .rep-xl [style*="font-size:10px"]{font-size:13px!important;line-height:1.5;}
     </style>
     <div class="rep-doc">
-    <div class="hoja-fija rep-ini rep-xl">
-    <div class="rep-head">
-      <div><div style="font-size:16px;font-weight:700">${cliNom}</div><div style="font-size:11px;opacity:.75">Informe ${PER_LBL} · Cifras en USD</div></div>
-      <div style="font-size:11px;opacity:.7;text-align:right">al ${FECHA_CIERRE}</div>
+    <div class="hoja-fija rep-ini">
+    ${/* v261 — KPIs grandes y en el orden del mensual, con el capital invertido primero (Timoteo, 04/11). Sin "liquidez
+         inmediata"; se suman la renta neta y el rendimiento de las inversiones. Sin la franja azul: el encabezado ya lo dice. */''}
+    <div class="rep-kpis" style="grid-template-columns:repeat(${ES_ANUAL ? 5 : 6},1fr)!important;gap:8px!important">
+      ${ES_ANUAL ? `
+      ${kpi('Patrimonio al ' + FECHA_CIERRE, patrimonioActual, `al ${M1 === 1 ? '31/12/' + (ANIO - 1) : OPEN_LBL}: $${fmt(totCie)} · ${patrimonioActual - totCie >= 0 ? '+' : '−'}$${fmt(Math.abs(patrimonioActual - totCie))}`)}
+      ${kpi('Resultado económico', resultadoSemestre + (_resS.noReal || 0), `realizado ${$s(resultadoSemestre)} · no realizado ${$s(_resS.noReal || 0)}`, (resultadoSemestre + (_resS.noReal || 0)) >= 0 ? 'var(--esp)' : 'var(--usa)')}
+      ${kpi('Rentabilidad del patrimonio', rendPatPct == null ? '—' : (rendPatPct >= 0 ? '+' : '−') + Math.abs(((resultadoSemestre + (_resS.noReal || 0)) / (_baseDietz || 1)) * 100).toFixed(2).replace('.', ',') + '%', 'resultado económico ÷ patrimonio (Dietz)', (resultadoSemestre + (_resS.noReal || 0)) >= 0 ? 'var(--esp)' : 'var(--usa)')}
+      ${kpi('Ingresos pasivos', _ingPas, 'alquileres + PE por encima del capital', 'var(--esp)')}
+      ${kpi('Gasto familiar', -_GFP.tot, `promedio mensual −$${fmt(Math.round(_GFP.tot / (M2 - M1 + 1)))}`, 'var(--usa)')}
+      ` : `
+      ${kpi('Capital invertido', capitalInvertido - bancosOpAct, 'lo puesto: compras, aportes al PE y cuentas de inversión')}
+      ${kpi('Patrimonio al ' + FECHA_CIERRE.slice(0, 5), patrimonioActual, `${patrimonioActual - totCie >= 0 ? '+' : '−'}$${fmt(Math.abs(patrimonioActual - totCie))} en el ${PER_NOMBRE}`)}
+      ${kpi('Resultado del ' + PER_NOMBRE, resultadoSemestre, (rendPatPct == null ? '—' : (rendPatPct>=0?'+':'')+rendPatPct.toFixed(2).replace('.',',')+'% del patrimonio') + ` · acumulado ${acumulado >= 0 ? '+' : '−'}$${fmt(Math.abs(acumulado))}`, resultadoSemestre>=0?'var(--esp)':'var(--usa)')}
+      ${kpi('Renta neta del ' + PER_NOMBRE, rentaNeta, 'propiedades: rentas − gastos e impuestos', rentaNeta >= 0 ? 'var(--esp)' : 'var(--usa)')}
+      ${kpi('Rendimiento inversiones', _rInvPct == null ? '—' : (_rInvPct >= 0 ? '+' : '−') + Math.abs(_rInvPct).toFixed(1).replace('.', ',') + '%', `${rendimientoBancos >= 0 ? '+' : '−'}$${fmt(Math.abs(rendimientoBancos))} en el ${PER_NOMBRE}`, _rInvPct == null ? '' : (_rInvPct >= 0 ? 'var(--esp)' : 'var(--usa)'))}
+      ${kpi('Gasto familiar del ' + PER_NOMBRE, -_GFP.tot, `promedio mensual −$${fmt(Math.round(_GFP.tot / (M2 - M1 + 1)))}`, 'var(--usa)')}
+      `}
     </div>
-    <div class="rep-kpis">
-      ${kpi('Capital invertido', capitalInvertido, 'lo puesto en lo que hay hoy')}
-      ${kpi('Patrimonio actual', patrimonioActual, 'al ' + FECHA_CIERRE)}
-      ${kpi('Resultado acumulado', acumulado, 'valorización + rendimiento', acumulado>=0?'var(--esp)':'var(--usa)')}
-      ${kpi('Resultado del ' + PER_NOMBRE, resultadoSemestre, (rendPatPct == null ? '—' : (rendPatPct>=0?'+':'')+rendPatPct.toFixed(2).replace('.',',')+'% del patrimonio'), resultadoSemestre>=0?'var(--esp)':'var(--usa)')}
-      ${deudaTotal>0 ? `<div class="rep-kpi">
-        <div class="l">Apalancamiento</div>
-        <div class="v" style="color:${apalColor}">${apalancamiento.toFixed(1)}%</div>
-        <div class="s">deuda $${fmt(deudaTotal)} · patrim. neto $${fmt(patrimonioActual-deudaTotal)}</div></div>` : ''}
-    </div>
-    ${_hitos.length ? `<div class="card" style="margin-bottom:12px">
-      <div class="section-title" style="font-size:14px;margin-bottom:8px">Lo más importante del ${PER_NOMBRE}</div>
-      ${_hitos.map(h => `<p style="margin:3px 0;font-size:12px;line-height:1.4">• ${h.t}</p>`).join('')}
-    </div>` : ''}
+    <div style="display:grid;grid-template-columns:1fr 1.25fr;gap:12px;align-items:start">
+      <div>${_puenteS}</div>
+      <div>
     <div class="card" style="margin-bottom:12px">
       <div class="section-title" style="font-size:14px;margin-bottom:12px">Patrimonio por tipo de activo</div>
       <div class="table-wrap"><table>
-        <thead><tr><th>Activo</th><th class="num">Invertido</th><th class="num">${M1 === 1 ? 'Cierre ' + (ANIO-1) : 'Al ' + _ultDia(ANIO, M1-1) + '/' + _pad(M1-1)}</th><th class="num">Compras, aportes y cobros</th>${_hayInc?'<th class="num">Ingresos e incorpo&shy;raciones</th>':''}<th class="num">Actual</th><th class="num">Var. período</th><th class="num">Var. histórica</th></tr></thead>
+        <thead><tr><th>Activo</th><th class="num">${M1 === 1 ? '31/12/' + (ANIO-1) : _ultDia(ANIO, M1-1) + '/' + _pad(M1-1)}</th><th class="num">Compras,<br>aportes y cobros</th>${_hayInc?'<th class="num">Ingresos e<br>incorporaciones</th>':''}<th class="num">${FECHA_CIERRE.slice(0, 5)}</th><th class="num">Var.<br>período</th></tr></thead>
         <tbody>
         ${/* v257 — Var. período = actual − cierre − compras/aportes − incorporaciones (Timoteo, 30/10: comprar una propiedad no es
              ganancia: sube propiedades y baja bancos; un cambio de titular tampoco). Es lo que ganó o perdió cada tipo. */''}
-        ${clases.map(c=>{const vs=c.act-c.cie-c.ap-(c.inc||0), vh=c.act-c.inv; const _sg=(v)=>Math.abs(v)<0.5?'<span style="color:var(--text3)">—</span>':`<span style="color:${v>0?'var(--esp)':'var(--usa)'}">${v>0?'+':'−'}$${fmt(Math.abs(v))}</span>`; return `<tr><td>${c.n}</td><td class="num">$${fmt(c.inv)}</td><td class="num">$${fmt(c.cie)}</td><td class="num">${_sg(c.ap)}</td>${_hayInc?`<td class="num">${_sg(c.inc||0)}</td>`:''}<td class="num">$${fmt(c.act)}</td><td class="num" style="color:${vs>=0?'var(--esp)':'var(--usa)'}">${vs>=0?'+':''}$${fmt(vs)}</td><td class="num" style="color:${vh>=0?'var(--esp)':'var(--usa)'}">${vh>=0?'+':''}$${fmt(vh)}</td></tr>`}).join('')}
-        <tr style="${OFF_TOT_CSS}"><td>Total</td><td class="num">$${fmt(totInv)}</td><td class="num">$${fmt(totCie)}</td><td class="num">—</td>${_hayInc?`<td class="num">${_incTot>=0?'+':'−'}$${fmt(Math.abs(_incTot))}</td>`:''}<td class="num">$${fmt(patrimonioActual)}</td><td class="num" style="color:${_varGen>=0?'var(--esp)':'var(--usa)'}">${_varGen>=0?'+':''}$${fmt(_varGen)}</td><td class="num" style="color:${acumulado>=0?'var(--esp)':'var(--usa)'}">${acumulado>=0?'+':''}$${fmt(acumulado)}</td></tr>
+        ${clases.map(c=>{const vs=c.act-c.cie-c.ap-(c.inc||0), vh=c.act-c.inv; const _sg=(v)=>Math.abs(v)<0.5?'<span style="color:var(--text3)">—</span>':`<span style="color:${v>0?'var(--esp)':'var(--usa)'}">${v>0?'+':'−'}$${fmt(Math.abs(v))}</span>`; return `<tr><td>${c.n}</td><td class="num">$${fmt(c.cie)}</td><td class="num">${_sg(c.ap)}</td>${_hayInc?`<td class="num">${_sg(c.inc||0)}</td>`:''}<td class="num">$${fmt(c.act)}</td><td class="num" style="color:${vs>=0?'var(--esp)':'var(--usa)'}">${vs>=0?'+':''}$${fmt(vs)}</td></tr>`}).join('')}
+        <tr style="${OFF_TOT_CSS}"><td>Total</td><td class="num">$${fmt(totCie)}</td><td class="num">—</td>${_hayInc?`<td class="num">${_incTot>=0?'+':'−'}$${fmt(Math.abs(_incTot))}</td>`:''}<td class="num">$${fmt(patrimonioActual)}</td><td class="num" style="color:${_varGen>=0?'var(--esp)':'var(--usa)'}">${_varGen>=0?'+':''}$${fmt(_varGen)}</td></tr>
         </tbody></table></div>
-      <p style="color:var(--text3);font-size:10px;margin-top:5px">Invertido: propiedades y autos, el valor de compra · private equity, lo aportado en las posiciones vivas (lo ya cobrado está en los bancos) · cuentas de inversión, el saldo al inicio de sus registros más los aportes netos · cuentas operativas, su saldo (son caja: no tienen resultado propio). Compras, aportes y cobros: lo que pasó de un tipo de activo a otro dentro del patrimonio (compras y ventas de propiedades y autos, aportes y cobros del PE, traspasos entre cuentas propias); suma cero entre tipos. ${_hayInc ? 'Ingresos e incorporaciones: lo que entró o salió del patrimonio sin ser resultado (activos que cambiaron de titular, a su valor al inicio del período; plata que llegó o salió hacia otro titular). ' : ''}Var. período = actual − cierre − compras, aportes y cobros${_hayInc ? ' − ingresos e incorporaciones' : ''}: lo que ganó o perdió cada tipo en el período (en bancos incluye los gastos personales); una compra no es ganancia. Var. histórica = actual − invertido. No se suman entre sí: miden desde puntos distintos.</p>
-      ${_sinFechaList.length ? `<p class="no-pdf" style="font-size:11px;color:#7a5a12;background:#f7f0e2;border:1px solid #e6d3a3;border-radius:6px;padding:5px 8px;margin:4px 0 0"><b>Para revisar (no sale en el PDF):</b> sin fecha de compra, tomados como comprados en el período: ${_sinFechaList.join(', ')}. Si se compraron después del ${_ultDia(ANIO, M2)}/${_pad(M2)}, cargá la fecha y salen del informe.</p>` : ''}
-      ${_hayInc ? `<p style="color:var(--text3);font-size:10px;margin-top:3px">Detalle de ingresos e incorporaciones: ${incorporaciones.det.concat(_incBkDet).map(x => `${x.n} (${x.de} → ${x.a}, ${x.v >= 0 ? '+' : '−'}$${fmt(Math.abs(x.v))})`).join(' · ')}.</p>` : ''}
+      <p style="color:var(--text3);font-size:10px;margin-top:5px">Var. período = lo que ganó o perdió cada tipo: no cuenta las compras ni los traspasos (columna "compras, aportes y cobros", que suma cero entre tipos)${_hayInc ? ' ni lo que entró o salió del patrimonio sin ser resultado (activos que cambiaron de titular, plata de otros titulares)' : ''}. En bancos incluye el gasto familiar.</p>
     </div>
-    ${prestamos.length ? `<div class="card" style="margin-bottom:12px">
-      <div class="section-title" style="font-size:14px;margin-bottom:12px">Apalancamiento / Deuda</div>
-      <div class="table-wrap"><table>
-        <thead><tr><th>Préstamo</th><th>Atado a</th><th class="num">Saldo</th><th>Moneda</th><th class="num">Saldo USD</th><th class="num">Tasa</th><th>Vencimiento</th></tr></thead>
-        <tbody>
-        ${prestamos.map(p=>`<tr>
-          <td>${p.descripcion||'—'}</td>
-          <td style="font-size:11px;color:var(--text3)">${p.propiedad?.nombre||'Personal'}</td>
-          <td class="num">${fmt(p.saldo_actual)}</td>
-          <td style="font-size:11px">${p.moneda||'USD'}</td>
-          <td class="num">$${fmt(prestUSD(p))}</td>
-          <td class="num">${p.tasa!=null?p.tasa+'%':'—'}</td>
-          <td style="font-size:11px">${p.fecha_vencimiento||'—'}</td></tr>`).join('')}
-        <tr style="${OFF_TOT_CSS}">
-          <td colspan="4">Total deuda</td><td class="num">$${fmt(deudaTotal)}</td>
-          <td class="num" colspan="2" style="color:${apalColor}">${apalancamiento.toFixed(1)}% apalanc.</td></tr>
-        </tbody></table></div>
-      <p style="color:var(--text3);font-size:10px;margin-top:5px">Apalancamiento = deuda total ÷ patrimonio actual. Patrimonio neto (descontada la deuda): $${fmt(patrimonioActual-deudaTotal)}.</p>
-    </div>` : ''}
+      </div>
     </div>
-    ${/* v243 — hoja 2: histórico + resumen + "¿Dónde se generó el resultado?" (antes era la hoja 3). */''}
-    ${/* v253 — LETRA MÁS GRANDE SIN ACHICAR (Timoteo, 28/10): las dos primeras hojas pasan a ser tres. Hoja 1: KPIs, lo más
-         importante y patrimonio por tipo. Hoja 2: distribución, gráficos y patrimonio histórico. Hoja 3: resumen por tipo y
-         dónde se generó el resultado. Así cada hoja entra con la letra grande, sin que el motor la achique. */''}
-    <div class="hoja-fija rep-ini pgbreak">
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;page-break-inside:avoid;break-inside:avoid">
-      <div class="card"><div class="section-title" style="font-size:14px;margin-bottom:12px">Distribución por tipo de activo</div>
-        <div class="table-wrap"><table><thead><tr><th>Activo</th><th class="num">Valor</th><th class="num">%</th></tr></thead><tbody>
+    ${/* v261 — las dos distribuciones van en la hoja 1 (Timoteo, 05/11): así los gráficos de la hoja 2 quedan más grandes */''}
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:stretch">
+      <div class="card" style="margin:0"><div class="section-title" style="margin-bottom:8px">Distribución por tipo de activo</div>
+        <div style="display:flex;gap:14px;align-items:center"><table class="tbl-compacta" style="width:auto;min-width:62%"><thead><tr><th>Activo</th><th class="num">Valor</th><th class="num">%</th></tr></thead><tbody>
         ${clases.map((c,i)=>`<tr><td>${_sw(i)}${c.n}</td><td class="num">$${fmt(c.act)}</td><td class="num">${pct(c.act)}</td></tr>`).join('')}
         <tr style="${OFF_TOT_CSS}"><td>Total</td><td class="num">$${fmt(patrimonioActual)}</td><td class="num">100%</td></tr>
-        </tbody></table></div>
-        <div style="display:flex;justify-content:center;margin-top:8px">${offDonut(clases.map(c=>({n:c.n,v:c.act})), 104)}</div></div>
-      <div class="card"><div class="section-title" style="font-size:14px;margin-bottom:12px">Distribución por país</div>
-        <div class="table-wrap"><table><thead><tr><th>País</th><th class="num">Valor</th><th class="num">%</th></tr></thead><tbody>
-        ${['USA','ARG','URU','ESP'].map((k,i)=>`<tr><td>${_sw(i)}${paisNom[k]}</td><td class="num">$${fmt(pais[k]||0)}</td><td class="num">${pct(pais[k]||0)}</td></tr>`).join('')}
+        </tbody></table>${offDonut(clases.map(c=>({n:c.n,v:c.act})), 92)}</div></div>
+      <div class="card" style="margin:0"><div class="section-title" style="margin-bottom:8px">Distribución por país</div>
+        <div style="display:flex;gap:14px;align-items:center"><table class="tbl-compacta" style="width:auto;min-width:62%"><thead><tr><th>País</th><th class="num">Valor</th><th class="num">%</th></tr></thead><tbody>
+        ${['USA','ARG','URU','ESP','PAR'].filter(k => Math.abs(pais[k]||0) > 0.5).map((k,i)=>`<tr><td>${_sw(i)}${paisNom[k]||k}</td><td class="num">$${fmt(pais[k]||0)}</td><td class="num">${pct(pais[k]||0)}</td></tr>`).join('')}
         <tr style="${OFF_TOT_CSS}"><td>Total</td><td class="num">$${fmt(patrimonioActual)}</td><td class="num">100%</td></tr>
-        </tbody></table></div>
-        <div style="display:flex;justify-content:center;margin-top:8px">${offDonut(['USA','ARG','URU','ESP'].map(k=>({n:paisNom[k],v:pais[k]||0})), 104)}</div></div>
+        </tbody></table>${offDonut(['USA','ARG','URU','ESP','PAR'].filter(k => Math.abs(pais[k]||0) > 0.5).map(k=>({n:paisNom[k]||k,v:pais[k]||0})), 92)}</div></div>
     </div>
-    <div class="card" style="margin:12px 0 10px"><div class="section-title" style="font-size:14px;margin-bottom:8px">Evolución patrimonial</div><div style="height:150px"><canvas id="rep-ch-evol"></canvas></div></div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-      <div class="card" style="margin:0"><div class="section-title" style="font-size:14px;margin-bottom:8px">Composición por activo</div><div style="height:150px"><canvas id="rep-ch-comp"></canvas></div></div>
-      <div class="card" style="margin:0"><div class="section-title" style="font-size:14px;margin-bottom:8px">Evolución bancos · ${PER_NOMBRE}</div><div style="height:150px"><canvas id="rep-ch-bancos"></canvas></div></div>
     </div>
-    <div class="card" style="margin-top:12px">
+    <div class="hoja-fija rep-ini pgbreak">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:stretch;margin-bottom:12px">
+      <div class="card" style="margin:0"><div class="section-title" style="margin-bottom:8px">Evolución patrimonial</div><div style="height:185px"><canvas id="rep-ch-evol"></canvas></div></div>
+      <div class="card" style="margin:0"><div class="section-title" style="margin-bottom:8px">Composición por activo</div><div style="height:185px"><canvas id="rep-ch-comp"></canvas></div></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:stretch;margin-bottom:12px">
+      <div class="card" style="margin:0"><div class="section-title" style="margin-bottom:8px">Evolución bancos · ${PER_NOMBRE}</div><div style="height:175px"><canvas id="rep-ch-bancos"></canvas></div></div>
+    <div class="card" style="margin:0">
       <div class="section-title" style="font-size:14px;margin-bottom:12px">Patrimonio histórico y composición</div>
-      <div class="table-wrap"><table class="rep-big">
+      <div class="table-wrap"><table class="tbl-compacta">
         <thead><tr><th>Año</th><th class="num">Propiedades</th><th class="num">Bancos</th><th class="num">Priv. Equity</th><th class="num">Autos</th><th class="num">Total</th></tr></thead>
         <tbody>
         ${/* v256 — el total incluía autos sin columna: la fila no sumaba (auditoría 30/10) */''}
         ${histAnios.map(d=>`<tr><td style="font-weight:600">${d.anio}</td><td class="num">$${fmt(d.prop)} <span style="color:var(--text3);font-size:.82em">${d.total?(d.prop/d.total*100).toFixed(1):'0'}%</span></td><td class="num">$${fmt(d.banco)} <span style="color:var(--text3);font-size:.82em">${d.total?(d.banco/d.total*100).toFixed(1):'0'}%</span></td><td class="num">${d.pe?'$'+fmt(d.pe)+' <span style="color:var(--text3);font-size:.82em">'+(d.pe/d.total*100).toFixed(1)+'%</span>':'—'}</td><td class="num">${d.autos?'$'+fmt(d.autos)+' <span style="color:var(--text3);font-size:.82em">'+(d.autos/d.total*100).toFixed(1)+'%</span>':'—'}</td><td class="num" style="font-weight:700">$${fmt(d.total)}</td></tr>`).join('')}
+
         </tbody></table></div>
     </div>
     </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:start">
+      <div>${_liqS}</div>
+      <div>    ${_hitos.length ? `<div class="card" style="margin:0">
+      <div class="section-title" style="font-size:14px;margin-bottom:8px">Lo más importante del ${PER_NOMBRE}</div>
+      ${_hitos.map(h => `<p style="margin:3px 0;font-size:12px;line-height:1.4">• ${h.t}</p>`).join('')}
+    </div>` : ''}
+</div>
+    </div>
+    </div>
     <div class="hoja-fija rep-ini pgbreak">
-    <div class="rep-h2" style="margin-top:0!important">Resumen</div>
-    <div class="card" style="margin-top:10px">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:start">
+      <div>${_resS.html}</div>
+      <div>${ES_ANUAL ? _flujoA + _cobA : _proyS}${_deudaS}</div>
+    </div>
+    </div>
+    <div class="hoja-fija rep-ini pgbreak">
+    <div class="card" style="margin-top:0">
       <div class="section-title" style="font-size:14px;margin-bottom:14px">Resumen por tipo de activo</div>
       <div style="display:grid;grid-template-columns:repeat(${autos.length?4:3},1fr);gap:16px">
         <div style="border:1px solid var(--border);border-top:3px solid var(--navy);border-radius:8px;padding:14px">
@@ -14003,28 +14510,42 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
         </div>` : ''}
       </div>
     </div>
-    <div style="margin-top:12px">${_resS.html}</div>
+    <div style="display:grid;grid-template-columns:${ES_ANUAL ? '1.1fr 1fr' : '1fr'};gap:12px;align-items:start;margin-top:12px">
+      <div>${_gfS}</div>
+      ${ES_ANUAL ? `<div>${_rentHistHTML}</div>` : ''}
+    </div>
+    ${ES_ANUAL ? `</div><div class="hoja-fija rep-ini pgbreak"><div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:start"><div>${_proyS.replace('Real contra lo proyectado · ' + PER_CORTO, 'Real contra lo proyectado · ' + ANIO)}</div><div>${_proyA}</div></div>` : ''}
     ${/* v248 — el "Desglose de la variación de bancos" pasó a la sección Bancos, junto con el resultado por cuenta (Timoteo, 26/10). */''}
     </div>
     <div class="land-zone">
-    <div class="rep-h2 pgbreak">Propiedades</div>
-    <div class="card wide" style="margin-top:20px">
-      <div class="section-title" style="font-size:14px;margin-bottom:12px">Propiedades · resultado del ${PER_NOMBRE} (${PER_CORTO})</div>
-      <div class="table-wrap"><table>
-        <thead><tr><th>Propiedad</th><th class="num">V. compra</th><th class="num">V. actual</th><th class="num">Renta</th><th class="num">Gastos</th><th class="num">Renta neta</th><th class="num">Rent. sem.</th></tr></thead>
-        <tbody>
-        ${propsRenta.map(p=>{ const d=propDet[p.id]; const sh=share(p); const vi=(vProp(p,ANIO-1)||vProp(p,ANIO))*sh; const rs=vi>0?(d.netoSem/vi*100):0;
-          return `<tr><td>${p.nombre}</td><td class="num">$${fmt((Number(p.valor_compra)||0)*sh)}</td><td class="num">$${fmt(vProp(p,ANIO)*sh)}</td><td class="num">$${fmt(d.rentaSem)}</td><td class="num negative">$${fmt(d.gastosSem)}</td><td class="num" style="color:${d.netoSem>=0?'var(--esp)':'var(--usa)'}">${d.netoSem>=0?'+':''}$${fmt(d.netoSem)}</td><td class="num">${rs.toFixed(2)}%</td></tr>`;
-        }).join('') || '<tr><td colspan="7" style="color:var(--text3)">Sin movimientos de alquiler en el período</td></tr>'}
-        <tr style="${OFF_TOT_CSS}"><td>Total</td><td></td><td></td><td class="num">$${fmt(totRentaSem)}</td><td class="num negative">$${fmt(totGastosSem)}</td><td class="num" style="color:${totNetoSem>=0?'var(--esp)':'var(--usa)'}">${totNetoSem>=0?'+':''}$${fmt(totNetoSem)}</td><td></td></tr>
+    <div class="junto pgbreak"><div class="rep-h2" style="margin-top:0!important">Propiedades</div>${/* v261 — resultado del período y renta mes a mes en la misma hoja (Timoteo, 04/11) */''}
+    ${/* v261 — RESULTADO DEL PERÍODO POR PROPIEDAD, DE RENTA Y NO RENTA (Timoteo, 03/11), con el % anualizado para comparar con
+         lo proyectado y con otras inversiones. Están todas las propiedades del período (también las que no cobraron). */''}
+    ${(() => { const _meses = M2 - M1 + 1, _an = 12 / _meses;
+      const _fila = p => { const d = propDet[p.id] || { rentaSem:0, gastosSem:0, netoSem:0 }, sh = share(p), vi = (vProp(p, _yC) || vProp(p, ANIO)) * sh;
+        const rp = vi > 0 ? d.netoSem / vi * 100 : null, ra = rp == null ? null : rp * _an;
+        const vf = vProp(p, ANIO) * sh, rev = (ES_ANUAL && vi > 0 && vf > 0) ? vf - vi : 0, rr = vi > 0 ? rev / vi * 100 : null, rt = vi > 0 ? (d.netoSem + rev) / vi * 100 : null;
+        const pc = v => v == null ? '—' : (v >= 0 ? '+' : '−') + Math.abs(v).toFixed(2).replace('.', ',') + '%';
+        return { d, tr: `<tr><td>${p.nombre}${(Number(p.valor_compra)||0) > 0 && !(d.rentaSem > 0.5) && tipoEn(p, ANIO) === 'R' ? ' <span style="font-size:9.5px;color:var(--gold)">sin renta en el período</span>' : ''}</td><td class="num">$${fmt(vi)}</td><td class="num">${d.rentaSem > 0.5 ? '$' + fmt(d.rentaSem) : '—'}</td><td class="num" style="color:var(--usa)">${d.gastosSem > 0.5 ? '−$' + fmt(d.gastosSem) : '—'}</td><td class="num" style="color:${_cv(d.netoSem)}">${Math.abs(d.netoSem) < 0.5 ? '—' : $s(d.netoSem)}</td><td class="num" style="color:${rp == null ? 'var(--text3)' : _cv(rp)}">${pc(rp)}</td><td class="num" style="font-weight:700;color:${ra == null ? 'var(--text3)' : _cv(ra)}">${pc(ra)}</td>${ES_ANUAL ? `<td class="num" style="color:${_cv(rev)}">${Math.abs(rev) < 0.5 ? '—' : $s(rev)}</td><td class="num">${pc(rr)}</td><td class="num" style="font-weight:800;color:${rt == null ? 'var(--text3)' : _cv(rt)}">${pc(rt)}</td>` : ''}</tr>`, rev }; };
+      const grp = (tp, lbl) => { const ps = props.filter(p => tipoEn(p, ANIO) === tp); if (!ps.length) return '';
+        const F = ps.map(_fila), RV = F.reduce((t, f) => t + (f.rev || 0), 0), r = F.reduce((t, f) => t + f.d.rentaSem, 0), g = F.reduce((t, f) => t + f.d.gastosSem, 0), n = F.reduce((t, f) => t + f.d.netoSem, 0), v = ps.reduce((t, p) => t + (vProp(p, _yC) || vProp(p, ANIO)) * share(p), 0);
+        const rp = v > 0 ? n / v * 100 : null;
+        return `<tr><td colspan="${ES_ANUAL ? 10 : 7}" style="background:var(--gold-soft,#f6efe0);color:var(--gold);font-size:9.5px;letter-spacing:1px;text-transform:uppercase;font-weight:700">${lbl}</td></tr>${F.map(f => f.tr).join('')}
+          <tr style="background:var(--bg3);font-weight:600"><td>Subtotal ${lbl.toLowerCase()}</td><td class="num">$${fmt(v)}</td><td class="num">$${fmt(r)}</td><td class="num" style="color:var(--usa)">−$${fmt(g)}</td><td class="num" style="color:${_cv(n)}">${$s(n)}</td><td class="num">${rp == null ? '—' : (rp >= 0 ? '+' : '−') + Math.abs(rp).toFixed(2).replace('.', ',') + '%'}</td><td class="num" style="font-weight:700">${rp == null ? '—' : (rp >= 0 ? '+' : '−') + Math.abs(rp * _an).toFixed(2).replace('.', ',') + '%'}</td>${ES_ANUAL ? `<td class="num">${$s(RV)}</td><td class="num">${v > 0 ? (RV / v * 100).toFixed(2).replace('.', ',') + '%' : '—'}</td><td class="num" style="font-weight:800">${v > 0 ? ((n + RV) / v * 100).toFixed(2).replace('.', ',') + '%' : '—'}</td>` : ''}</tr>`; };
+      return `<div class="card wide" style="margin-top:12px">
+      <div class="section-title" style="font-size:14px;margin-bottom:10px">Propiedades · resultado del ${PER_NOMBRE} (${PER_CORTO})</div>
+      <div class="table-wrap"><table class="tbl-compacta">
+        <thead><tr><th>Propiedad</th><th class="num">Valor al inicio</th><th class="num">Renta</th><th class="num">Gastos e impuestos</th><th class="num">Renta neta</th><th class="num">${ES_ANUAL ? 'Yield neto' : '% del ' + PER_NOMBRE}</th><th class="num">${ES_ANUAL ? 'Yield anualizado' : '% anualizado'}</th>${ES_ANUAL ? '<th class="num">Revalori&shy;zación</th><th class="num">% reval.</th><th class="num">% total</th>' : ''}</tr></thead>
+        <tbody>${grp('R', 'De renta')}${grp('NR', 'No renta (uso propio)')}
+        <tr style="${OFF_TOT_CSS}"><td>Total</td><td></td><td class="num">$${fmt(totRentaSem)}</td><td class="num">−$${fmt(totGastosSem)}</td><td class="num">${$s(totNetoSem)}</td><td></td><td></td>${ES_ANUAL ? '<td></td><td></td><td></td>' : ''}</tr>
         </tbody></table></div>
-      <p style="color:var(--text3);font-size:11px;margin-top:8px">Rentabilidad del período = renta neta del ${PER_NOMBRE} sobre el valor de inicio del período.</p>
-    </div>
+      <p style="color:var(--text3);font-size:10px;margin-top:6px">% = renta neta del ${PER_NOMBRE} sobre el valor al inicio (tasación de enero); anualizado = × ${_an % 1 ? _an.toFixed(1) : _an}, para comparar con lo proyectado y con otras inversiones.</p>
+    </div>`; })()}
 
     ${/* v253 — los dos cuadros de detalle van lado a lado y CHICOS (.rep-mini, Timoteo 28/10): el mensual se cortaba en mayo.
          El mensual lleva más ancho porque tiene más columnas. Si hay uno solo, ocupa todo el ancho. */''}
-    <div class="rep-mini" style="display:grid;grid-template-columns:${(propsHist.length && propsMens.length) ? 'minmax(0,1fr) minmax(0,1fr)' : '1fr'};gap:10px;align-items:start;margin-top:14px">
-    ${propsHist.length ? `<div class="card" style="margin:0;padding:8px!important">
+    <div class="rep-mini" style="display:grid;grid-template-columns:${(propsHist.length && propsMens.length && ES_ANUAL) ? 'minmax(0,1fr) minmax(0,1fr)' : '1fr'};gap:10px;align-items:start;margin-top:14px">
+    ${propsHist.length && ES_ANUAL ? `<div class="card anexo-mv" style="margin:0;padding:8px!important">
       <div class="section-title" style="font-size:14px;margin-bottom:12px">Renta, gastos y renta neta — histórico por año</div>
       <div class="table-wrap"><table>
         <thead><tr><th>Propiedad</th><th>Concepto</th>${aniosR.map(y=>`<th class="num">${y===ANIO?y+(M2<12?' <span style="font-weight:400">(a '+String(MESNOM[M2]).slice(0,3).toLowerCase()+')</span>':''):y}</th>`).join('')}<th class="num">Total</th></tr></thead>
@@ -14051,7 +14572,8 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
         </tbody></table></div>
     </div>` : ''}
     </div>
-    <div class="junto">
+    </div>
+    ${ES_ANUAL ? `<div class="junto anexo-mv">
     ${rentabDetalleHTML}
     ${/* v248 — orden de Propiedades (Timoteo, 26/10): resultado del período → renta y gastos (histórico y mensual) →
          rentabilidad por año → cartera completa al final. */''}
@@ -14067,7 +14589,7 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
         </tbody></table></div>
       <p style="color:var(--text3);font-size:11px;margin-top:8px">Neto económico = valorización + renta neta acumulada. Renta neta acumulada = la de cada año en que la propiedad fue del cliente + ${ANIO} hasta ${String(MESNOM[M2]).toLowerCase()} (el total de la tabla por año).</p>
     </div>
-    </div>
+    </div>` : ''}
 
     ${/* v248 — SECCIÓN BANCOS DEL SEMESTRAL REHECHA (Timoteo, 26/10). Inversión y operativas por separado, como en el
          mensual: (1) resultado del período por cuenta de inversión, (2) variación de las operativas — juntos reemplazan el
@@ -14172,7 +14694,7 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
           const v = Math.abs(Number(a.monto) || 0); if (a.tipo === 'retiro') { e.r += v; tr += v; } else { e.a += v; ta += v; }
           if (enPer && !_esTraspaso(a)) { if (a.tipo === 'retiro') TRx += v; else TAx += v; } });
         const rows = `<tr><td colspan="4" style="font-weight:700;color:var(--navy);border-bottom:1.5px solid var(--navy)">${d.nombre}</td></tr>`
-          + Object.keys(g).sort().reverse().map(k => `<tr${g[k].act ? '' : ' style="color:var(--text3)"'}><td style="padding-left:12px">${g[k].lbl}</td>${ap3(g[k].a, g[k].r)}</tr>`).join('')
+          + Object.keys(g).sort().map(k =>   /* v261 — "Hasta el …" arriba y los meses en orden, del primero al último (Timoteo, 04/11: semestral igual que el anual) */ `<tr${g[k].act ? '' : ' style="color:var(--text3)"'}><td style="padding-left:12px">${g[k].lbl}</td>${ap3(g[k].a, g[k].r)}</tr>`).join('')
           + `<tr style="background:var(--bg3);font-weight:600"><td style="padding-left:12px">Total</td>${ap3(ta, tr)}</tr>`;
         return { rows, n: Object.keys(g).length + 2, ta, tr }; });
       const totN = ctsAp.reduce((t, c) => t + c.n, 0); const izq = [], der = []; let acc = 0;
@@ -14188,22 +14710,46 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
         <p style="color:var(--text3);font-size:10px;margin-top:6px">Lo anterior al período va en un solo renglón; el período, un renglón por mes, del más reciente al más viejo. El total de abajo es sólo el ${PER_NOMBRE} y no cuenta los traspasos entre cuentas propias.</p>
       </div>`;
       // v248 — "desde el inicio de los registros" se unió con "saldo al cierre de cada año" (Timoteo, 26/10): queda una sola tabla.
-      return `<div class="rep-h2 pgbreak">Bancos</div><div class="junto">${cInv}${cOp}${cAnios}</div>${cAp}`; })()}
+      return `<div class="rep-h2 pgbreak">Bancos</div><div style="display:grid;grid-template-columns:1.1fr 0.9fr;gap:12px;align-items:start"><div>${cInv}</div><div>${cOp}</div></div>${ES_ANUAL ? cAnios.replace('<div class="card"', '<div class="card anexo-mv"') : ''}${cAp}`; })()}
 
-    ${/* v245 — PE con la misma tabla de múltiplos que el mensual y el patrimonial (_peMultHTML) */''}
+    ${/* v261 — PE DEL PERÍODO (Timoteo, 03/11): "valor hoy" pasa a "capital a recuperar"; columna de ganancia económica (si
+         hubo ganancia) y de resultado del período; sin gráfico de barras (repetía la tabla); las terminadas, sólo las del período. */''}
+    <div class="junto">${/* v261 — PE y autos en la misma hoja (Timoteo, 04/11) */''}
     ${(() => { if (!pe.length) return '';
-      const _it = pe.map(p => { let c; try { c = peCalc(p, ANIO, null, M2); } catch(e) { c = null; } return { p, c }; })
+      const _it = pe.map(p => { let c, c0; try { c = peCalc(p, ANIO, null, M2); c0 = M1 > 1 ? peCalc(p, ANIO, null, M1 - 1) : peCalc(p, ANIO - 1); } catch(e) { c = null; } return { p, c, c0 }; })
         .filter(x => x.c && (Math.abs(x.c.aportado)>0.5 || Math.abs(x.c.tenencia)>0.5));
-      if (!_it.length) return '';
-      const M = _peMultHTML(_it, v => '$' + fmt(Math.round(v)), share);
-      const nV = _it.filter(x => !x.c.finalizada).length, nF = _it.length - nV;
-      return `<div class="rep-h2 pgbreak">Private Equity</div>
-        <div class="card" style="margin-top:14px"><div class="section-title" style="font-size:14px;margin-bottom:12px">Private equity · ${nV}</div>
-          ${nV ? M.vivas : '<p style="font-size:12px;color:var(--text3)">Sin posiciones activas.</p>'}</div>
-        ${nF ? `<div class="card" style="margin-top:14px"><div class="section-title" style="font-size:14px;margin-bottom:12px">Private equity finalizado · ${nF}</div>${M.fin}</div>` : ''}`; })()}
+      const viv = _it.filter(x => !x.c.finalizada), fin = _it.filter(x => x.c.finalizada && _enPer(x.p.fecha_cierre));
+      if (!viv.length && !fin.length) return '';
+      const resPer = x => { const t = peTipoDe(x.p), sh = share(x.p); const cr = mc => { try { return mc < 1 ? 0 : (Number(peCalc(x.p, ANIO, null, mc).cobRes) || 0); } catch(e) { return 0; } };
+        if (t === 'prestamo' || t === 'inversion' || x.c.finalizada) return (cr(M2) - cr(M1 - 1)) * sh;
+        return ((window._peMovsByPe || {})[x.p.id] || []).filter(m => +m.anio === ANIO && +m.mes >= M1 && +m.mes <= M2).reduce((a, m) => a + (Number(m.utilidad) || 0), 0) * sh; };
+      const fila = x => { const sh = share(x.p), ap = x.c.aportado * sh, co = x.c.distribuido * sh, te = x.c.tenencia * sh, tr = (x.c.traspaso || 0) * sh;
+        const rec = Math.max(0, ap - co - tr), gan = co + te + tr - ap, rp = resPer(x), tv = ap > 0 ? (co + te + tr) / ap : null;
+        return `<tr><td style="font-weight:600">${x.p.nombre}<div style="font-size:9.5px;color:var(--text3);font-weight:400">${(PE_TIPOS[x.c.tipo] || {}).lbl || x.c.tipo}${x.c.finalizada ? ' · ' + (x.c.nota || 'terminó') : ''}</div></td>
+          <td class="num">$${fmt(Math.round(ap))}</td><td class="num" style="color:var(--esp)">${co > 0.5 ? '$' + fmt(Math.round(co)) : '—'}</td>
+          <td class="num" style="font-weight:700;color:${rec > 0.5 ? 'var(--usa)' : 'var(--text3)'}">${x.c.finalizada ? '—' : (rec > 0.5 ? '$' + fmt(Math.round(rec)) : 'recuperado')}</td>
+          <td class="num" style="color:${gan > 0.5 ? 'var(--esp)' : (x.c.finalizada && gan < -0.5 ? 'var(--usa)' : 'var(--text3)')}">${gan > 0.5 || (x.c.finalizada && gan < -0.5) ? $s(gan) : '—'}</td>
+          <td class="num" style="color:${_cv(rp)}">${Math.abs(rp) < 0.5 ? '—' : $s(rp)}</td>
+          <td class="num">${tv == null ? '—' : tv.toFixed(2).replace('.', ',') + '×'}</td></tr>`; };
+      const tabla = (arr, tit) => `<div class="card" style="margin-top:12px"><div class="section-title" style="font-size:14px;margin-bottom:10px">${tit}</div>
+        <table class="tbl-compacta"><thead><tr><th>Posición</th><th class="num">Aportado</th><th class="num">Cobrado</th><th class="num">Capital a recuperar</th><th class="num">Ganancia económica</th><th class="num">Resultado del ${PER_NOMBRE}</th><th class="num">TVPI</th></tr></thead>
+        <tbody>${arr.map(fila).join('')}</tbody></table>
+        <p style="font-size:10px;color:var(--text3);margin:6px 0 0">Capital a recuperar = aportado − cobrado: lo que falta para no perder. Ganancia económica = cobrado + valor actual − aportado, cuando es positiva. Resultado del ${PER_NOMBRE}: en préstamos, sólo lo cobrado por encima del capital (o la pérdida al darlo de baja). TVPI 1,00× = todavía recuperando capital.</p></div>`;
+      const finAnt = ES_ANUAL ? _it.filter(x => x.c.finalizada && !_enPer(x.p.fecha_cierre)) : [];
+      return `<div class="rep-h2 pgbreak">Private Equity</div>${viv.length ? tabla(viv, 'Private equity · ' + viv.length + ' posiciones') : ''}${fin.length ? tabla(fin, 'Terminadas en el ' + PER_NOMBRE + ' · ' + fin.length) : ''}${finAnt.length ? tabla(finAnt, 'Terminadas en años anteriores · ' + finAnt.length).replace('<div class="card"', '<div class="card anexo-mv"') : ''}`; })()}
 
-    ${autos.length ? `<div class="rep-h2 pgbreak">Autos</div>
-    <div class="card" style="margin-top:20px">
+    ${autos.length && !ES_ANUAL ? `<div class="card" style="margin-top:12px">
+      <div class="section-title" style="font-size:14px;margin-bottom:10px">Autos · gastos del ${PER_NOMBRE}</div>
+      <table class="tbl-compacta"><thead><tr><th>Vehículo</th><th class="num">Valor</th><th class="num">Gastos ${PER_CORTO}</th><th class="num">Gastos ${ANIO - 1} completo</th></tr></thead><tbody>
+      ${autos.map(a => ({ a, v: vAuto(a, ANIO) * share(a), g: ((autoGastos[a.id] || {})[ANIO] || 0) * share(a), g0: ((autoGastos[a.id] || {})[ANIO - 1] || 0) * share(a) })).filter(x => x.v > 0.5 || x.g > 0.5 || x.g0 > 0.5).sort((x, y) => y.v - x.v)
+        .map(x => `<tr><td>${x.a.nombre}</td><td class="num">$${fmt(Math.round(x.v))}</td><td class="num" style="color:var(--usa)">${x.g > 0.5 ? '−$' + fmt(Math.round(x.g)) : '—'}</td><td class="num" style="color:var(--text3)">${x.g0 > 0.5 ? '−$' + fmt(Math.round(x.g0)) : '—'}</td></tr>`).join('')}
+      <tr style="${OFF_TOT_CSS}"><td>Total</td><td class="num">$${fmt(Math.round(autosActual))}</td><td class="num">−$${fmt(Math.round(autos.reduce((t, a) => t + ((autoGastos[a.id] || {})[ANIO] || 0) * share(a), 0)))}</td><td class="num">−$${fmt(Math.round(autos.reduce((t, a) => t + ((autoGastos[a.id] || {})[ANIO - 1] || 0) * share(a), 0)))}</td></tr>
+      </tbody></table>
+      <p style="font-size:10px;color:var(--text3);margin:6px 0 0">La valorización por año está en el patrimonial y en el anual.</p></div>` : ''}
+    ${/* v261 — las fuentes van con el último cuadro: solas en una hoja no (Timoteo, 04/11) */''}${ES_ANUAL ? '' : `<p style="color:var(--text3);font-size:10px;margin-top:12px">Resultado acumulado histórico = patrimonio − capital invertido − saldo de las cuentas operativas (valorización de los activos + rendimiento de las cuentas + lo ganado en PE).</p>
+    ${_fuentesHTML(ANIO, M2)}`}
+    </div>
+    ${autos.length && ES_ANUAL ? `<div class="card anexo-mv" style="margin-top:20px">
       <div style="display:flex;gap:22px;flex-wrap:wrap;margin-bottom:14px">
         <div><div style="font-size:10px;color:var(--text3);letter-spacing:.5px">VALOR ACTUAL FLOTA</div><div style="font-size:16px;font-weight:700">$${fmt(autosActual)}</div></div>
         <div><div style="font-size:10px;color:var(--text3);letter-spacing:.5px">GASTOS REGISTRADOS</div><div style="font-size:16px;font-weight:700;color:var(--usa)">$${fmt(autosGastoTot)}</div></div>
@@ -14222,11 +14768,14 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
       </tbody></table></div>` : '<p style="color:var(--text3);font-size:12px">Sin gastos de autos cargados todavía. La tabla se completa a medida que cargás movimientos por año.</p>'}
     </div>` : ''}
 
-    <p style="color:var(--text3);font-size:11px;margin-top:16px">Acumulado = patrimonio actual − capital invertido. Rendimiento por método Dietz modificado sobre las cuentas de inversión.</p>
-    ${_fuentesHTML(ANIO, M2)}
+    ${ES_ANUAL ? '<div id="rep-anexo"><div class="rep-h2 pgbreak">Anexo · historia</div></div>' : ''}
+    ${ES_ANUAL ? `<p style="color:var(--text3);font-size:10px;margin-top:12px">Resultado acumulado histórico = patrimonio − capital invertido − saldo de las cuentas operativas (valorización de los activos + rendimiento de las cuentas + lo ganado en PE).</p>
+    ${_fuentesHTML(ANIO, M2)}` : ''}
     </div>
     </div>`;
   try { renderReporteCharts(histAnios, bancosMensual); } catch(e) { console.warn('charts:', e.message); }
+  // v261 — el anual junta lo histórico al final, en el anexo
+  const _ax = cont.querySelector('#rep-anexo'); if (_ax) cont.querySelectorAll('.anexo-mv').forEach(e => _ax.appendChild(e));
 }
 
 let _repCharts = [];
@@ -14258,7 +14807,8 @@ function renderReporteCharts(hist, bancosMensual) {
   const bkEl = document.getElementById('rep-ch-bancos');
   if (bkEl && bancosMensual && bancosMensual.length) _repCharts.push(new Chart(bkEl.getContext('2d'), {
     type:'bar', data:{ labels:bancosMensual.map(d=>d.lbl), datasets:[{ data:bancosMensual.map(d=>d.total), backgroundColor:'#2f9e63', borderRadius:3 }] },
-    options:{ responsive:true, maintainAspectRatio:false, animation:false, plugins:{ legend:{display:false}, tooltip:{callbacks:{label:c=>'$'+fmt(c.raw)}} }, scales:{ y:yAxis, x:xAxis } }
+    options:{ responsive:true, maintainAspectRatio:false, animation:false, layout:{padding:{top:20}}, plugins:{ legend:{display:false}, tooltip:{callbacks:{label:c=>'$'+fmt(c.raw)}} }, scales:{ y:yAxis, x:xAxis } },
+    plugins:[valLabels]   // v261 — el monto arriba de cada mes (Timoteo, 03/11)
   }));
 }
 
@@ -19825,7 +20375,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20261103-260';
+const APP_VERSION = '20261105-261';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
