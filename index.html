@@ -24,6 +24,7 @@
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>   <!-- v262 — PDF de los informes armado por la app -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700&display=swap" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
@@ -9449,6 +9450,10 @@ const _jpmParte = b => { const n = String((b && b.nombre) || '').toLowerCase().r
   return n === 'jpmorganjcfcinc1002' ? '1002' : (n === 'jpmorganjcfcinc7335' || n === 'jpmorganjcfcinc73351002') ? '7335' : null; };
 // Nombre de la cuenta en los informes
 const _bNom = b => { const p = _jpmParte(b); return p ? 'JP Morgan ' + p : ((b && b.nombre) || '—'); };
+/* v263 — tasa, vencimiento y garantía de un crédito bancario (columnas nuevas de bancos, SQL 41). Sin dato: "—". */
+const _crTasa = b => b && b.tasa_credito != null && b.tasa_credito !== '' ? Number(b.tasa_credito).toFixed(2).replace('.', ',') + '%' : '—';
+const _crVence = b => b && b.vence_credito ? String(b.vence_credito).slice(8, 10) + '/' + String(b.vence_credito).slice(5, 7) + '/' + String(b.vence_credito).slice(0, 4) : '—';
+const _crGar = b => (b && b.garantia_credito) || '—';
 const _bConNom = b => ({ ...b, nombre: _bNom(b) });
 const _nroCompleto = b => (b.nro ?? 9999);
 /* v241 — FUENTES, chiquito al pie de cada informe (Timoteo, 20/10). El tipo de cambio es el del mes
@@ -10011,11 +10016,11 @@ async function renderRepCliente() {
         <span><span style="display:inline-block;width:10px;height:10px;background:#c9a24b;border-radius:2px;margin-right:5px"></span>Menos de 2 años · préstamos PE · <b>${F(prest)}</b> · ${pp(prest)}</span>
         <span><span style="display:inline-block;width:10px;height:10px;background:#0F2A43;border-radius:2px;margin-right:5px"></span>Ilíquido · propiedades, participaciones, autos · <b>${F(ili)}</b> · ${pp(ili)}</span></div></div>`; })();
   // Deuda
-  const _deu = bancos.map(b => { const a = Dp.ban && Dp.ban[b.id], c = D.ban && D.ban[b.id]; return { n: _bNom(b), a: a ? (Number(bancoMovUSD(a).cred) || 0) : 0, c: c ? (Number(bancoMovUSD(c).cred) || 0) : 0 }; }).filter(x => x.a > 0.5 || x.c > 0.5);
+  const _deu = bancos.map(b => { const a = Dp.ban && Dp.ban[b.id], c = D.ban && D.ban[b.id]; return { n: _bNom(b), b, a: a ? (Number(bancoMovUSD(a).cred) || 0) : 0, c: c ? (Number(bancoMovUSD(c).cred) || 0) : 0 }; }).filter(x => x.a > 0.5 || x.c > 0.5);
   const _deuTot = _deu.reduce((t, x) => t + x.c, 0);
   const _deuHTML = !_deu.length ? '' : `<div class="card" style="margin-bottom:14px"><div class="section-title" style="font-size:13px;margin:0 0 8px">Deuda</div>
       <table class="tbl-compacta"><thead><tr><th>Línea</th><th class="num">1/1/${Y}</th><th class="num">${_fechaRep}</th><th class="num">Tasa</th><th class="num">Vence</th><th class="num">Garantía</th></tr></thead><tbody>
-      ${_deu.map(x => `<tr><td>Crédito ${x.n}</td><td class="num" style="color:var(--usa)">${x.a > 0.5 ? '−$' + fmt(Math.round(x.a)) : '—'}</td><td class="num" style="color:var(--usa)">${x.c > 0.5 ? '−$' + fmt(Math.round(x.c)) : '—'}</td><td class="num" style="color:var(--text3)">—</td><td class="num" style="color:var(--text3)">—</td><td class="num" style="color:var(--text3)">—</td></tr>`).join('')}
+      ${_deu.map(x => `<tr><td>Crédito ${x.n}</td><td class="num" style="color:var(--usa)">${x.a > 0.5 ? '−$' + fmt(Math.round(x.a)) : '—'}</td><td class="num" style="color:var(--usa)">${x.c > 0.5 ? '−$' + fmt(Math.round(x.c)) : '—'}</td><td class="num">${_crTasa(x.b)}</td><td class="num">${_crVence(x.b)}</td><td class="num">${_crGar(x.b)}</td></tr>`).join('')}
       <tr style="${_TOT}"><td>Total</td><td class="num">−$${fmt(Math.round(_deu.reduce((t, x) => t + x.a, 0)))}</td><td class="num">−$${fmt(Math.round(_deuTot))}</td><td></td><td></td><td></td></tr></tbody></table>
       <p style="font-size:10.5px;color:var(--text3);margin:6px 0 0">Deuda ÷ patrimonio ${TOT ? (_deuTot / TOT * 100).toFixed(1).replace('.', ',') : 0}% · deuda ÷ liquidez ${vB ? (_deuTot / vB * 100).toFixed(1).replace('.', ',') : 0}%.</p></div>`;
   // conteos que coinciden con lo listado
@@ -10274,63 +10279,127 @@ async function _exportarPDF(opt) {
   </style></head><body>
   <div class="hdr"><div style="display:flex;align-items:center;gap:12px"><img src="${OFFIDA_LOGO}" style="height:54px;width:auto"><div><div style="font-family:Georgia,'Times New Roman',serif;font-size:22px;letter-spacing:3px;color:#A8842F;font-weight:700;line-height:1">OFFIDA</div><h1 style="font-size:18px;margin:3px 0 0">${opt.titulo}</h1><div style="color:var(--text3);font-size:12px">${cliNom} \u00b7 ${opt.subtitulo} \u00b7 Cifras en USD</div></div></div></div>${/* v260 — sin la fecha de generado (Timoteo, 03/11): el período ya está en el subtítulo */''}
   ${htmlBody}
+  <div id="pdf-estado" style="position:fixed;top:8px;right:8px;background:#0F2A43;color:#fff;padding:8px 12px;border-radius:6px;font-size:12px;z-index:9;box-shadow:0 2px 8px rgba(0,0,0,.2)">Armando el PDF…</div>
   <script>
-  /* v243 — AJUSTE A LA HOJA ANTES DE IMPRIMIR (Timoteo, 21/10).
-     El body mide en pantalla lo mismo que la hoja impresa (190 mm), así que lo que se mide acá es lo que
-     sale en papel. Alto útil de A4 con 10 + 12 mm de margen = 275 mm.
-     · .hoja-fija (la primera hoja del mensual, las dos primeras del semestral): tiene que entrar entera;
-       si no entra, se achica con zoom lo justo.
-     · Un cuadro (.card) no se corta entre hojas: si entra, el navegador lo baja entero a la hoja siguiente
-       (break-inside:avoid). Si mide más que una hoja, se achica hasta 80 %; si ni así entra, arranca en hoja
-       nueva y se corta (no hay otra). */
+  /* v262 — EL PDF LO ARMA LA APP Y SE DESCARGA SOLO, APAISADO (Timoteo, 05/11: "que la descarga sea automáticamente en
+     horizontal; se me están cortando todos los reportes en cualquier lado").
+     Antes se abría el diálogo de impresión y cada navegador decidía la orientación y los cortes (Safari, por ejemplo, ignora
+     el tamaño de hoja y los "no cortar"). Ahora: (1) se ajusta todo a la hoja como antes (la hoja fija entra entera; los
+     bloques "junto" van juntos; un cuadro más alto que la hoja se achica), (2) la app decide dónde termina cada hoja: corta
+     sólo entre cuadros, nunca adentro de un cuadro, una fila, un párrafo o un gráfico, y respeta los saltos de hoja pedidos,
+     y (3) dibuja cada hoja y arma el PDF A4 apaisado con el número de hoja abajo. */
   (function () {
-    /* v248 — NUNCA UNA HOJA EN BLANCO (Timoteo, 26/10: la primera hoja del mensual de FC salía vacía).
-       Pasaba cuando la hoja fija quedaba unos px más alta que la hoja real (redondeos del zoom, fuentes de la Mac):
-       con break-inside:avoid el navegador la bajaba entera y la hoja 1 quedaba sólo con el encabezado.
-       Ahora: (1) se mide contra la hoja con 3 % de margen de seguridad, (2) se repite el ajuste hasta que entre
-       (hasta 60 %), y (3) si ni así entra, la hoja fija deja de ser "inseparable": se corta, pero no deja una hoja vacía.
-       Lo mismo para los cuadros: el que mide más que una hoja se achica contra el alto con margen. */
-    var H = (${opt.horizontal?188:275} * 96 / 25.4) * 0.94;   // v250 — 6 % de margen de seguridad
+    var HORIZ = ${opt.horizontal ? 'true' : 'false'}, NOMBRE = ${JSON.stringify(((opt.archivo || ('Offida - ' + (cliNom ? cliNom + ' - ' : '') + opt.titulo + ' - ' + opt.subtitulo)).replace(/[\\/:*?"<>|]/g, '').replace(/\s*\u00b7\s*/g, ' - ').replace(/\s+/g, ' ').trim()) + '.pdf')};
+    var PX = 96 / 25.4, PAG_MM = HORIZ ? 188 : 275, ANCHO_MM = HORIZ ? 277 : 190;
+    var W = document.body.getBoundingClientRect().width, MM = ANCHO_MM / W, GAP_MM = 3.5;   // MM: mm por px a escala 1
     function alto(el) { return el.getBoundingClientRect().height; }
-    function ajustar() {
-      var hdr = document.querySelector('body > .hdr');
-      /* v253 — NINGÚN CUADRO MÁS ANCHO QUE LA HOJA. Si una tabla (letra grande, números sin cortar) se pasa del ancho, el
-         navegador achica TODA la impresión para que entre, y así salía la letra chica en todo el informe. Ahora el cuadro
-         que se pasa se achica sólo él, lo justo para entrar en el ancho. */
-      var todas = document.querySelectorAll('.card');
-      for (var w = 0; w < todas.length; w++) { var cw = todas[w], sw = cw.scrollWidth, ww = cw.clientWidth;
-        if (sw > ww + 1) cw.style.zoom = Math.floor(ww / sw * 1000) / 1000; }
-      var hojas = document.querySelectorAll('.hoja-fija');
-      for (var i = 0; i < hojas.length; i++) {
-        var el = hojas[i], extra = 0;
-        if (i === 0 && hdr && !el.classList.contains('pgbreak')) { var cs = getComputedStyle(hdr); extra = alto(hdr) + parseFloat(cs.marginTop || 0) + parseFloat(cs.marginBottom || 0); }
-        /* v251 — la primera hoja se ajusta contra 88 % del alto (Timoteo, 27/10: en su Chrome la impresión sale ~7 % más
-           alta que lo que se mide en la ventana y "El mes en breve" pasaba a la hoja 2). */
-        var Hf = (i === 0) ? (${opt.horizontal?188:275} * 96 / 25.4) * 0.90 : H;
-        for (var k = 0; k < 8; k++) { var h = alto(el); if (h + extra <= Hf) break;
-          var z = (parseFloat(el.style.zoom) || 1) * (Hf - extra) / h * 0.99; el.style.zoom = Math.max(0.6, Math.floor(z * 1000) / 1000);
-          if (parseFloat(el.style.zoom) <= 0.6) break; }
-        if (alto(el) + extra > Hf) { el.style.breakInside = 'auto'; el.style.pageBreakInside = 'auto'; }
-        /* v250 — la PRIMERA hoja fija nunca es inseparable (Timoteo, 26/10: en su Chrome la hoja 1 del mensual de FC
-           seguía saliendo vacía aunque acá entraba). Lo que se mide en la ventana y lo que el navegador arma al imprimir
-           pueden diferir unos px; si difieren, ahora a lo sumo el último cuadro pasa a la hoja 2, nunca queda la hoja 1
-           con el encabezado solo. */
-        if (i === 0 && !el.classList.contains('pgbreak')) { el.style.breakInside = 'auto'; el.style.pageBreakInside = 'auto'; el.style.breakBefore = 'avoid'; el.style.pageBreakBefore = 'avoid'; }
-      }
-      /* v255 — .junto: cuadros que tienen que ir en la MISMA hoja (Timoteo, 28/10: bancos inversión + operativas + saldo por
-         año; rentabilidad por año + cartera completa). Si juntos no entran, se achican juntos lo mínimo para entrar. */
-      var jun = document.querySelectorAll('.junto');
-      for (var q = 0; q < jun.length; q++) { var jj = jun[q], hj = alto(jj);
-        if (hj > H) jj.style.zoom = Math.max(0.6, Math.floor(H / hj * 0.99 * 1000) / 1000); }
-      var cards = document.querySelectorAll('.card');
-      for (var j = 0; j < cards.length; j++) { var c = cards[j];
-        if (c.closest('.hoja-fija') || c.closest('.junto')) continue;
-        var hc = alto(c); if (hc <= H) continue;
-        if (H / hc >= 0.8) c.style.zoom = Math.floor(H / hc * 0.99 * 1000) / 1000;
-        else { c.style.breakBefore = 'page'; c.style.pageBreakBefore = 'always'; } }
+    function forzado(el) { var e = el; while (e && e !== document.body) { if (e.classList && e.classList.contains('pgbreak')) return true; if (e.parentElement && e.parentElement.firstElementChild !== e) break; e = e.parentElement; } return false; }
+    /* BLOQUES: lo que va uno abajo del otro en la hoja. Un contenedor simple (un div que sólo agrupa) se abre en sus hijos;
+       un cuadro, un bloque "junto", una hoja fija, una grilla de cuadros o una tabla es un bloque. */
+    var HOJA = '.card,.hoja-fija,.junto,.no-corta,.hdr,table,.rep-kpis,.rep-h2,svg,img,canvas,p,h1,h2,h3,ul';
+    function esContenedor(e) { if (e.matches(HOJA)) return false; var cs = getComputedStyle(e); if (cs.display !== 'block') return false;
+      if (e.children.length < 2) return false; for (var n = e.firstChild; n; n = n.nextSibling) if (n.nodeType === 3 && n.textContent.trim()) return false; return true; }
+    function bloques(root, out) { [].forEach.call(root.children, function (c) { if (c.tagName === 'SCRIPT' || c.tagName === 'STYLE' || c.id === 'pdf-estado') return;
+      if (alto(c) < 0.5) return; if (esContenedor(c)) bloques(c, out); else out.push(c); }); return out; }
+    /* AJUSTE: la hoja fija y los bloques "junto" tienen que entrar en una hoja; un bloque que se pasa por poco (hasta 25 %)
+       también se achica en vez de partirse. Achicar = dibujarlo más ancho y después reducir la imagen (como el zoom de antes). */
+    function ajustar(bs, altoHdr) {
+      var lim = PAG_MM / MM;   // alto útil en px a escala 1
+      bs.forEach(function (el, i) { var h = alto(el), base = (i === 1 && altoHdr) ? lim - altoHdr : lim;
+        var fija = el.matches('.hoja-fija,.junto');
+        if (!(fija ? h > base : (h > base && h <= base / 0.75))) return;
+        var z = 1;
+        for (var k = 0; k < 10; k++) { h = alto(el); if (h * z <= base * 0.995) break; z = Math.max(0.55, z * base / (h * z) * 0.99);
+          el.style.width = (W / z) + 'px'; el.style.maxWidth = 'none'; if (z <= 0.55) { h = alto(el); break; } }
+        el._z = z; });
     }
-    function listo() { try { ajustar(); } catch (e) {} setTimeout(function () { try { window.focus(); window.print(); } catch (e) {} }, 150); }
-    if (document.readyState === 'complete') setTimeout(listo, 50); else window.addEventListener('load', function () { setTimeout(listo, 50); });
+    /* Dentro de un bloque más alto que una hoja: dónde se puede cortar (nunca adentro de una fila, un párrafo, un gráfico
+       o un cuadro que entra en una hoja). */
+    function cortesDe(el, z) {
+      var r0 = el.getBoundingClientRect(), top = r0.top, lim = PAG_MM / MM / z, duros = [], blandos = [], cand = [];
+      el.querySelectorAll('tr,p,li,svg,img,canvas,.section-title,h1,h2,h3,.rep-kpi').forEach(function (e) { var r = e.getBoundingClientRect(); if (r.height > 0.5 && r.height < lim) duros.push([r.top - top, r.bottom - top]); });
+      el.querySelectorAll('.card,.no-corta,.junto,table').forEach(function (e) { var r = e.getBoundingClientRect(); if (r.height > 0.5 && r.height <= lim) blandos.push([r.top - top, r.bottom - top]); });
+      duros.concat(blandos).forEach(function (c) { cand.push(c[0]); cand.push(c[1]); });
+      cand.sort(function (a, b) { return a - b; });
+      return { duros: duros, blandos: blandos, cand: cand, h: r0.height };
+    }
+    function libre(y, l) { for (var i = 0; i < l.length; i++) if (l[i][0] < y - 0.5 && l[i][1] > y + 0.5) return false; return true; }
+    function paginar() {
+      var hdr = document.querySelector('body > .hdr'), bs = bloques(document.body, []);
+      ajustar(bs, hdr ? alto(hdr) + 12 : 0);
+      var top0 = window.scrollY, hojas = [[]], usado = 0;
+      /* hoja nueva sólo si la actual tiene algo más que títulos (un título solo nunca queda en una hoja) */
+      function nueva() { var h = hojas[hojas.length - 1]; if (h.length && !h.every(function (t) { return t.el.matches('.rep-h2,.section-title,h1,h2,h3'); })) { hojas.push([]); usado = 0; } }
+      function poner(el, y0, y1, z) { var hmm = (y1 - y0) * z * MM; if (hojas[hojas.length - 1].length) usado += GAP_MM; hojas[hojas.length - 1].push({ el: el, y0: y0, y1: y1, z: z }); usado += hmm; }
+      for (var i = 0; i < bs.length; i++) {
+        var el = bs[i], z = el._z || 1, r = el.getBoundingClientRect(), y0 = r.top + top0, y1 = r.bottom + top0, hmm = (y1 - y0) * z * MM;
+        if (forzado(el) || (el.matches('.hoja-fija') && i > 1)) nueva();
+        var resto = PAG_MM - usado - (hojas[hojas.length - 1].length ? GAP_MM : 0);
+        /* un título se queda con lo que sigue */
+        if (el.matches('.rep-h2,.section-title,h2,h3') && bs[i + 1]) { var rn = bs[i + 1].getBoundingClientRect(), hn = Math.min((rn.bottom - rn.top) * (bs[i + 1]._z || 1) * MM, 45);
+          if (hmm + GAP_MM + hn > resto) { nueva(); resto = PAG_MM; } }
+        if (hmm <= resto + 0.5) { poner(el, y0, y1, z); continue; }
+        if (hmm <= PAG_MM + 0.5) { nueva(); poner(el, y0, y1, z); continue; }
+        /* más alto que una hoja: se parte entre filas o entre cuadros */
+        var C = cortesDe(el, z), ini = 0, guard = 0;
+        if (resto < 50) { nueva(); resto = PAG_MM; }
+        while (ini < C.h - 1 && guard++ < 100) {
+          var cab = resto / MM / z, lim2 = ini + cab, corte = null;
+          if (lim2 >= C.h) corte = C.h;
+          else { for (var c = C.cand.length - 1; c >= 0; c--) { var y = C.cand[c]; if (y > lim2 || y <= ini + 30) continue; if (libre(y, C.duros) && libre(y, C.blandos)) { corte = y; break; } }
+            if (corte === null) for (var c2 = C.cand.length - 1; c2 >= 0; c2--) { var yy = C.cand[c2]; if (yy > lim2 || yy <= ini + 30) continue; if (libre(yy, C.duros)) { corte = yy; break; } }
+            if (corte === null) corte = lim2; }
+          poner(el, y0 + ini, y0 + corte, z); ini = corte;
+          if (ini < C.h - 1) { nueva(); resto = PAG_MM; }
+        }
+      }
+      window._pdfDbg = bs.map(function (e) { return (e.className || e.tagName).toString().slice(0, 30) + ' h=' + Math.round(alto(e)) + ' z=' + (e._z || 1).toFixed(2) + (forzado(e) ? ' F' : ''); });
+      return hojas.filter(function (h) { return h.length; });
+    }
+    async function armar() {
+      var est = document.getElementById('pdf-estado');
+      try {
+        window.scrollTo(0, 0);
+        /* el body pegado a la izquierda: la copia que dibuja el generador es más ancha que esta ventana y, centrado, quedaba corrido */
+        document.body.style.margin = '0'; W = document.body.getBoundingClientRect().width; MM = ANCHO_MM / W;
+        /* los estilos que vienen dentro del informe pasan al encabezado: la copia que dibuja el generador no los aplicaba
+           (la letra salía de otro tamaño y los cuadros de otro alto que los medidos) */
+        [].forEach.call(document.querySelectorAll('body style'), function (st) { document.head.appendChild(st); });
+        var hojas = paginar();
+        await new Promise(function (r) { setTimeout(r, 150); });
+        var J = LIB.jspdf.jsPDF, doc = new J({ orientation: HORIZ ? 'landscape' : 'portrait', unit: 'mm', format: 'a4' });
+        var pagW = HORIZ ? 297 : 210, pagH = HORIZ ? 210 : 297, x0 = document.body.getBoundingClientRect().left + window.scrollX;
+        var winW = Math.max(document.documentElement.scrollWidth, Math.ceil(W / 0.55) + 40), winH = document.documentElement.scrollHeight;
+        est.style.display = 'none';
+        for (var i = 0; i < hojas.length; i++) {
+          if (i > 0) doc.addPage('a4', HORIZ ? 'landscape' : 'portrait');
+          /* trozos seguidos con la misma escala se dibujan juntos (así quedan los márgenes originales entre cuadros) */
+          var grupos = [];
+          hojas[i].forEach(function (t) { var g = grupos[grupos.length - 1];
+            if (g && g.z === t.z && t.y0 >= g.y1 - 0.5 && t.y0 - g.y1 < 40 && t.el.parentElement === g.par) { g.y1 = t.y1; } else grupos.push({ y0: t.y0, y1: t.y1, z: t.z, par: t.el.parentElement }); });
+          var yMm = 10;
+          for (var gI = 0; gI < grupos.length; gI++) { var g = grupos[gI], ancho = W / g.z;
+            var cv = await LIB.h2c(document.body, { x: x0, y: g.y0, width: Math.ceil(ancho), height: Math.ceil(g.y1 - g.y0), scale: 2, backgroundColor: '#ffffff', useCORS: true, logging: false,
+              windowWidth: winW, windowHeight: winH, scrollX: 0, scrollY: 0, ignoreElements: function (e) { return e.id === 'pdf-estado'; } });
+            var hMm = (g.y1 - g.y0) * g.z * MM;
+            doc.addImage(cv.toDataURL('image/jpeg', 0.92), 'JPEG', 10, yMm, ANCHO_MM, hMm, undefined, 'FAST');
+            yMm += hMm + GAP_MM; }
+          doc.setFontSize(8); doc.setTextColor(136); doc.text(String(i + 1), pagW / 2, pagH - 5, { align: 'center' });
+        }
+        window._pdfHojas = hojas.map(function (h) { return h.reduce(function (t, x) { return t + (x.y1 - x.y0) * x.z * MM; }, 0); });
+        var url = URL.createObjectURL(new Blob([doc.output('arraybuffer')], { type: 'application/pdf' }));
+        var bajar = function () { var l = document.createElement('a'); l.href = url; l.download = NOMBRE; document.body.appendChild(l); l.click(); l.remove(); };
+        bajar(); window._pdfBajar = bajar;
+        est.style.display = ''; est.innerHTML = 'PDF descargado · ' + hojas.length + ' hojas · <a href="#" style="color:#f5d98b" onclick="window._pdfBajar();return false">descargar de nuevo</a>';
+      } catch (e) { est.style.display = ''; est.style.background = '#c0605f'; est.textContent = 'No se pudo armar el PDF: ' + e.message; }
+    }
+    /* las librerías las trae la app (la ventana del informe no carga nada de afuera) */
+    var LIB = {}, intentos = 0;
+    function listo() { var o = window.opener || {}; LIB.h2c = window.html2canvas || o.html2canvas; LIB.jspdf = window.jspdf || o.jspdf;
+      if (LIB.h2c && LIB.jspdf) armar();
+      else if (++intentos < 60) setTimeout(listo, 250);
+      else { var e = document.getElementById('pdf-estado'); e.style.background = '#c0605f'; e.textContent = 'No se pudo cargar el generador de PDF (revisá la conexión y volvé a exportar).'; } }
+    if (document.readyState === 'complete') setTimeout(listo, 80); else window.addEventListener('load', function () { setTimeout(listo, 80); });
   })();
   <\/script>
   </body></html>`);
@@ -12378,6 +12447,10 @@ function _cruzarTrAp(trs, aps, bIds) {
         while (true) { if (_ok(idx.reduce((t, i) => t + c[i].v, 0), v)) { hit = idx.map(i => c[i]); break; }
           let j = k - 1; while (j >= 0 && idx[j] === n - k + j) j--; if (j < 0) break; idx[j]++; for (let q = j + 1; q < k; q++) idx[q] = idx[q - 1] + 1; } } }
     if (hit) { hit.forEach(l => l.u = true); apConTr.add(a.id); } });
+  /* v263 — segunda vuelta: lo que quedó sin pareja, mismo monto exacto (±0,5 %), hasta 15 días. 4976: el retiro del 05/06
+     y la llegada a Galicia del 18/06 (Galicia y Santander confirmaron las llegadas, Timoteo 05/11). */
+  (aps || []).filter(a => a.fecha && bIds.has(a.banco_id) && !apConTr.has(a.id)).forEach(a => { const v = Math.abs(Number(a.monto) || 0), sale = a.tipo === 'retiro';
+    const l = legs.find(l => !l.u && l.id === a.banco_id && l.sale === sale && _dd(l.f, a.fecha) <= 15 && _ok(l.v, v)); if (l) { l.u = true; apConTr.add(a.id); } });
   return { apConTr, sinAp: legs.filter(l => !l.u) };
 }
 
@@ -12724,6 +12797,40 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
     _RUB_OUT.forEach(r => add(r, r, false));
   });
 
+  /* v263 — RENTAS Y GASTOS DE PROPIEDADES DE OTRO TITULAR QUE PASAN POR UNA CUENTA DEL CLIENTE (Timoteo, 05/11: la renta
+     de Arcos 1440 p12, que es de G, entra todos los meses a la Chase FC & BB 9716 de FC). Con el linkeo (desde julio) ya se
+     ven como movimiento con otro titular; antes del linkeo salían como "entrada sin explicar". Se toman de las reglas de
+     cobro y pago de esa propiedad. Sólo en los meses sin linkeo (con linkeo lo hace el detalle de cada cuenta). */
+  const _ajenoCta = {}, _ajenoOT = [], _peCta = {};
+  // la cuenta de la regla tiene que existir ese mes (las reglas son de julio en adelante: Itaú 0426 abrió en junio)
+  const _existe = (cid, m) => (mbYearR.data || []).some(r => r.banco_id === cid && +r.mes === +m);
+  { const _opIds = new Set(bancos.filter(b => b.es_operativa === true).map(b => b.id)), _misNros = new Set(props.map(p => p.nro));
+    const _nrosAj = [...new Set(_rgs.filter(r => (r.categoria === 'propiedad' || r.categoria === 'propiedades') && _opIds.has(r.cuenta_id) && r.activo_nro != null && !_misNros.has(r.activo_nro)).map(r => r.activo_nro))];
+    let _sinLk = true; for (let m = m1; m <= m2; m++) if (lkVigente(anio, m)) { _sinLk = false; break; }
+    if (_nrosAj.length && _sinLk) { try {
+      const pr = await sb.from('propiedades').select('id,nro,nombre,titular').in('nro', _nrosAj);
+      const pa = (pr && pr.data) || [];
+      const mr = pa.length ? await sb.from('movimientos_propiedades').select('*').eq('anio', anio).gte('mes', m1).lte('mes', m2).in('propiedad_id', pa.map(p => p.id)) : { data: [] };
+      ((mr && mr.data) || []).forEach(m => { const p = pa.find(x => x.id === m.propiedad_id); if (!p) return;
+        const add = (rubro, esIn) => { const v = Math.abs(rubroPropUSD(m, rubro, esIn ? 'moneda_renta' : (_RUB_IMP.includes(rubro) ? 'moneda_impuestos' : 'moneda_gastos')));
+          if (v < 0.005) return; const cid = _cuentaDe(p.nro, rubro, m.mes); if (!cid || !_opIds.has(cid) || !_existe(cid, m.mes)) return;
+          const c = _ajenoCta[cid] = _ajenoCta[cid] || { cobro: 0, pago: 0 }; if (esIn) c.cobro += v; else c.pago += v;
+          const b = bancos.find(x => x.id === cid), k = p.nombre + ' (' + p.titular + ') · ' + (b ? _bNom(b) : '');
+          let o = _ajenoOT.find(x => x.n === k); if (!o) _ajenoOT.push(o = { n: k, v: 0 }); o.v += esIn ? v : -v; };
+        _RUB_IN.forEach(r => add(r, true)); _RUB_OUT.forEach(r => add(r, false)); });
+    } catch (e) { console.warn('propiedades de otro titular:', e.message); } }
+    /* v263 — COBROS DE PE ANTES DEL LINKEO: van a la cuenta que dice la regla de cobro de esa posición (Ulster LOAN → Chase
+       9716; Panera Rosa → CAJA CHICA Y GRANDE). Si la cuenta es de otro titular, es plata del cliente que fue a otro. */
+    if (_sinLk) { const _ext = {};
+      for (const p of pe) { const r = _rgs.find(x => x.categoria === 'pe' && x.activo_nro === p.nro && (x.rubro === 'utilidad' || x.rubro === '*')); if (!r || !r.cuenta_id) continue;
+        const ms = ((window._peMovsByPe || {})[p.id] || []).filter(m => +m.anio === anio && +m.mes >= m1 && +m.mes <= m2 && (Number(m.utilidad) || 0) > 0.5);
+        for (const m of ms) { const v = (Number(m.utilidad) || 0) * share(p);
+          if (_opIds.has(r.cuenta_id) && _existe(r.cuenta_id, m.mes)) { const c = _ajenoCta[r.cuenta_id] = _ajenoCta[r.cuenta_id] || { cobro: 0, pago: 0 }; c.cobro += v; _peCta[p.id + '|' + m.mes] = true; }
+          else if (!bancos.some(b => b.id === r.cuenta_id)) {
+            if (!(r.cuenta_id in _ext)) { try { const q = await sb.from('bancos').select('nombre,titular').eq('id', r.cuenta_id); _ext[r.cuenta_id] = ((q && q.data) || [])[0] || null; } catch (e) { _ext[r.cuenta_id] = null; } }
+            const bb = _ext[r.cuenta_id]; if (!bb) continue;
+            const k = p.nombre + ' → ' + bb.nombre + ' (' + bb.titular + ')'; let o = _ajenoOT.find(x => x.n === k); if (!o) _ajenoOT.push(o = { n: k, v: 0 }); o.v -= v; _peCta[p.id + '|' + m.mes] = true; } } } } }
+
   /* ── APORTES Y RETIROS DE CAPITAL ──
      Un aporte sube el saldo sin que la cuenta haya rendido nada. Sin separarlo,
      una transferencia de 100.000 se lee como un rendimiento de 100.000. */
@@ -12784,11 +12891,15 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
     const _ts = _trSinAp[b.id] || { ent: 0, sal: 0 }, _inv0 = b.es_operativa !== true;
     const ap = (_apMes[b.id]||0) + (_inv0 ? _ts.ent : 0), re = (_reMes[b.id]||0) + (_inv0 ? _ts.sal : 0);
     const lk = _porCuenta[b.id] || {};
-    const cobro = Object.values(lk).reduce((s,x)=>s+x.cobro,0) + (!_inv0 && !_edOn0 ? _ts.ent : 0);
-    const pago  = Object.values(lk).reduce((s,x)=>s+x.pago,0) + (!_inv0 && !_edOn0 ? _ts.sal : 0);
+    const _aj = _ajenoCta[b.id] || { cobro: 0, pago: 0 };
+    const cobro = Object.values(lk).reduce((s,x)=>s+x.cobro,0) + (!_inv0 && !_edOn0 ? _ts.ent : 0) + _aj.cobro;
+    const pago  = Object.values(lk).reduce((s,x)=>s+x.pago,0) + (!_inv0 && !_edOn0 ? _ts.sal : 0) + _aj.pago;
     // Operativa: lo que la cuenta se movio y los cobros/pagos no explican, se consumio.
     // c y a ya son CASH: el credito no entra en el consumo ni en el rendimiento.
-    const personales = (cobro - pago) + (ap - re) - (c - a);
+    /* v263 — el crédito de la cuenta cuenta (Timoteo, 05/11: el adelanto del crédito JPM de 108.000 que entró a la 7335 el
+       27/05 salía como "entrada sin explicar"). Lo que se mide es el NETO (cash − crédito): un adelanto sube el cash y la
+       deuda por igual (no es gasto ni ingreso) y una compra con tarjeta sube la deuda sin mover el cash (sí es gasto). */
+    const personales = (cobro - pago) + (ap - re) - (c - a) + ((cred || 0) - (credA || 0));
     /* v246 — en las cuentas de INVERSIÓN el rendimiento va sobre el NETO (cash − crédito) (Timoteo, 23/10): un aporte que
        se usa para pagar el crédito no sube el cash, baja la deuda; sobre el cash se leía como pérdida (2048: −47 % en el año). */
     const rend = b.es_operativa === true ? (c - a) - (ap - re) : ((c - cred) - (a - credA)) - (ap - re);
@@ -12945,6 +13056,8 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
                                  : _lista(G.rub)) + ` (${G.n} pago${G.n === 1 ? '' : 's'})`;
           L.push({ k: G.v >= 0 ? '+' : '−', txt: `${g} · ${det}`, v: G.v });
         });
+        { const dCr = (x.cred || 0) - (x.credA || 0);   // v263 — más deuda en la cuenta: explica cash que entró (adelanto) o es gasto con tarjeta (sale como gasto familiar)
+          if (Math.abs(dCr) > 0.5) L.push({ k: dCr >= 0 ? '+' : '−', txt: dCr >= 0 ? 'Crédito tomado (adelanto o tarjeta)' : 'Crédito devuelto', v: ars ? dCr * _tcFin : dCr }); }
         const sA = ars ? _cashARS(_movArsAt(x.b.id, m1 - 1)) : x.a;
         const sC = ars ? _cashARS(_movArsAt(x.b.id, m2)) : x.c;
         const vari = (sC || 0) - (sA || 0);
@@ -13037,9 +13150,9 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
   /* v261 — COBROS DE PE QUE ENTRAN COMO APORTE A UNA CUENTA DE INVERSIÓN (auditoría del puente, 04/11: la cuota de
      TGA FINANCIAL FC, 5.652,50 por mes, entra a la BNY 2048 como "aporte"). No es plata de afuera: es el PE que se cobra
      (capital + interés) y pasa a los bancos. Se reconoce por el monto (±0,5 %) en el mismo mes y no va a entradas de capital. */
-  const _peCobMes = [];
+  const _peCobMes = [], _gfInv = [];
   pe.forEach(p => ((window._peMovsByPe || {})[p.id] || []).filter(m => +m.anio === anio && +m.mes >= m1 && +m.mes <= m2 && (Number(m.utilidad) || 0) > 0.5)
-    .forEach(m => _peCobMes.push({ p: p.nombre, mes: +m.mes, v: (Number(m.utilidad) || 0) * share(p), usado: false })));
+    .forEach(m => _peCobMes.push({ p: p.nombre, mes: +m.mes, v: (Number(m.utilidad) || 0) * share(p), usado: !!_peCta[p.id + '|' + m.mes] })));
   _apsMes.forEach(a => { if (a.vinculo_id && (_vinc[a.vinculo_id] || []).some(o => o.id !== a.id && _ids.has(o.banco_id))) return;
     if (a.tipo !== 'retiro') { const _m = +String(a.fecha).slice(5, 7), _v = Math.abs(Number(a.monto) || 0);
       const _c = _peCobMes.find(c => !c.usado && c.mes === _m && Math.abs(c.v - _v) <= Math.max(1, _v * 0.005)); if (_c) { _c.usado = true; return; } }
@@ -13048,8 +13161,11 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
        acreditación tarda: 4976 manda 100.000 el 09/09 y Galicia recibe 99.955 el 10/09). Cada transferencia se usa una vez. */
     if (_apConTr.has(a.id)) return;   // ya está como transferencia (una o varias: ver _apConTr)
     const b = _bnAll[a.banco_id]; if (b && b.es_operativa) return;   // en las operativas ya cuenta en su variación
+    /* v263 — un retiro que es un gasto (honorarios del contador, 4976 24/06/2026, Timoteo 05/11) va a gasto familiar, no a capital */
+    if (v < 0 && /honorari/i.test((a.notas || '') + ' ' + (a.detalle || ''))) { _gfInv.push({ n: _bNom(b || {}) + ' · ' + (a.detalle || a.notas) + ' · ' + String(a.fecha).slice(8,10) + '/' + String(a.fecha).slice(5,7), v: -v }); return; }
     _T.cap.push({ v, nota: a.notas || '', n: (v < 0 ? 'retiro de ' : 'aporte a ') + _bNom(b || {}) + (a.detalle ? ' · ' + a.detalle : '') + ' · ' + String(a.fecha).slice(8,10) + '/' + String(a.fecha).slice(5,7) }); });
   _lnOtros.forEach(l => _T.ot.push({ v: l.v, n: l.n + ' (' + l.tit + ')' }));
+  _ajenoOT.forEach(o => { if (Math.abs(o.v) > 0.5) _T.ot.push({ v: o.v, n: o.n }); });   // v263
   /* v261 — UNA POSICIÓN DE PE QUE PASA A OTRO TITULAR (TGA FINANCIAL de FC → TGA de H, abril 2026) sale del patrimonio sin ser
      resultado: va con los movimientos con otros titulares. Y al revés, la que llega de otro titular. Valor: lo que valía antes. */
   { const _todosPE = peR.data || [], _ini0 = anio + '-' + _pad2(m1) + '-01';
@@ -13061,10 +13177,12 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
       const v = _val0(q) * share(p); if (Math.abs(v) > 0.5) _T.ot.push({ v, n: q.nombre + ' (' + q.titular + ') → ' + p.nombre }); }); }
   const _sum = a => a.reduce((t, x) => t + x.v, 0);
   const _gfCtas = _oper.map(x => ({ n: x.b.nombre, v: x.personales })).filter(x => Math.abs(x.v) > 0.5).sort((a, b) => b.v - a.v);
+  _gfInv.forEach(x => _gfCtas.push(x));   // v263 — gastos pagados desde una cuenta de inversión
   const GF = _gfCtas.filter(x => x.v > 0).reduce((t, x) => t + x.v, 0);           // gasto familiar = salidas sin explicar
   const ENTSIN = -_gfCtas.filter(x => x.v < 0).reduce((t, x) => t + x.v, 0);      // entradas sin explicar (van al residuo)
   const COMP = _compMes, PAGOS = _sum(_T.compra), OT = _sum(_T.ot), CAP = _sum(_T.cap);
-  const CRED = -_oper.reduce((t, x) => t + (x.cred || 0) - (x.credA || 0), 0);   // más deuda en tarjetas/cuentas operativas = baja el patrimonio
+  /* v263 — el crédito de las operativas ya está dentro del gasto familiar (se mide sobre el neto): sin renglón aparte */
+  const CRED = 0;
   /* v261 — GASTO FAMILIAR ACUMULADO Y DEL PERÍODO = SUMA DE LOS MESES (Timoteo, 04/11: "no dan lo mismo"). Medido de una
      vez sobre el semestre, los traspasos que salen un mes y llegan al siguiente se compensan y el total no coincidía con la
      suma de los meses. Ahora el gasto de cualquier período es la suma del gasto de cada mes. Modo '_gf': corre sólo hasta acá. */
@@ -13468,11 +13586,11 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
         .map(x => `<tr><td>${x.a.nombre}</td><td class="num">${$m(x.v)}</td><td class="num" style="color:${Math.abs(x.gm) < 0.5 ? 'var(--text3)' : 'var(--usa)'}">${Math.abs(x.gm) < 0.5 ? '—' : '−' + $m(x.gm)}</td><td class="num" style="color:${Math.abs(x.g) < 0.5 ? 'var(--text3)' : 'var(--usa)'}">${Math.abs(x.g) < 0.5 ? '—' : '−' + $m(x.g)}</td></tr>`).join('')}
       <tr style="${OFF_TOT_CSS}"><td>Total</td><td class="num">${$m(vAutos)}</td><td class="num">−${$m(autos.reduce((t, a) => t + (_gAutoMes[a.id] || 0) * share(a), 0))}</td><td class="num">−${$m(autos.reduce((t, a) => t + (_gAuto[a.id] || 0) * share(a), 0))}</td></tr>
       </tbody></table></div>`;
-  const _deudaHTML = (() => { const ls = _bDat.filter(x => (x.cred || 0) > 0.5 || (x.credA || 0) > 0.5).map(x => ({ n: x.b.nombre, a: x.credA || 0, c: x.cred || 0 }));
+  const _deudaHTML = (() => { const ls = _bDat.filter(x => (x.cred || 0) > 0.5 || (x.credA || 0) > 0.5).map(x => ({ n: x.b.nombre, b: x.b, a: x.credA || 0, c: x.cred || 0 }));
     if (!ls.length || ls.every(l => Math.abs(l.c - l.a) < 0.5)) return '';
     return `<div class="card no-corta" style="margin-bottom:12px"><div class="section-title" style="margin-bottom:8px">Deuda · se movió en el mes</div>
       <table class="tbl-compacta"><thead><tr><th>Línea</th><th class="num">${_hdrPrev}</th><th class="num">${_hdrCie}</th><th class="num">Variación</th><th class="num">Tasa</th></tr></thead><tbody>
-      ${ls.map(l => `<tr><td>Crédito ${l.n}</td><td class="num">−${$m(l.a)}</td><td class="num">−${$m(l.c)}</td><td class="num" style="color:${Math.abs(l.a - l.c) < 0.5 ? 'var(--text3)' : col(l.a - l.c)}">${Math.abs(l.a - l.c) < 0.5 ? '—' : sg(l.a - l.c) + $m(Math.abs(l.a - l.c))}</td><td class="num" style="color:var(--text3)">—</td></tr>`).join('')}
+      ${ls.map(l => `<tr><td>Crédito ${l.n}</td><td class="num">−${$m(l.a)}</td><td class="num">−${$m(l.c)}</td><td class="num" style="color:${Math.abs(l.a - l.c) < 0.5 ? 'var(--text3)' : col(l.a - l.c)}">${Math.abs(l.a - l.c) < 0.5 ? '—' : sg(l.a - l.c) + $m(Math.abs(l.a - l.c))}</td><td class="num">${_crTasa(l.b)}</td></tr>`).join('')}
       </tbody></table></div>`; })();
   const _detalle2 = `
     <div style="display:grid;grid-template-columns:0.85fr 1.15fr;gap:10px;align-items:start">
@@ -13510,6 +13628,7 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
     const prest = pe.reduce((t, p) => { if (peTipoDe(p) !== 'prestamo') return t; let v = 0; try { v = peCalc(p, anio, null, m2).tenencia || 0; } catch(e) {} return t + v * share(p); }, 0);
     const ili = patTotal - inm - prest; return { inm, prest, ili }; })();
   window._ultMensual.liq = _liq;
+  window._ultMensual.ctas = _bDat.filter(x => x.b.es_operativa === true).map(x => ({ n: x.b.nombre, a: x.a, c: x.c, cred: x.cred, credA: x.credA, cobro: x.cobro, pago: x.pago, ap: x.ap, re: x.re, per: x.personales }));
   if (periodoTxt === '_pu') return;   // v261 — corrida interna del semestral/anual: ya están los números del puente
   // gasto familiar acumulado del año: misma cuenta, mes por mes no está guardado → se muestra "a calcular" si no es enero
   const _pctP = v => patTotal ? (v / patTotal * 100).toFixed(1).replace('.', ',') + '%' : '—';
@@ -14234,7 +14353,7 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
   const _deudaS = !_dLin.length && !prestamos.length ? '' : `<div class="card no-corta" style="margin-bottom:12px">
       <div class="section-title" style="font-size:14px;margin-bottom:8px">Deuda</div>
       <table class="tbl-compacta"><thead><tr><th>Línea</th><th class="num">${M1 === 1 ? '31/12/' + String(ANIO - 1).slice(2) : OPEN_LBL}</th><th class="num">${FECHA_CIERRE.slice(0, 6) + String(ANIO).slice(2)}</th><th class="num">Variación</th><th class="num">Tasa</th><th class="num">Costo del ${PER_NOMBRE}</th></tr></thead><tbody>
-        ${_dLin.map(d => `<tr><td>Crédito ${d.nombre}</td><td class="num">${d.cBeg > 0.5 ? '−$' + fmt(Math.round(d.cBeg)) : '—'}</td><td class="num">${d.cEnd > 0.5 ? '−$' + fmt(Math.round(d.cEnd)) : '—'}</td><td class="num" style="color:${_cv(d.cBeg - d.cEnd)}">${Math.abs(d.cBeg - d.cEnd) < 0.5 ? '—' : $s(d.cBeg - d.cEnd)}</td><td class="num" style="color:var(--text3)">—</td><td class="num" style="color:var(--text3)">—</td></tr>`).join('')}
+        ${_dLin.map(d => `<tr><td>Crédito ${d.nombre}</td><td class="num">${d.cBeg > 0.5 ? '−$' + fmt(Math.round(d.cBeg)) : '—'}</td><td class="num">${d.cEnd > 0.5 ? '−$' + fmt(Math.round(d.cEnd)) : '—'}</td><td class="num" style="color:${_cv(d.cBeg - d.cEnd)}">${Math.abs(d.cBeg - d.cEnd) < 0.5 ? '—' : $s(d.cBeg - d.cEnd)}</td><td class="num">${_crTasa(d.b)}</td><td class="num">${d.b && d.b.tasa_credito != null ? '−$' + fmt(Math.round((d.cBeg + d.cEnd) / 2 * Number(d.b.tasa_credito) / 100 * (M2 - M1 + 1) / 12)) : '—'}</td></tr>`).join('')}
         ${prestamos.map(p => `<tr><td>${p.descripcion || 'Préstamo'}</td><td class="num">—</td><td class="num">−$${fmt(Math.round(prestUSD(p)))}</td><td class="num">—</td><td class="num">${p.tasa != null ? p.tasa + '%' : '—'}</td><td class="num">—</td></tr>`).join('')}
         <tr style="${OFF_TOT_CSS}"><td>Total</td><td class="num">−$${fmt(Math.round(_dLin.reduce((t, d) => t + d.cBeg, 0)))}</td><td class="num">−$${fmt(Math.round(_dLin.reduce((t, d) => t + d.cEnd, 0) + deudaTotal))}</td><td></td><td></td><td></td></tr>
       </tbody></table>
@@ -14358,7 +14477,7 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
       .rep-doc .rep-mini table{table-layout:fixed;width:100%;} .rep-doc .rep-mini td:first-child,.rep-doc .rep-mini th:first-child{white-space:normal!important;width:17%;word-break:break-word;}
       .rep-doc .rep-mini td:nth-child(2),.rep-doc .rep-mini th:nth-child(2){width:12%;}
       .rep-doc td.num,.rep-doc th.num{white-space:nowrap;}
-      .rep-doc [style*="font-size:10px"]{font-size:11.5px!important;} .rep-doc [style*="font-size:11px"]{font-size:12px!important;}
+      .rep-doc [style*="font-size:10px"],.rep-doc [style*="font-size: 10px"]{font-size:11.5px!important;} .rep-doc [style*="font-size:11px"],.rep-doc [style*="font-size: 11px"]{font-size:12px!important;}
       .rep-doc .rep-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:8px;}
       .rep-doc .rep-kpi{border:1px solid #e4e7ec;border-top:3px solid var(--navy);border-radius:7px;padding:7px 8px;text-align:center;background:var(--bg);}
       .rep-doc .rep-kpi .l{font-size:8px;letter-spacing:.6px;color:var(--text3);text-transform:uppercase;margin-bottom:3px;min-height:0;}
@@ -14373,15 +14492,15 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
       .rep-doc .rep-ini .tbl-compacta td{font-size:12.5px!important;padding:3px 7px!important;} .rep-doc .rep-ini .tbl-compacta th{font-size:10px!important;}
       .rep-doc .rep-ini .section-title{font-size:15.5px!important;padding:8px 12px!important;}
       .rep-doc .rep-ini .rep-kpi{padding:9px 6px!important;} .rep-doc .rep-ini .rep-kpi .l{font-size:11px;font-weight:600;} .rep-doc .rep-ini .rep-kpi .v{font-size:27px;} .rep-doc .rep-ini .rep-kpi .s{font-size:12px;}
-      .rep-doc .rep-ini [style*="font-size:10px"]{font-size:12.5px!important;}
-      .rep-doc .rep-ini [style*="font-size:11px"]{font-size:13.5px!important;}
-      .rep-doc .rep-ini [style*="font-size:12px"]{font-size:14.5px!important;}
+      .rep-doc .rep-ini [style*="font-size:10px"],.rep-doc .rep-ini [style*="font-size: 10px"]{font-size:12.5px!important;}
+      .rep-doc .rep-ini [style*="font-size:11px"],.rep-doc .rep-ini [style*="font-size: 11px"]{font-size:13.5px!important;}
+      .rep-doc .rep-ini [style*="font-size:12px"],.rep-doc .rep-ini [style*="font-size: 12px"]{font-size:14.5px!important;}
       /* v253 — la hoja 1 tiene lugar: todavía más grande */
       .rep-doc .rep-xl th,.rep-doc .rep-xl td{font-size:15px!important;padding:9px 8px!important;} .rep-doc .rep-xl table th{font-size:12px!important;}
       .rep-doc .rep-xl .rep-kpi{padding:16px 10px!important;} .rep-doc .rep-xl .rep-kpi .v{font-size:30px;} .rep-doc .rep-xl .rep-kpi .l{font-size:12px;} .rep-doc .rep-xl .rep-kpi .s{font-size:13px;}
       .rep-doc .rep-xl .section-title{font-size:18px!important;padding:10px 14px!important;}
       .rep-doc .rep-xl .card{padding:14px 16px!important;margin-bottom:16px!important;}
-      .rep-doc .rep-xl [style*="font-size:12px"]{font-size:17px!important;line-height:1.6;} .rep-doc .rep-xl [style*="font-size:10px"]{font-size:13px!important;line-height:1.5;}
+      .rep-doc .rep-xl [style*="font-size:12px"],.rep-doc .rep-xl [style*="font-size: 12px"]{font-size:17px!important;line-height:1.6;} .rep-doc .rep-xl [style*="font-size:10px"],.rep-doc .rep-xl [style*="font-size: 10px"]{font-size:13px!important;line-height:1.5;}
     </style>
     <div class="rep-doc">
     <div class="hoja-fija rep-ini">
@@ -20375,7 +20494,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20261105-261';
+const APP_VERSION = '20261105-263';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
