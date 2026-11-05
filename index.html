@@ -10389,8 +10389,18 @@ async function _exportarPDF(opt) {
         window._pdfHojas = hojas.map(function (h) { return h.reduce(function (t, x) { return t + (x.y1 - x.y0) * x.z * MM; }, 0); });
         var url = URL.createObjectURL(new Blob([doc.output('arraybuffer')], { type: 'application/pdf' }));
         var bajar = function () { var l = document.createElement('a'); l.href = url; l.download = NOMBRE; document.body.appendChild(l); l.click(); l.remove(); };
-        bajar(); window._pdfBajar = bajar;
-        est.style.display = ''; est.innerHTML = 'PDF descargado · ' + hojas.length + ' hojas · <a href="#" style="color:#f5d98b" onclick="window._pdfBajar();return false">descargar de nuevo</a>';
+        window._pdfBajar = bajar;
+        /* v264 — el PDF armado (horizontal, con los cortes de hoja) se muestra en la ventana y se abre el diálogo de imprimir.
+           La descarga queda como botón. */
+        var fr = document.createElement('iframe'); fr.id = 'pdf-vista'; fr.src = url;
+        fr.style.cssText = 'position:fixed;left:0;top:0;width:100vw;height:100vh;border:0;z-index:8;background:#525659';
+        var imprimir = function () { try { fr.contentWindow.focus(); fr.contentWindow.print(); } catch (e) { window.open(url, '_blank'); } };
+        window._pdfImprimir = imprimir;
+        fr.onload = function () { setTimeout(imprimir, 400); };
+        document.body.appendChild(fr); document.title = NOMBRE.replace(/\.pdf$/, '');
+        var bt = 'color:#0F2A43;background:#f5d98b;border:0;border-radius:4px;padding:3px 10px;margin-left:8px;font-size:12px;cursor:pointer';
+        est.style.display = ''; est.style.zIndex = '9';
+        est.innerHTML = hojas.length + ' hojas · <button style="' + bt + '" onclick="window._pdfImprimir()">Imprimir</button><button style="' + bt + '" onclick="window._pdfBajar()">Descargar PDF</button>';
       } catch (e) { est.style.display = ''; est.style.background = '#c0605f'; est.textContent = 'No se pudo armar el PDF: ' + e.message; }
     }
     /* las librerías las trae la app (la ventana del informe no carga nada de afuera) */
@@ -20494,7 +20504,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20261105-263';
+const APP_VERSION = '20261105-264';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
