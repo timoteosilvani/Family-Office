@@ -5206,10 +5206,12 @@ function offBarrasGrupo(cats, series, h) {
 }
 
 /* Barras de una sola serie con el valor escrito arriba (evolucion patrimonial). */
-function offBarrasVal(items, fmtV, h) {
+function offBarrasVal(items, fmtV, h, ancho) {
   if (!items.length) return '';
   h = h || 170;
-  const W = 680, padT = 16, padB = 22, alto = h - padB - padT;
+  /* v265: "ancho" = ancho real aproximado en px. Con el viewBox fijo de 680 y preserveAspectRatio:none,
+     en una columna angosta los números se aplastaban y no se leían. */
+  const W = ancho || 680, padT = 18, padB = 22, alto = h - padB - padT;
   const max = Math.max(1, ...items.map(x => x.v));
   const paso = W/items.length, an = Math.min(paso*0.56, 54);
   let out = `<line x1="0" y1="${(alto+padT).toFixed(1)}" x2="${W}" y2="${(alto+padT).toFixed(1)}" stroke="var(--border2)" stroke-width="1"/>`;
@@ -5217,8 +5219,8 @@ function offBarrasVal(items, fmtV, h) {
     const cx = paso*i + paso/2, barH = Math.max(it.v/max*alto, 1.5);
     const y = padT + alto - barH;
     out += `<rect x="${(cx-an/2).toFixed(1)}" y="${y.toFixed(1)}" width="${an.toFixed(1)}" height="${barH.toFixed(1)}" fill="#0f2a43" rx="2"/>`;
-    out += `<text x="${cx.toFixed(1)}" y="${(y-5).toFixed(1)}" text-anchor="middle" font-size="9.5" fill="var(--text3,#888)">${fmtV(it.v)}</text>`;
-    out += `<text x="${cx.toFixed(1)}" y="${(h-7).toFixed(1)}" text-anchor="middle" font-size="10" fill="var(--text3,#888)">${it.lbl}</text>`;
+    out += `<text x="${cx.toFixed(1)}" y="${(y-5).toFixed(1)}" text-anchor="middle" font-size="${ancho ? 11 : 9.5}" font-weight="${ancho ? 600 : 400}" fill="${ancho ? 'var(--text2,#444)' : 'var(--text3,#888)'}">${fmtV(it.v)}</text>`;
+    out += `<text x="${cx.toFixed(1)}" y="${(h-7).toFixed(1)}" text-anchor="middle" font-size="${ancho ? 11 : 10}" fill="var(--text3,#888)">${it.lbl}</text>`;
   });
   return `<svg viewBox="0 0 ${W} ${h}" width="100%" height="${h}" preserveAspectRatio="none" role="img">${out}</svg>`;
 }
@@ -10042,11 +10044,11 @@ async function renderRepCliente() {
     <p style="font-size:11.5px;color:var(--text3);margin:0 0 12px;text-align:center">
       ${props.length} propiedades · ${_nCtas} cuentas · ${_nPE} posiciones de PE · ${_nAut0} autos · al ${_fechaRep} (último mes cargado)${esH ? ' · el bloque se reparte ÷3 entre FC, FCC y YAC' : ''}</p>
     ${esH && Y < 2026 ? `<p style="font-size:11px;color:var(--gold);margin:0 0 12px">El reparto ÷3 entre FC, FCC y YAC rige desde 2026. En ${Y} estas tenencias se imputaban a JC, así que el bloque vale lo que dice arriba pero no se dividía.</p>` : ''}
-    <div style="display:grid;grid-template-columns:0.9fr 0.9fr 1.2fr;gap:12px;align-items:stretch">
+    <div style="display:grid;grid-template-columns:0.8fr 1.2fr 1.2fr;gap:12px;align-items:stretch">
       ${_liqP.replace('margin-bottom:14px', 'margin:0')}
       ${_serie.length > 1 ? `<div class="card" style="margin-bottom:0">
         <div class="section-title" style="font-size:13px;margin:0 0 8px">Evolución patrimonial</div>
-        ${offBarrasVal(_serie.map(d => ({ lbl:d.y, v:d.tot })), v => Math.abs(v) >= 1e6 ? '$'+(v/1e6).toFixed(2)+'M' : '$'+fmt(Math.round(v/1000))+'k', 120)}
+        ${offBarrasVal(_serie.map(d => ({ lbl:d.y, v:d.tot })), v => Math.abs(v) >= 1e6 ? '$'+(v/1e6).toFixed(2)+'M' : '$'+fmt(Math.round(v/1000))+'k', 190, 380)}
       </div>` : ''}
       ${_serie.length > 1 ? `<div class="card" style="margin-bottom:0">
         <div class="section-title" style="font-size:13px;margin:0 0 4px">Composición por activo</div>
@@ -20504,7 +20506,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20261105-264';
+const APP_VERSION = '20261112-265';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
