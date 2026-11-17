@@ -12360,6 +12360,9 @@ function _bkBaseG(b, aportes, vEnd, finISO, anio, openY, vBeg) {
 const _bancoVivoEn = (b, finISO) => b.activo !== false || (!!b.fecha_baja && String(b.fecha_baja).slice(0, 10) > finISO);
 const _propVivaEn  = (p, finISO) => (p.activa !== false && p.vendida !== true)
   || (!!p.fecha_venta && String(p.fecha_venta).slice(0, 10) > finISO);
+/* v266 — AUTO VENDIDO CON FECHA (Timoteo, 17/11: el Jeep AB880GN de FCC se entregó en octubre como parte de pago del Honda RZ1).
+   Hasta el mes de la venta sigue con su valor del año; desde la venta ya no está. Sin fecha_venta se comporta como antes. */
+const _autoVivoEn  = (a, finISO) => !(a.vendido === true && !!a.fecha_venta && String(a.fecha_venta).slice(0, 10) <= finISO);
 async function _resultadoPeriodo(o) {
   const { anio, m1, m2, pe = [], autos = [], props = [], titFilter = [], share = () => 1, vProp, vAuto, cuentaFO = () => true } = o;
   const peIds = pe.map(p => p.id), autoIds = autos.map(a => a.id);
@@ -12514,7 +12517,7 @@ async function generarReportePeriodo(tit, anio, m1, m2, label, periodoTxt) {
      House, comprada en septiembre, en "por tipo", "por país" y la tabla de propiedades; el total ya la sacaba con _fijoEn). */
   const _yaComprado = x => !x.fecha_compra || String(x.fecha_compra).slice(0, 10) <= _finP;
   const props = (propsR.data||[]).map(p=>conTitAnio(p, anio)).filter(p=>titFilter.includes(p.titular) && _propVivaEn(p, _finP) && _yaComprado(p)).filter(cuentaFO);
-  const pe = (peR.data||[]).map(x=>conTitAnio(x, anio)).filter(x=>titFilter.includes(x.titular)).filter(cuentaFO), autos = (autosR.data||[]).map(a=>conTitAnio(a, anio)).filter(a=>titFilter.includes(a.titular) && _yaComprado(a)).filter(cuentaFO),
+  const pe = (peR.data||[]).map(x=>conTitAnio(x, anio)).filter(x=>titFilter.includes(x.titular)).filter(cuentaFO), autos = (autosR.data||[]).map(a=>conTitAnio(a, anio)).filter(a=>titFilter.includes(a.titular) && _yaComprado(a) && _autoVivoEn(a, _finP)).filter(cuentaFO),
         bancos = (bancosR.data||[]).map(b=>conTitAnio(b, anio)).filter(b=>titFilter.includes(b.titular)).filter(b=>_bancoVivoEn(b, _finP)).filter(cuentaFO).map(_bConNom);   // v244 — "JP Morgan 7335 / 1002"
   const bancoIds = bancos.map(b=>b.id), propIds = props.map(p=>p.id);
 
@@ -13820,7 +13823,8 @@ async function generarInforme(tit, ANIO, M1, M2, PER_LBL, PER_CORTO, PER_NOMBRE)
     // v248 — una propiedad comprada después del cierre del período no está en el informe (Deco House, 09/2026, salía en el S1 con valor 0)
     .filter(p => !p.fecha_compra || String(p.fecha_compra).slice(0, 10) <= (ANIO + '-' + String(M2).padStart(2, '0') + '-31'));
   const pe = (peR.data||[]).map(x => conTitAnio(x, ANIO)).filter(x => titFilter.includes(x.titular)).filter(cuentaFO), autos = (autosR.data||[]).map(a=>conTitAnio(a, ANIO)).filter(a=>titFilter.includes(a.titular)).filter(cuentaFO)
-          .filter(a => !a.fecha_compra || String(a.fecha_compra).slice(0, 10) <= PER_FIN),   // v256 — igual que las propiedades
+          .filter(a => !a.fecha_compra || String(a.fecha_compra).slice(0, 10) <= PER_FIN)   // v256 — igual que las propiedades
+          .filter(a => _autoVivoEn(a, PER_FIN)),   // v266 — vendido antes del cierre del período: no está
         bancos = (bancosR.data||[]).map(b => conTitAnio(b, ANIO)).filter(b => titFilter.includes(b.titular)).filter(b => _bancoVivoEn(b, PER_FIN)).filter(cuentaFO);   // v253 — dada de baja después del período: sigue
   const bancoIds = bancos.map(b=>b.id);
   /* v257 — EL CIERRE ANTERIOR ES EL PATRIMONIO QUE EL CLIENTE TENÍA ESE DÍA (Timoteo, 30/10: FC "cierre 2025" 6.474.149 en
@@ -20506,7 +20510,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20261112-265';
+const APP_VERSION = '20261117-266';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
