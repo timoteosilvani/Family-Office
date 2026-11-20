@@ -10791,6 +10791,10 @@ function _chqPeriodos(Y, M) {
 const _chqViva = e => !(e.vendida === true || e.vendido === true ||
                         e.activa === false || e.activo === false);
 
+/* v267 — categorías en el orden de las hojas del COMPLETO; adentro, el orden del anexo (nro) y el del rubro en el bloque. */
+const CHQ_GRUPOS_ORD = ['Propiedades', 'Bancos', 'Private equity', 'Sociedades', 'Autos'];
+const _chqOrdFalt = (a, b) => (CHQ_GRUPOS_ORD.indexOf(a.grupo) - CHQ_GRUPOS_ORD.indexOf(b.grupo))
+  || ((a.nro ?? 9999) - (b.nro ?? 9999)) || String(a.nombre).localeCompare(String(b.nombre)) || ((a.ri || 0) - (b.ri || 0));
 async function _chqCompletitud(Y, M) {
   const per = _chqPeriodos(Y, M);
   // v236 — se leen 12 meses para atrás (cruza el año) para detectar lo bimestral
@@ -10802,7 +10806,7 @@ async function _chqCompletitud(Y, M) {
 
   const B = await _rsocBase();
   const [mb, mp, ms, ma, mpe] = await Promise.all([
-    sb.from('movimientos_bancos').select('banco_id,anio,mes').in('anio', anios).limit(LIM),
+    sb.from('movimientos_bancos').select('banco_id,anio,mes,total_usd,neto_usd').in('anio', anios).limit(LIM),
     sb.from('movimientos_propiedades').select('propiedad_id,anio,mes,total_renta_usd,total_gastos_usd,total_impuestos_usd,renta,otro_ingreso,gas,luz,cable,telefono,expensas,jardinero,limpieza,mantenimiento,alarma,deposito,comision,seguros,administracion,otros_gastos,arba_abl,municipalidad_tigre,property_tax,tributo_domiciliario,impuesto_primarias,contribucion_inmobiliaria,saneamiento,ascensor,otros_impuestos').in('anio', anios).limit(LIM),
     sb.from('movimientos_sociedades').select('sociedad_id,anio,mes,aportes,impuestos,otros_gastos').in('anio', anios).limit(LIM),
     sb.from('movimientos_autos').select('auto_id,anio,mes,total_usd,patente,seguro,service,arreglos,otros_gastos').in('anio', anios).limit(LIM),
@@ -10810,10 +10814,12 @@ async function _chqCompletitud(Y, M) {
   ]);
 
   // presencia[clave] = Set de índices de mes en los que ese rubro tuvo dato
-  const pres = {}, meta = {};
-  const marca = (clave, y, m, nombre, grupo, rubro) => {
+  const pres = {}, meta = {}, presNZ = {};
+  /* v267 — ORDEN DEL COMPLETO (Timoteo, 20/11): cada faltante lleva el nro del activo (que es su lugar en el anexo del
+     COMPLETO) y el lugar del rubro dentro del bloque, para listarlos por categoría y, adentro, como en la planilla. */
+  const marca = (clave, y, m, nombre, grupo, rubro, nro, ri) => {
     (pres[clave] = pres[clave] || new Set()).add(idxDe(y, m));
-    meta[clave] = { nombre, grupo, rubro };
+    meta[clave] = { nombre, grupo, rubro, nro: nro ?? 9999, ri: ri || 0 };
   };
   const nz = v => Math.abs(Number(v) || 0) > 0.005;
 
@@ -10824,32 +10830,40 @@ async function _chqCompletitud(Y, M) {
   const Ia = idx(soloSumables(B.autos, Y).filter(_chqViva));
   const Ie = idx(soloSumables(B.pe    ).filter(_chqViva));
 
+  /* v267 — BANCOS: una cuenta se reclama sólo si tuvo SALDO DISTINTO DE 0 en 2 de los 3 meses anteriores y el último mes
+     cargado no fue 0 (Timoteo, 20/11: la BNY 9653 y la PNB 7053 tienen filas en 0 en agosto y septiembre y el chequeo
+     las pedía en octubre, aunque en el COMPLETO están vacías todo el año). Un mes con saldo 0 cargado (cierre de una
+     cuenta, como la 4682 en octubre) cuenta como cargado, y desde ahí la cuenta ya no se reclama. */
   (mb.data ||[]).forEach(x => { const e = Ib[x.banco_id]; if (!e) return;
-    marca('b|' + x.banco_id, x.anio, x.mes, e.nombre, 'Bancos', 'saldo del mes'); });
+    const k = 'b|' + x.banco_id;
+    marca(k, x.anio, x.mes, e.nombre, 'Bancos', 'saldo del mes', _nroCompleto(e), 0);
+    if (nz(x.total_usd) || nz(x.neto_usd)) (presNZ[k] = presNZ[k] || new Set()).add(idxDe(x.anio, x.mes)); });
   const _RUBP = [['renta','renta'], ['otro_ingreso','otro ingreso'], ['gas','gas'], ['luz','luz'], ['cable','cable'], ['telefono','teléfono'], ['expensas','expensas'], ['jardinero','jardinero'], ['limpieza','limpieza'], ['mantenimiento','mantenimiento'], ['alarma','alarma'], ['deposito','depósito'], ['comision','comisión'], ['seguros','seguros'], ['administracion','administración'], ['otros_gastos','otros gastos'], ['arba_abl','ARBA / ABL'], ['municipalidad_tigre','municipalidad de Tigre'], ['property_tax','property tax'], ['tributo_domiciliario','tributo domiciliario'], ['impuesto_primarias','impuesto de primaria'], ['contribucion_inmobiliaria','contribución inmobiliaria'], ['saneamiento','saneamiento'], ['ascensor','ascensor'], ['otros_impuestos','otros impuestos']];
   (mp.data ||[]).forEach(x => { const e = Ip[x.propiedad_id]; if (!e) return;
     /* v238 — propiedades RUBRO POR RUBRO: "falta gas", "falta ABL"… Antes se miraba la sección entera
        (gastos), así que con la expensa cargada no saltaba que faltaba el gas (11 de Septiembre 1399, sep-26).
        Si una fila no tiene rubros (histórico cargado sólo con totales) se sigue mirando la sección. */
     let alguno = false;
-    _RUBP.forEach(([c, lbl, sec]) => { if (nz(x[c])) { alguno = true; marca('p|' + x.propiedad_id + '|' + c, x.anio, x.mes, e.nombre, 'Propiedades', lbl); } });
+    _RUBP.forEach(([c, lbl, sec], i) => { if (nz(x[c])) { alguno = true; marca('p|' + x.propiedad_id + '|' + c, x.anio, x.mes, e.nombre, 'Propiedades', lbl, e.nro, i + 1); } });
     if (!alguno) {
-      if (nz(x.total_renta_usd))     marca('p|' + x.propiedad_id + '|r', x.anio, x.mes, e.nombre, 'Propiedades', 'renta');
-      if (nz(x.total_gastos_usd))    marca('p|' + x.propiedad_id + '|g', x.anio, x.mes, e.nombre, 'Propiedades', 'gastos');
-      if (nz(x.total_impuestos_usd)) marca('p|' + x.propiedad_id + '|i', x.anio, x.mes, e.nombre, 'Propiedades', 'impuestos');
+      if (nz(x.total_renta_usd))     marca('p|' + x.propiedad_id + '|r', x.anio, x.mes, e.nombre, 'Propiedades', 'renta', e.nro, 1);
+      if (nz(x.total_gastos_usd))    marca('p|' + x.propiedad_id + '|g', x.anio, x.mes, e.nombre, 'Propiedades', 'gastos', e.nro, 4);
+      if (nz(x.total_impuestos_usd)) marca('p|' + x.propiedad_id + '|i', x.anio, x.mes, e.nombre, 'Propiedades', 'impuestos', e.nro, 18);
     } });
   (ms.data ||[]).forEach(x => { const e = Is[x.sociedad_id]; if (!e) return;
     if (nz(x.aportes) || nz(x.impuestos) || nz(x.otros_gastos))
-      marca('s|' + x.sociedad_id, x.anio, x.mes, e.nombre, 'Sociedades', 'movimiento'); });
+      marca('s|' + x.sociedad_id, x.anio, x.mes, e.nombre, 'Sociedades', 'movimiento', e.nro, 0); });
   // v236 — autos rubro por rubro: "falta seguro", "falta patente"… (antes decía sólo "gastos")
   const _RUBA = [['patente','patente'],['seguro','seguro'],['service','service'],['arreglos','arreglos'],['otros_gastos','otros gastos']];
   (ma.data ||[]).forEach(x => { const e = Ia[x.auto_id]; if (!e) return;
     let alguno = false;
-    _RUBA.forEach(([c, lbl]) => { if (nz(x[c])) { alguno = true; marca('a|' + x.auto_id + '|' + c, x.anio, x.mes, e.nombre, 'Autos', lbl); } });
-    if (!alguno && nz(x.total_usd)) marca('a|' + x.auto_id, x.anio, x.mes, e.nombre, 'Autos', 'gastos'); });
+    _RUBA.forEach(([c, lbl], i) => { if (nz(x[c])) { alguno = true; marca('a|' + x.auto_id + '|' + c, x.anio, x.mes, e.nombre, 'Autos', lbl, e.nro, i + 1); } });
+    if (!alguno && nz(x.total_usd)) marca('a|' + x.auto_id, x.anio, x.mes, e.nombre, 'Autos', 'gastos', e.nro, 0); });
+  /* v267 — PE RUBRO POR RUBRO (Timoteo, 20/11): "falta utilidad", "falta aporte de capital"… como en el anexo del COMPLETO
+     (UTILIDAD, APORTE DE CAPITAL, GASTOS, IMPUESTOS). Antes decía sólo "movimiento". */
+  const _RUBE = [['utilidad','utilidad'], ['aporte_capital','aporte de capital'], ['gastos','gastos'], ['impuestos','impuestos']];
   (mpe.data||[]).forEach(x => { const e = Ie[x.pe_id]; if (!e) return;
-    if (nz(x.utilidad) || nz(x.aporte_capital) || nz(x.gastos) || nz(x.impuestos))
-      marca('e|' + x.pe_id, x.anio, x.mes, e.nombre, 'Private equity', 'movimiento'); });
+    _RUBE.forEach(([c, lbl], i) => { if (nz(x[c])) marca('e|' + x.pe_id + '|' + c, x.anio, x.mes, e.nombre, 'Private equity', lbl, e.nro, i + 1); }); });
 
   /* v236 — BIMESTRAL (ABL de Martona 116 / 40, patentes de los autos de ARG).
      En los 12 meses anteriores: al menos 3 apariciones seguidas cada 2 meses (misma paridad, sin huecos),
@@ -10871,6 +10885,14 @@ async function _chqCompletitud(Y, M) {
   const faltan = [], ok = [];
   Object.keys(meta).forEach(k => {
     const s = pres[k];
+    if (k.startsWith('b|')) {   // v267 — bancos: ver arriba
+      const snz = presNZ[k] || new Set();
+      const vecesNZ = previos.filter(i => snz.has(i)).length;
+      const ult = Math.max(-1, ...[...s].filter(i => i < objetivo));
+      if (vecesNZ < 2 || !snz.has(ult)) return;
+      (s.has(objetivo) ? ok : faltan).push({ ...meta[k], veces: vecesNZ, clave: k });
+      return;
+    }
     const veces = previos.filter(i => s.has(i)).length;
     const bi = _bimestral(s);
     if (bi) {
@@ -10881,7 +10903,7 @@ async function _chqCompletitud(Y, M) {
     if (veces < 2) return;                        // no es habitual: no se reclama
     (s.has(objetivo) ? ok : faltan).push({ ...meta[k], veces, clave: k });
   });
-  faltan.sort((a, b) => (a.grupo + a.nombre).localeCompare(b.grupo + b.nombre));
+  faltan.sort(_chqOrdFalt);
   return { faltan, esperados: faltan.length + ok.length, per };
 }
 
@@ -10913,8 +10935,13 @@ async function renderChqCierre() {
     if (error) throw error;
     (data || []).forEach(r => _okSet.add(r.clave));
   } catch (e) { _okTabla = false; }
+  /* v267 — "NO HAY EXTRACTO" (Timoteo, 20/11): si el COMPLETO cargado acá tiene, en el mes, un comentario "No hay extracto"
+     en una cuenta de banco, esa cuenta va directo a "está bien que falte" (sin tildar nada). Hace falta subir el archivo. */
+  const _sinExt = new Set(((_cmp && _cmp.anio === Y && _cmp.bancosCarga && _cmp.bancosCarga.sinExtracto && _cmp.bancosCarga.sinExtracto[M]) || []).map(_chqCuentaClave));
+  const _esSinExt = f => f.grupo === 'Bancos' && _sinExt.size && _sinExt.has(_chqCuentaClave(f.nombre));
   const _todos = C.faltan;
-  C = { ...C, faltan: _todos.filter(f => !_okSet.has(f.clave)), aceptados: _todos.filter(f => _okSet.has(f.clave)) };
+  C = { ...C, faltan: _todos.filter(f => !_okSet.has(f.clave) && !_esSinExt(f)),
+        aceptados: _todos.filter(f => _okSet.has(f.clave) || _esSinExt(f)).map(f => ({ ...f, sinExt: !_okSet.has(f.clave) && _esSinExt(f) })) };
   window._chqFaltTxt = `Faltantes ${LK_MESNOM[M - 1]} ${Y}:\n` + (C.faltan.length
     ? C.faltan.map(f => `• ${f.grupo} — ${f.nombre}: ${f.rubro}`).join('\n') : 'Nada pendiente.');
 
@@ -10963,8 +10990,9 @@ async function renderChqCierre() {
       ${!_okTabla ? `<p style="font-size:11px;color:var(--gold);margin:0 0 8px">Para usar el tic "está bien que falte" hay que correr el SQL de <code>completitud_ok</code>.</p>` : ''}
       ${C.faltan.length ? `<div class="table-wrap"><table style="font-size:12px">
         <thead><tr><th>Rubro</th><th>Activo</th><th>Falta</th><th class="num">Meses previos</th><th style="width:70px;text-align:center" title="Marcá si está bien que falte y no hay que cargarlo">OK</th></tr></thead>
-        <tbody>${C.faltan.map(f => `<tr>
-          <td style="font-size:11px;color:var(--gold)">${f.grupo}</td>
+        <tbody>${C.faltan.map((f, i, arr) => `${i === 0 || arr[i - 1].grupo !== f.grupo
+            ? `<tr style="background:var(--bg3)"><td colspan="5" style="font-weight:600;font-size:11px;color:var(--gold)">${f.grupo} (${arr.filter(x => x.grupo === f.grupo).length})</td></tr>` : ''}<tr>
+          <td style="font-size:11px;color:var(--text3)">${f.grupo}</td>
           <td class="bold">${f.nombre}</td>
           <td>${f.rubro}</td>
           <td class="num" style="color:var(--text3)">${f.bimestral ? `bimestral (${f.bimestral} seguidos)` : `${f.veces} de 3`}</td>
@@ -10975,8 +11003,9 @@ async function renderChqCierre() {
       ${C.aceptados.length ? `<div style="margin-top:12px;font-size:11px;color:var(--text3)"><b>Marcados como "está bien que falte" (${C.aceptados.length})</b>
         <table style="font-size:11px;margin-top:4px"><tbody>${C.aceptados.map(f => `<tr style="opacity:.75">
           <td>${f.grupo}</td><td>${f.nombre}</td><td>${f.rubro}</td>
-          <td style="text-align:center"><input type="checkbox" checked title="Destildar: vuelve a pendiente"
-            onchange="chqMarcarOk('${f.clave}',${Y},${M},this.checked)" style="cursor:pointer"></td></tr>`).join('')}</tbody></table></div>` : ''}
+          <td style="text-align:center">${f.sinExt ? '<span title="Comentario del COMPLETO en ese mes">sin extracto (COMPLETO)</span>'
+            : `<input type="checkbox" checked title="Destildar: vuelve a pendiente"
+            onchange="chqMarcarOk('${f.clave}',${Y},${M},this.checked)" style="cursor:pointer">`}</td></tr>`).join('')}</tbody></table></div>` : ''}
     </div>
 
     <div class="card" style="margin-top:14px">
@@ -11020,10 +11049,16 @@ function _chqBancosCarga(ws, XL) {
   const R = XL.utils.decode_range(ws['!ref']);
   const c0 = _colEnero(ws, XL);
   const cuentas = {}; let cur = null;
+  const sinExtracto = {}; for (let m = 1; m <= 12; m++) sinExtracto[m] = [];   // v267 — comentario "No hay extracto"
   for (let r = R.s.r + 1; r <= R.e.r; r++) {
     const b = ws[XL.utils.encode_cell({ r, c: 1 })];
     const t = b && b.v != null ? String(b.v).trim() : '';
     if (!t) continue;
+    if (cur && /^(invest|cash|total|credit|neto)/i.test(t)) for (let m = 1; m <= 12; m++) {
+      const c = ws[XL.utils.encode_cell({ r, c: c0 + m - 1 })];
+      const txt = c && c.c ? c.c.map(x => x.t || '').join(' ') : '';
+      if (/no\s+hay\s+extracto/i.test(txt) && !sinExtracto[m].includes(cur)) sinExtracto[m].push(cur);
+    }
     if (/^(invest|cash)/i.test(t)) {
       if (!cur) continue;
       const cu = cuentas[cur] = cuentas[cur] || Array(13).fill(false);
@@ -11044,8 +11079,11 @@ function _chqBancosCarga(ws, XL) {
   const sinCargar = {};
   for (let m = 1; m <= 12; m++)
     sinCargar[m] = enUso.filter(k => !cuentas[k][m] && m > 1 && cuentas[k][m - 1]);
-  return { hasta, sinCargar, nCuentas: enUso.length };
+  return { hasta, sinCargar, nCuentas: enUso.length, sinExtracto };
 }
+/* v267 — misma cuenta en el COMPLETO y en la app: nombre normalizado o, si no, el número del final (4 dígitos o más). */
+const _chqCuentaClave = n => { const s = String(n || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const d = s.match(/(\d{4,})\s*$/); return d ? 'n' + d[1] : s.replace(/[^a-z0-9]/g, ''); };
 
 /* v203 — COMENTARIOS QUE NO SE CORTAN.
    El globito de los comentarios era position:absolute dentro de la celda, y las tablas
@@ -20510,7 +20548,7 @@ function exportarPDF() {
 // ============================================
 // SERVICE WORKER REGISTRATION
 // ============================================
-const APP_VERSION = '20261117-266';
+const APP_VERSION = '20261120-267';
 if ('serviceWorker' in navigator) {
   // Ruta RELATIVA a index.html, no absoluta. Hoy resuelve a /Family-Office/sw.js igual que antes;
   // con dominio propio el sitio pasa a servirse desde la raíz y resuelve a /sw.js sin tocar nada.
